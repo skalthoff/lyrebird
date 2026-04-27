@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// AppKit delegate for the SwiftUI app. Hosts platform plumbing that has no
@@ -8,6 +9,9 @@ import SwiftUI
 ///   the Dock icon surfaces Play/Pause, Next, Previous, and a live list
 ///   of recent albums so a user can jump back into something without
 ///   bringing the window forward. See issues #16 / #17.
+/// - **Dock badge** — shows "▶" on the Dock icon while a track is playing
+///   so the user knows at a glance that audio is active without raising the
+///   window. Clears automatically when playback is paused or stopped. See #322.
 /// - **Window tabbing** — opts the app into macOS' automatic window-tab
 ///   behaviour so `WindowGroup`'s extra windows show up as tabs under the
 ///   Window menu. See issue #27.
@@ -38,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fire multiple `didWakeNotification`s in quick succession) only
     /// result in a single probe hitting the server.
     private var wakeProbeTask: Task<Void, Never>?
+
+    /// Long-lived observation loop that tracks `AppModel.status.state` changes
+    /// and keeps the dock badge in sync. Started in `bind(appModel:)` and
+    /// cancelled in `applicationWillTerminate`. See #322.
+    private var dockBadgeTask: Task<Void, Never>?
 
     /// How long to wait after a wake event before probing the server.
     /// 2 s gives the NIC time to associate and the OS time to re-establish
@@ -78,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         wakeProbeTask?.cancel()
+        dockBadgeTask?.cancel()
         if let observer = sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
         }
@@ -151,9 +161,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Hand the delegate a live reference to the `AppModel`. Called once
     /// from the root SwiftUI view as soon as the scene mounts. Idempotent;
     /// re-binding replaces the previous pointer.
+    ///
+    /// Also (re-)starts the `dockBadgeTask` observation loop so the Dock
+    /// badge always reflects the current playback state. See #322.
     @MainActor
     func bind(appModel: AppModel) {
         self.appModel = appModel
+        dockBadgeTask?.cancel()
+        dockBadgeTask = startDockBadgeObserver(model: appModel)
+    }
+
+    /// Returns a `Task` that loops indefinitely, using `withObservationTracking`
+    /// to watch `model.status.state` and update `NSApp.dockTile.badgeLabel`
+    /// whenever playback starts or stops. The task is fully cooperative — it
+    /// suspends between state changes and does not spin. See #322.
+    @MainActor
+    private func startDockBadgeObserver(model: AppModel) -> Task<Void, Never> {
+        Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                // `withObservationTracking` registers access to the @Observable
+                // properties read inside `apply:` and calls `onChange:` exactly
+                // once the next time any of them change. We only read
+                // `status.state` so only playback-state transitions wake us up.
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    withObservationTracking {
+                        // Read the property so the Observation framework registers
+                        // this access and will fire the onChange closure on change.
+                        _ = model.status.state
+                    } onChange: {
+                        continuation.resume()
+                    }
+                }
+                guard !Task.isCancelled else { break }
+                self?.updateDockBadge(model: model)
+            }
+        }
+    }
+
+    /// Reflects the current playback state onto `NSApp.dockTile.badgeLabel`.
+    /// Shows "▶" while a track is actively playing; clears the badge otherwise.
+    @MainActor
+    private func updateDockBadge(model: AppModel) {
+        NSApp.dockTile.badgeLabel = model.status.state == .playing ? "▶" : nil
     }
 
     // MARK: - Sleep / wake
