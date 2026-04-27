@@ -30,6 +30,7 @@ struct TrackRow: View {
     /// for a linear scan through `siblings`.
     var siblingIndex: Int = 0
 
+    @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
@@ -38,6 +39,17 @@ struct TrackRow: View {
     }
     private var isPlaying: Bool {
         isActive && model.status.state == .playing
+    }
+
+    /// Returns `true` when the user has Direct Play enabled and the track's
+    /// container format is not in the native macOS direct-play set, meaning
+    /// the server will have to transcode this file before streaming it.
+    private var willTranscode: Bool {
+        let preference = TranscodingPreference(rawValue: transcodingRaw) ?? .directPlay
+        guard preference == .directPlay else { return false }
+        guard let container = track.container?.lowercased().trimmingCharacters(in: .whitespaces),
+              !container.isEmpty else { return false }
+        return !directPlayContainers.contains(container)
     }
 
     var body: some View {
@@ -60,10 +72,18 @@ struct TrackRow: View {
             .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.name)
-                    .font(Theme.font(13, weight: .semibold))
-                    .foregroundStyle(isActive ? Theme.accent : Theme.ink)
-                    .lineLimit(1)
+                HStack(spacing: 5) {
+                    Text(track.name)
+                        .font(Theme.font(13, weight: .semibold))
+                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                        .lineLimit(1)
+                    if willTranscode {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.warning)
+                            .help("Transcoding required. Enable in Preferences → Playback.")
+                    }
+                }
                 Text(track.artistName)
                     .font(Theme.font(11, weight: .medium))
                     .foregroundStyle(Theme.ink2)

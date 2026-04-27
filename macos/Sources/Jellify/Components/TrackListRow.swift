@@ -1,6 +1,19 @@
 import SwiftUI
 @preconcurrency import JellifyCore
 
+/// Container formats that AVFoundation / CoreAudio can decode natively on
+/// macOS without requiring server-side transcoding.
+///
+/// The list intentionally errs on the side of caution — only the codecs
+/// that ship in every macOS installation and are reliably passthrough-able
+/// are included. Less common formats (Opus in an Ogg container, WMA, etc.)
+/// are treated as "needs transcoding" even if a particular machine happens
+/// to have a plugin that can decode them, because the Jellyfin server can't
+/// know that.
+let directPlayContainers: Set<String> = [
+    "aac", "mp3", "mp4", "m4a", "alac", "flac", "wav", "aiff", "aif",
+]
+
 /// Compact single-line row used by the Library Tracks tab. Mirrors the
 /// density of `LibraryListRow` (small square artwork, primary + secondary
 /// text, trailing metadata) but surfaces track-specific fields: artist on the
@@ -28,6 +41,7 @@ struct TrackListRow: View {
     /// matches the `AlbumDetailView.trackList` contract.
     let tracks: [Track]
     let index: Int
+    @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
@@ -37,6 +51,17 @@ struct TrackListRow: View {
 
     private var isPlaying: Bool {
         isActive && model.status.state == .playing
+    }
+
+    /// Returns `true` when the user has Direct Play enabled and the track's
+    /// container format is not in the native macOS direct-play set, meaning
+    /// the server will have to transcode this file before streaming it.
+    private var willTranscode: Bool {
+        let preference = TranscodingPreference(rawValue: transcodingRaw) ?? .directPlay
+        guard preference == .directPlay else { return false }
+        guard let container = track.container?.lowercased().trimmingCharacters(in: .whitespaces),
+              !container.isEmpty else { return false }
+        return !directPlayContainers.contains(container)
     }
 
     var body: some View {
@@ -74,10 +99,18 @@ struct TrackListRow: View {
                 .frame(width: 40, height: 40)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(track.name)
-                        .font(Theme.font(13, weight: .semibold))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(track.name)
+                            .font(Theme.font(13, weight: .semibold))
+                            .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                            .lineLimit(1)
+                        if willTranscode {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Theme.warning)
+                                .help("Transcoding required. Enable in Preferences → Playback.")
+                        }
+                    }
                     Text(track.artistName)
                         .font(Theme.font(11, weight: .medium))
                         .foregroundStyle(Theme.ink2)
