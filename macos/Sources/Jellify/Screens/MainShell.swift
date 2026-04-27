@@ -145,6 +145,17 @@ struct MainShell: View {
                 model.authExpired = false
             }
         }
+        // Track-info modal — read-only metadata sheet driven by
+        // `AppModel.trackInfoSubject`. Any screen can call
+        // `model.showTrackInfo(track:)` (notably `TrackContextMenu`'s
+        // "Get Info" item and the global ⌘I shortcut) and the sheet is
+        // mounted here so it works regardless of which screen is active.
+        // See #95.
+        .sheet(item: $model.trackInfoSubject) { track in
+            TrackInfoSheet(track: track) {
+                model.trackInfoSubject = nil
+            }
+        }
         // Playlist-delete confirmation — see #98 / #131. Triggered from
         // `PlaylistContextMenu` via `AppModel.confirmDelete(playlist:)`.
         .confirmationDialog(

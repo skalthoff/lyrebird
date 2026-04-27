@@ -145,6 +145,102 @@
         }
       }
     },
+    "common.done" : {
+      "comment" : "Generic Done action label, used to dismiss read-only sheets.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        }
+      }
+    },
+    "track.info.album" : {
+      "comment" : "Track-info sheet row label — the album the track belongs to.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Album"
+          }
+        }
+      }
+    },
+    "track.info.disc" : {
+      "comment" : "Track-info sheet — disc-number prefix (e.g. \"Disc 2\").",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disc"
+          }
+        }
+      }
+    },
+    "track.info.duration" : {
+      "comment" : "Track-info sheet row label — playback duration.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duration"
+          }
+        }
+      }
+    },
+    "track.info.format" : {
+      "comment" : "Track-info sheet row label — file format / codec / bitrate.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        }
+      }
+    },
+    "track.info.plays" : {
+      "comment" : "Track-info sheet row label — server-tracked play count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plays"
+          }
+        }
+      }
+    },
+    "track.info.track" : {
+      "comment" : "Track-info sheet row label — track number (and disc, when present).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Track"
+          }
+        }
+      }
+    },
+    "track.info.year" : {
+      "comment" : "Track-info sheet row label — release year.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Year"
+          }
+        }
+      }
+    },
     "common.dismiss.a11y" : {
       "comment" : "Accessibility label for a close/dismiss button on toasts and banners.",
       "extractionState" : "manual",

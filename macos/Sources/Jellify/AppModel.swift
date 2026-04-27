@@ -3862,13 +3862,19 @@ final class AppModel {
         navPath.append(Route.artist(artistID))
     }
 
-    /// Present the per-track info sheet (title, album, bitrate, people).
-    /// TODO(#95): info sheet not yet implemented. Logging stub so ⌘I has a
-    /// landing pad.
+    /// Present the per-track info sheet (title, album, year, runtime,
+    /// codec/bitrate, play count). Read-only landing — edit-in-place is
+    /// tracked under #96 and arrives separately. The sheet itself lives at
+    /// `Components/TrackInfoSheet.swift`; mounting happens on `MainShell`
+    /// driven by `trackInfoSubject`. See #95.
     func showTrackInfo(track: Track) {
-        // TODO(#95): track info sheet not yet wired.
-        print("[AppModel] showTrackInfo(track: \(track.name)) not yet wired — see #95")
+        trackInfoSubject = track
     }
+
+    /// Track being shown in the info sheet, or `nil` when the sheet is
+    /// dismissed. Mounted via `.sheet(item:)` on `MainShell` so any screen
+    /// can request the modal without owning a presentation anchor. See #95.
+    var trackInfoSubject: Track?
 
     /// Remove a selection of tracks from a specific playlist. Used by the
     /// multi-select context menu when scoped to a playlist detail view.
@@ -4457,6 +4463,11 @@ extension Track {
         return String(format: "%d:%02d", m, s)
     }
 }
+
+// `.sheet(item:)` requires Identifiable; Track's `id: String` already plays
+// the role so the conformance is a one-liner. Used by the track-info sheet
+// (#95) and any future per-track modal driven off optional `Track?` state.
+extension Track: @retroactive Identifiable {}
 
 extension Array {
     subscript(safe index: Int) -> Element? {
