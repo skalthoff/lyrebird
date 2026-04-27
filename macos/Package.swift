@@ -89,9 +89,8 @@ let package = Package(
     // target `.swiftLanguageMode(.v5)`. The per-target API serialises to
     // `5` (no `.0`) and xcodebuild on Xcode 26 rejects it (`SWIFT_VERSION
     // '5' unsupported, supported: 4.0, 4.2, 5.0, 6.0`). The package-level
-    // form serialises through `SWIFT_VERSION = 5.0` so multi-arch
-    // `swift build --arch arm64 --arch x86_64` (which routes through
-    // xcodebuild) accepts it. Stays on Swift 5 mode pending the wider
-    // Sendable / strict-concurrency cleanup tracked across the codebase.
+    // form serialises through `SWIFT_VERSION = 5.0`. Stays on Swift 5 mode
+    // pending the wider Sendable / strict-concurrency cleanup tracked
+    // across the codebase.
     swiftLanguageVersions: [.v5]
 )

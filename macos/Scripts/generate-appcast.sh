@@ -99,11 +99,12 @@ fi
 while IFS= read -r tag; do
   [[ -z "$tag" ]] && continue
   echo "    tag: $tag"
-  # Each tag's DMGs go into their own subdir so generate_appcast emits
-  # relative paths like "$tag/Jellify-X.Y.Z.dmg". Combined with the
-  # url-prefix below (.../releases/download/), this produces the working
-  # GitHub release-asset URL .../releases/download/$tag/Jellify-X.Y.Z.dmg.
-  # Flat layout would drop the $tag segment and 404. Fixes #742.
+  # Each tag's DMGs (Apple Silicon only — one DMG per release; #660) go into
+  # their own subdir so generate_appcast emits relative paths like
+  # "$tag/Jellify-X.Y.Z.dmg". Combined with the url-prefix below
+  # (.../releases/download/), this produces the working GitHub release-asset
+  # URL .../releases/download/$tag/Jellify-X.Y.Z.dmg. Flat layout would
+  # drop the $tag segment and 404. Fixes #742.
   mkdir -p "$DMG_DIR/$tag"
   gh release download "$tag" \
     --repo "$GITHUB_REPOSITORY" \

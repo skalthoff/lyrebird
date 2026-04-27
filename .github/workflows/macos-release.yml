@@ -89,22 +89,20 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
-      # Build the Rust xcframework and the Swift app.
-      # 0.2 ships arm64 only — see the `Select Xcode` comment above for the
-      # multi-arch tradeoff. Restore `--release` (no `--arm64-only`) and
-      # `swift build --arch arm64 --arch x86_64` once 0.3's Swift 6 cleanup
-      # lands.
+      # Build the Rust xcframework and the Swift app. Apple Silicon only —
+      # Intel was dropped from M4 distribution; the install base no longer
+      # justifies the multi-arch build complexity (and SwiftPM xcframework
+      # consumption with `swift build --arch arm64 --arch x86_64` is broken
+      # under Xcode 26 — see #660 wontfix).
       # ------------------------------------------------------------------
-      - name: Build xcframework (arm64)
+      - name: Build xcframework
         working-directory: macos
-        run: ./Scripts/build-core.sh --release --arm64-only
+        run: ./Scripts/build-core.sh --release
 
-      - name: Swift build (release, arm64)
+      - name: Swift build (release)
         working-directory: macos
-        # Native single-arch build on the macos-14 (Apple Silicon) runner
-        # — emits arm64 binaries from `.build/release/`. Avoids xcodebuild
-        # routing that the multi-arch flag triggers, so deps compile in
-        # the same lenient mode as regular CI.
+        # Native single-arch build on the macos-15 (Apple Silicon) runner
+        # — emits arm64 binaries from `.build/release/`.
         run: swift build -c release
 
       - name: Install create-dmg

@@ -11,12 +11,11 @@
 #   3. Fallback: 0.0.0-dev / 0.
 #
 # Usage:
-#   ./macos/Scripts/make-bundle.sh                      # debug arm64 build
-#   ./macos/Scripts/make-bundle.sh --release            # release arm64 build
-#   ./macos/Scripts/make-bundle.sh --release --universal # release arm64+x86_64
+#   ./macos/Scripts/make-bundle.sh                      # debug build
+#   ./macos/Scripts/make-bundle.sh --release            # release build
 #
-# The --universal flag selects the `apple/Products` output tree that
-# `swift build --arch arm64 --arch x86_64` produces.
+# Apple Silicon only — Intel was dropped from M4 distribution. swift-build
+# outputs land under `<triple>/<profile>` and the bundle is single-arch.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -26,19 +25,17 @@ INFO_TEMPLATE="$RESOURCES/Info.plist"
 APP="$MACOS/build/Jellify.app"
 
 PROFILE="debug"
-UNIVERSAL=0
 for arg in "$@"; do
     case "$arg" in
         --release) PROFILE="release" ;;
         --debug)   PROFILE="debug"   ;;
-        --universal) UNIVERSAL=1 ;;
         -h | --help)
-            sed -n '2,19p' "${BASH_SOURCE[0]}"
+            sed -n '2,17p' "${BASH_SOURCE[0]}"
             exit 0
             ;;
         *)
             echo "error: unknown argument: $arg" >&2
-            echo "usage: $0 [--release|--debug] [--universal]" >&2
+            echo "usage: $0 [--release|--debug]" >&2
             exit 2
             ;;
     esac
@@ -49,20 +46,13 @@ if [[ ! -f "$INFO_TEMPLATE" ]]; then
     exit 1
 fi
 
-# Pick the swift-build output directory. The universal build puts products
-# under `apple/Products/<Configuration>`; single-arch builds use
-# `<triple>/<profile>`.
-if [[ "$UNIVERSAL" -eq 1 ]]; then
-    CONFIG_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${PROFILE:0:1}")${PROFILE:1}"
-    BUILD_DIR="$MACOS/.build/apple/Products/$CONFIG_CAP"
-else
-    BUILD_DIR="$MACOS/.build/arm64-apple-macosx/$PROFILE"
-fi
+# swift-build single-arch output directory.
+BUILD_DIR="$MACOS/.build/arm64-apple-macosx/$PROFILE"
 EXE="$BUILD_DIR/Jellify"
 
 if [[ ! -x "$EXE" ]]; then
     echo "error: Jellify executable not found at $EXE" >&2
-    echo "       run 'swift build' (or './macos/Scripts/build-core.sh --release' + a universal swift build) first" >&2
+    echo "       run './macos/Scripts/build-core.sh --release' + 'swift build -c release' first" >&2
     exit 1
 fi
 

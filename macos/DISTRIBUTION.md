@@ -127,7 +127,7 @@ login keychain under the name `jellify-notary`.
 
 ```sh
 brew install create-dmg jq shellcheck
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rustup target add aarch64-apple-darwin
 ```
 
 `shellcheck` is dev-only. `jq` is required by `notarize.sh`. Xcode
@@ -141,7 +141,7 @@ command line tools must be present (`xcode-select --install`).
 | -------------------------------------------- | -------------------------------------------------------------- |
 | `macos/Resources/Info.plist`                 | Info.plist template with `$VERSION`/`$BUILD` placeholders      |
 | `macos/Resources/Jellify.entitlements`       | Hardened-runtime entitlements applied at signing time          |
-| `macos/Scripts/build-core.sh`                | Builds the Rust core as a universal `arm64 + x86_64` xcframework|
+| `macos/Scripts/build-core.sh`                | Builds the Rust core as an `arm64` xcframework                  |
 | `macos/Scripts/make-bundle.sh`               | Assembles `Jellify.app` and injects Info.plist version fields  |
 | `macos/Scripts/sign.sh`                      | Codesigns the bundle inside-out with the hardened runtime      |
 | `macos/Scripts/make-dmg.sh`                  | Produces `Jellify-<version>.dmg` via `create-dmg`              |
@@ -155,16 +155,16 @@ Each script is idempotent and cleans up after itself on failure, so a
 partial run can be retried from any step.
 
 ```sh
-# 1. Build the Rust core as a universal xcframework.
+# 1. Build the Rust core as an arm64 xcframework.
 ./macos/Scripts/build-core.sh --release
 
-# 2. Compile Swift for both architectures.
+# 2. Compile Swift for arm64 (Apple Silicon only).
 cd macos
-swift build -c release --arch arm64 --arch x86_64
+swift build -c release
 cd ..
 
 # 3. Assemble Jellify.app. Picks up $VERSION / $BUILD (or git fallback).
-VERSION=0.1.0 BUILD=1 ./macos/Scripts/make-bundle.sh --release --universal
+VERSION=0.1.0 BUILD=1 ./macos/Scripts/make-bundle.sh --release
 
 # 4. Code-sign inside-out with the hardened runtime.
 DEVELOPER_ID="Developer ID Application: Your Name (TEAMID123)" \
@@ -192,7 +192,7 @@ Jellify.app/
 ├── Contents/
 │   ├── Info.plist           (rendered from Resources/Info.plist)
 │   ├── MacOS/
-│   │   └── Jellify          (universal Mach-O, signed + hardened runtime)
+│   │   └── Jellify          (arm64 Mach-O, signed + hardened runtime)
 │   ├── Resources/
 │   │   ├── AppIcon.icns     (optional — soft-dependency on icon pipeline)
 │   │   └── Jellify_Jellify.bundle/   (SPM-processed fonts bundle)
@@ -209,14 +209,12 @@ ROADMAP) and will live at `Contents/Frameworks/Sparkle.framework`.
 
 ### `build-core.sh`
 
-Builds `libjellify_core.a` for both `aarch64-apple-darwin` and
-`x86_64-apple-darwin` (in release mode; LTO is pinned in `Cargo.toml`),
-then fuses them into a single fat archive with `lipo`. The UniFFI
-Swift binding is regenerated from the arm64 `.dylib` and both the
-headers and the fat static lib go into `macos/Jellify.xcframework`,
-which the SPM `binaryTarget` consumes.
+Builds `libjellify_core.a` for `aarch64-apple-darwin` (in release mode;
+LTO is pinned in `Cargo.toml`). The UniFFI Swift binding is regenerated
+from the `.dylib`, and both the headers and the static lib go into
+`macos/Jellify.xcframework`, which the SPM `binaryTarget` consumes.
 
-Pass `--arm64-only` during development to skip the x86_64 leg.
+Apple Silicon only — Intel was dropped from M4 distribution (#660 wontfix).
 
 ### `make-bundle.sh`
 

@@ -34,7 +34,7 @@ carries `uniffi::Record` / `uniffi::Enum`, the xcframework and
 `jellify_core.swift` bindings need regeneration:
 
 ```bash
-./macos/Scripts/build-core.sh --arm64-only         # dev
+./macos/Scripts/build-core.sh                      # dev (debug)
 ./macos/Scripts/build-core.sh --release            # ship
 ```
 
