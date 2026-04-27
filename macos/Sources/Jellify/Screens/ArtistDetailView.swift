@@ -38,9 +38,19 @@ struct ArtistDetailView: View {
 
     @State private var topTracks: [Track] = []
     @State private var isLoadingTopTracks = true
+    @State private var isTopSongsExpanded = false
     @State private var artistAlbums: [Album] = []
     @State private var fetchedArtist: Artist?
     @State private var isBioExpanded = false
+
+    /// Initial visible count in the Top Songs grid (5 rows × 2 columns
+    /// when there's horizontal room for two columns; collapses to a single
+    /// 10-row column on narrow widths). Issue #59.
+    private let topSongsInitialCount = 10
+    /// Total tracks fetched when the section expands. Apple Music shows
+    /// "a handful, then 20 more" — we fetch the full bucket up-front so the
+    /// expand toggle is instant. Issue #59.
+    private let topSongsExpandedCount: UInt32 = 30
 
     /// Resolve the artist: cached library page first, then whichever
     /// record the `.task` block fetched on demand. Missing (server
@@ -73,7 +83,13 @@ struct ArtistDetailView: View {
             // first page of 100 library-wide albums, so Discography
             // rendered empty for most artists on a large library (#60).
             artistAlbums = await model.loadArtistAlbums(artistId: artistID)
-            topTracks = await model.loadArtistTopTracks(artistId: artistID)
+            // Fetch the full expanded bucket so the "See All" toggle is
+            // instant — see #59. The grid still only renders the first
+            // `topSongsInitialCount` until the user expands.
+            topTracks = await model.loadArtistTopTracks(
+                artistId: artistID,
+                limit: topSongsExpandedCount
+            )
             isLoadingTopTracks = false
         }
     }
@@ -363,34 +379,97 @@ struct ArtistDetailView: View {
         .accessibilityLabel(help)
     }
 
-    // MARK: - Top Songs (#229; PR #512)
+    // MARK: - Top Songs (#59 / #229; PR #512)
 
-    /// Calls through to `TopTrackRow` from PR #512 — we're the new layout
-    /// shell, not a reimplementation of the top-tracks row UI.
+    /// Top Songs section, ordered by server `PlayCount` descending.
+    ///
+    /// Layout per the design brief in #59: a two-column list (5 rows × 2
+    /// columns on wide windows, single column when the window is narrow)
+    /// with rank, album thumbnail, title, and play count. The grid uses a
+    /// `GridItem(.adaptive(...))` so it falls back to one column whenever
+    /// the available width can't fit two ~360pt rows side-by-side. The
+    /// section reveals an initial `topSongsInitialCount` rows; tapping
+    /// "See All" expands to the full bucket already fetched by `.task`.
+    ///
+    /// Edge case: when every track has `PlayCount == 0`, the core's
+    /// `artist_top_tracks` query falls back to `SortName` ascending —
+    /// effectively album/track order — so a brand-new library still
+    /// renders a sensible list rather than an empty state.
     @ViewBuilder
     private var topSongsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 14) {
             sectionHeader(eyebrow: "MOST PLAYED", title: "Top Songs")
-            VStack(alignment: .leading, spacing: 2) {
-                if isLoadingTopTracks {
-                    ProgressView()
-                        .tint(Theme.ink2)
-                        .padding(.vertical, 40)
-                        .frame(maxWidth: .infinity)
-                } else if topTracks.isEmpty {
-                    emptySection(
-                        icon: "music.note.list",
-                        message: "No play history yet for this artist."
-                    )
-                } else {
-                    ForEach(Array(topTracks.enumerated()), id: \.element.id) { idx, track in
-                        TopTrackRow(track: track, rank: idx + 1, queue: topTracks)
-                    }
-                }
+            if isLoadingTopTracks {
+                ProgressView()
+                    .tint(Theme.ink2)
+                    .padding(.vertical, 40)
+                    .frame(maxWidth: .infinity)
+            } else if topTracks.isEmpty {
+                emptySection(
+                    icon: "music.note.list",
+                    message: "No play history yet for this artist."
+                )
+            } else {
+                topSongsGrid
+                topSongsExpandToggle
             }
         }
         .padding(.horizontal, 32)
         .padding(.top, 28)
+    }
+
+    /// Two-column adaptive grid of `TopTrackRow`. The minimum row width
+    /// (340pt) keeps the row's rank / artwork / title / play-count / time
+    /// columns from cramping; below that the grid collapses to a single
+    /// column. The visible slice is `topTracks.prefix(visibleTopSongsCount)`.
+    @ViewBuilder
+    private var topSongsGrid: some View {
+        let visible = Array(topTracks.prefix(visibleTopSongsCount))
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 340), spacing: 16, alignment: .top)],
+            alignment: .leading,
+            spacing: 2
+        ) {
+            ForEach(Array(visible.enumerated()), id: \.element.id) { idx, track in
+                TopTrackRow(track: track, rank: idx + 1, queue: topTracks)
+            }
+        }
+    }
+
+    /// "See All" / "Show Less" expander. Renders only when there are more
+    /// tracks than the initial visible slice — otherwise the toggle would
+    /// be a no-op and reads as broken affordance.
+    @ViewBuilder
+    private var topSongsExpandToggle: some View {
+        if topTracks.count > topSongsInitialCount {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isTopSongsExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(isTopSongsExpanded ? "Show Less" : "See All")
+                        .font(Theme.font(12, weight: .semibold))
+                    Image(systemName: isTopSongsExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                isTopSongsExpanded
+                    ? "Show fewer top songs"
+                    : "Show all top songs"
+            )
+        }
+    }
+
+    /// Number of rows currently rendered in the top-songs grid. Collapses
+    /// to `topSongsInitialCount` when the section isn't expanded.
+    private var visibleTopSongsCount: Int {
+        isTopSongsExpanded ? topTracks.count : min(topSongsInitialCount, topTracks.count)
     }
 
     // MARK: - Discography (#60)
