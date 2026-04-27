@@ -101,6 +101,16 @@ struct PlaylistDetailView: View {
         .focusable(true)
         .onKeyPress(.delete) { handleDeleteKey() }
         .onKeyPress(.deleteForward) { handleDeleteKey() }
+        // Alt+Up / Alt+Down: keyboard reorder for the focused (single-selected) track.
+        // Only fires when exactly one row is selected so the semantics are unambiguous.
+        .onKeyPress(.upArrow, phases: .down) { event in
+            guard event.modifiers.contains(.option) else { return .ignored }
+            return handleKeyboardReorder(direction: .up)
+        }
+        .onKeyPress(.downArrow, phases: .down) { event in
+            guard event.modifiers.contains(.option) else { return .ignored }
+            return handleKeyboardReorder(direction: .down)
+        }
         // Drop-to-add: accept any data (tracks as JSON-of-ids or newline
         // list, per the view doc comment). See `handleDrop`.
         .onDrop(
@@ -360,6 +370,39 @@ struct PlaylistDetailView: View {
         scheduleUndoDismiss()
     }
 
+    /// Move the single-selected track one step up or down via keyboard.
+    ///
+    /// Only handles a single-row selection; multi-select reorder has no
+    /// well-defined UX so the key is ignored when more than one row is
+    /// selected. Bounds: Up is ignored at index 0; Down is ignored at the
+    /// last index. Uses the same `moveTrackInPlaylist` path as drag-and-drop.
+    ///
+    /// `moveTrackInPlaylist` uses SwiftUI `move(fromOffsets:toOffset:)`
+    /// insertion-index semantics:
+    ///   - Move UP:   from = i, to = i - 1   (insert before predecessor)
+    ///   - Move DOWN: from = i, to = i + 2   (insert after successor in
+    ///                pre-remove coordinates where successor is still at i+1)
+    private func handleKeyboardReorder(direction: VerticalDirection) -> KeyPress.Result {
+        guard selectedTrackIds.count == 1,
+              let trackId = selectedTrackIds.first,
+              let currentIndex = tracks.firstIndex(where: { $0.id == trackId })
+        else { return .ignored }
+
+        let lastIndex = tracks.count - 1
+        switch direction {
+        case .up:
+            guard currentIndex > 0 else { return .ignored }
+            model.moveTrackInPlaylist(playlistId: playlistID, from: currentIndex, to: currentIndex - 1)
+            // Keep anchor in sync so Shift+Click range-extend still works.
+            anchorIndex = currentIndex - 1
+        case .down:
+            guard currentIndex < lastIndex else { return .ignored }
+            model.moveTrackInPlaylist(playlistId: playlistID, from: currentIndex, to: currentIndex + 2)
+            anchorIndex = currentIndex + 1
+        }
+        return .handled
+    }
+
     // MARK: - Undo toast
 
     private func scheduleUndoDismiss() {
@@ -570,6 +613,11 @@ private struct SelectableTrackRow: View {
         }
     }
 }
+
+// MARK: - Helpers
+
+/// Direction enum used by `handleKeyboardReorder` to avoid raw booleans.
+private enum VerticalDirection { case up, down }
 
 // MARK: - Undo toast
 
