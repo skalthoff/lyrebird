@@ -3736,10 +3736,8 @@ final class AppModel {
     }
 
     /// Kick off an Instant Mix seeded by a genre.
-    /// TODO(#144): genre-seeded Instant Mix FFI not yet wired.
     func startGenreRadio(genre: String) {
-        // TODO(#144): genre-seeded Instant Mix FFI not yet wired.
-        print("[AppModel] startGenreRadio(\(genre)) not yet wired — see #144")
+        playInstantMix(seedId: genre)
     }
 
     /// Shuffle every track tagged with the given genre.

@@ -41,8 +41,8 @@ extension AppModel {
     /// context menus.
     var supportsTrackInfo: Bool { false }
 
-    /// Genre actions (#144, #248, #318). Gates the entire genre context
-    /// menu — browse landing, genre radio, genre shuffle, and pin-to-home
-    /// are all stubs today.
-    var supportsGenreActions: Bool { false }
+    /// Genre actions (#144, #248, #318). Genre radio (#94) is wired;
+    /// browse landing (#318), genre shuffle (#318), and pin-to-home
+    /// (#248/#249) remain stubs but are surfaced so the radio entry is reachable.
+    var supportsGenreActions: Bool { true }
 }
