@@ -22,6 +22,7 @@ struct AlbumDetailView: View {
     @State private var detail: AlbumDetail = AlbumDetail(label: nil, releaseDate: nil, people: [])
     @State private var fetchedAlbum: Album?
     @State private var showAddToPlaylist = false
+    @State private var moreByArtist: [Album] = []
 
     /// Cache-first lookup against the paged `albums` list, then fall
     /// back to the record the `.task` block fetched. Missing after both
@@ -39,6 +40,7 @@ struct AlbumDetailView: View {
                 ctaRow
                 trackList
                 linerNotes
+                moreByArtistSection
             }
         }
         .background(Theme.bg)
@@ -50,6 +52,17 @@ struct AlbumDetailView: View {
             tracks = await model.loadTracks(forAlbum: albumID)
             isLoading = false
             detail = await model.loadAlbumDetail(albumId: albumID)
+            // Load "More by Artist" in parallel with detail — non-blocking for
+            // the tracklist which is already visible at this point.
+            if let artistId = album?.artistId, !artistId.isEmpty {
+                let all = await model.loadArtistAlbums(artistId: artistId)
+                moreByArtist = Array(
+                    all
+                        .filter { $0.id != albumID }
+                        .sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+                        .prefix(10)
+                )
+            }
         }
     }
 
@@ -448,6 +461,38 @@ struct AlbumDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - More by Artist
+
+    /// Horizontal carousel showing up to 10 other albums by the same artist,
+    /// sorted most-recent-first. The section is hidden entirely when the
+    /// artist has only one album in the library (i.e. the carousel would be
+    /// empty after excluding the current album) — matches the "handles
+    /// solo-artist edge case" acceptance on #67.
+    @ViewBuilder
+    private var moreByArtistSection: some View {
+        if !moreByArtist.isEmpty, let album = album {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("MORE BY \(album.artistName.uppercased())")
+                    .font(Theme.font(10, weight: .bold))
+                    .foregroundStyle(Theme.ink3)
+                    .tracking(2)
+                    .padding(.horizontal, 40)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 16) {
+                        ForEach(moreByArtist, id: \.id) { related in
+                            HomeAlbumTile(album: related, hint: "Double-click to open album")
+                        }
+                    }
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.bottom, 40)
         }
     }
 
