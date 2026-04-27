@@ -261,7 +261,10 @@ public final class MediaSession {
 
         cc.nextTrackCommand.isEnabled = false
         cc.nextTrackCommand.addTarget { [weak self] _ in
-            self?.delegate?.mediaSessionSkipNext()
+            guard let self, let delegate = self.delegate else {
+                return .commandFailed
+            }
+            delegate.mediaSessionSkipNext()
             return .success
         }
 
