@@ -7020,3 +7020,220 @@ fn player_clear_drops_queue() {
     assert_eq!(status.queue_position, 0, "clear() must reset queue_index");
     assert!(player.current_in_queue().is_none());
 }
+
+// ============================================================================
+// mark_played / mark_unplayed (#133)
+// Mirrors the favorite-endpoint test shape: preferred /UserPlayedItems route
+// for new servers, legacy /Users/{userId}/PlayedItems fallback for old ones,
+// and an auth-required guard before any HTTP traffic.
+// ============================================================================
+
+#[tokio::test]
+async fn mark_played_uses_preferred_endpoint_and_returns_user_data() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/UserPlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "IsFavorite": false,
+            "Played": true,
+            "PlayCount": 3,
+            "PlaybackPositionTicks": 0,
+            "LastPlayedDate": "2026-04-25T18:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let state = client.mark_played("track-abc").await.unwrap();
+    assert!(state.played);
+    assert_eq!(state.play_count, 3);
+    assert_eq!(state.last_played_at.as_deref(), Some("2026-04-25T18:00:00Z"));
+
+    let requests = server.received_requests().await.unwrap();
+    let post = requests
+        .iter()
+        .find(|r| r.method.as_str() == "POST" && r.url.path() == "/UserPlayedItems/track-abc")
+        .expect("expected POST to preferred played endpoint");
+    assert!(post.body.is_empty(), "expected empty body, got {:?}", post.body);
+    assert!(
+        !requests
+            .iter()
+            .any(|r| r.url.path().starts_with("/Users/u1/PlayedItems/")),
+        "unexpected fallback to legacy route"
+    );
+}
+
+#[tokio::test]
+async fn mark_unplayed_uses_preferred_endpoint_and_returns_user_data() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/UserPlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "IsFavorite": false,
+            "Played": false,
+            "PlayCount": 0,
+            "PlaybackPositionTicks": 0,
+            "LastPlayedDate": null
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let state = client.mark_unplayed("track-abc").await.unwrap();
+    assert!(!state.played);
+    assert_eq!(state.play_count, 0);
+    assert!(state.last_played_at.is_none());
+
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.iter().any(|r| r.method.as_str() == "DELETE"
+            && r.url.path() == "/UserPlayedItems/track-abc"),
+        "expected DELETE to /UserPlayedItems/track-abc"
+    );
+    assert!(
+        !requests
+            .iter()
+            .any(|r| r.url.path().starts_with("/Users/u1/PlayedItems/")),
+        "unexpected fallback to legacy route"
+    );
+}
+
+#[tokio::test]
+async fn mark_played_falls_back_to_legacy_route_on_404() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/UserPlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/Users/u1/PlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "IsFavorite": false,
+            "Played": true,
+            "PlayCount": 1,
+            "PlaybackPositionTicks": 0,
+            "LastPlayedDate": "2026-04-25T18:30:00Z"
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let state = client.mark_played("track-abc").await.unwrap();
+    assert!(state.played);
+    assert_eq!(state.play_count, 1);
+
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "POST" && r.url.path() == "/UserPlayedItems/track-abc"),
+        "expected preferred route to be tried first"
+    );
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "POST"
+                && r.url.path() == "/Users/u1/PlayedItems/track-abc"),
+        "expected fallback to legacy route after 404"
+    );
+}
+
+#[tokio::test]
+async fn mark_unplayed_falls_back_to_legacy_route_on_405() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/UserPlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(405))
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/Users/u1/PlayedItems/track-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "IsFavorite": false,
+            "Played": false,
+            "PlayCount": 0,
+            "PlaybackPositionTicks": 0,
+            "LastPlayedDate": null
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let state = client.mark_unplayed("track-abc").await.unwrap();
+    assert!(!state.played);
+    assert_eq!(state.play_count, 0);
+
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.iter().any(|r| r.method.as_str() == "DELETE"
+            && r.url.path() == "/UserPlayedItems/track-abc"),
+        "expected preferred route to be tried first"
+    );
+    assert!(
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "DELETE"
+                && r.url.path() == "/Users/u1/PlayedItems/track-abc"),
+        "expected fallback to legacy route after 405"
+    );
+}
+
+#[tokio::test]
+async fn mark_played_without_session_returns_not_authenticated() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.mark_played("anything").await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::JellifyError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+    let err = client.mark_unplayed("anything").await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::JellifyError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+    // No HTTP traffic should have escaped the guard.
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        requests.is_empty(),
+        "guard should short-circuit before any HTTP call, got {:?}",
+        requests
+    );
+}

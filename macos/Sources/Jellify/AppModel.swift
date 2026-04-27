@@ -2863,6 +2863,14 @@ final class AppModel {
     /// round-trip.
     var favoriteById: [String: Bool] = [:]
 
+    /// In-memory played flag keyed by item id (track / album / playlist).
+    /// Mirrors `favoriteById` — populated lazily from
+    /// `track.userData?.played` and stamped with the server's authoritative
+    /// answer after every `mark_played` / `mark_unplayed` call. Used to
+    /// drive the "played" glyph in track rows and to compute the toggle
+    /// target state in `toggleMarkPlayed(tracks:)`. See #133.
+    var playedById: [String: Bool] = [:]
+
     /// Toggle the favorite flag for an album on the Jellyfin server. Reads
     /// the current state from `favoriteById` (falling back to `false` on a
     /// cold start) and calls the opposite side of `set_favorite` /
@@ -2912,6 +2920,33 @@ final class AppModel {
                 serverReachability.noteFailure()
             }
             errorMessage = JellifyErrorPresenter.message(for: error, context: .favorite)
+        }
+    }
+
+    /// Read the locally-cached played state for an item id. Mirrors
+    /// `isFavorite(id:)`; used by row views + `toggleMarkPlayed(tracks:)`
+    /// to compute the target state for a multi-select toggle. See #133.
+    func isPlayed(id: String) -> Bool {
+        playedById[id] ?? false
+    }
+
+    /// Internal helper — hits `mark_played` / `mark_unplayed` on the core
+    /// and mirrors the server's answer (full `UserItemData`) into
+    /// `playedById`. Mirrors `setFavorite(itemId:enabled:)` in shape so a
+    /// single-item toggle has a single failure path. See #133.
+    private func setPlayed(itemId: String, played: Bool) async {
+        do {
+            let state = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.setPlayed(itemId: itemId, played: played)
+            }.value
+            playedById[itemId] = state.played
+            serverReachability.noteSuccess()
+        } catch {
+            if handleAuthError(error) { return }
+            if ServerReachability.shouldCount(error: error) {
+                serverReachability.noteFailure()
+            }
+            errorMessage = JellifyErrorPresenter.message(for: error, context: .markPlayed)
         }
     }
 
@@ -3061,11 +3096,16 @@ final class AppModel {
         playInstantMix(seedId: album.id)
     }
 
-    /// Mark every track on the album as played.
-    /// TODO: #133 / #222 — `mark_played` FFI not yet wired.
+    /// Mark the album as played server-side. Matches Jellyfin web's
+    /// "Mark Played" affordance: the album's `UserData.Played` flips and
+    /// `LastPlayedDate` stamps, but per-track `PlayCount` is **not**
+    /// incremented (Jellyfin doesn't cascade the operation to children).
+    /// `playedById[album.id]` flips immediately for the optimistic glyph
+    /// flip, then reconciles with the server's authoritative response. See #133.
     func markAllAsPlayed(album: Album) {
-        // TODO(#133): mark_played FFI not yet wired.
-        print("[AppModel] markAllAsPlayed(album:) not yet wired — see #133 / #222")
+        let target = !isPlayed(id: album.id)
+        playedById[album.id] = target
+        Task { await setPlayed(itemId: album.id, played: target) }
     }
 
     /// Present the album metadata editor. Admin-only once the sheet lands.
@@ -3833,12 +3873,30 @@ final class AppModel {
         print("[AppModel] toggleDownload(tracks: \(tracks.count)) not yet wired — see #70")
     }
 
-    /// Mark or unmark every track in the selection as played.
-    /// TODO(#133): mark_played / mark_unplayed FFIs not yet wired.
+    /// Toggle the played flag across a multi-select of tracks. Target
+    /// state is "everyone unplayed" if **all** selected tracks are
+    /// currently played; otherwise "everyone played". This matches the
+    /// menubar / context-menu convention where a single click on a
+    /// mixed selection commits to one direction. Each track's flip is
+    /// optimistic locally and reconciled against the server's response;
+    /// failures don't abort the rest of the batch. See #133.
     func toggleMarkPlayed(tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        // TODO(#133): mark_played / mark_unplayed FFIs not yet wired.
-        print("[AppModel] toggleMarkPlayed(tracks: \(tracks.count)) not yet wired — see #133")
+        // Decide target: prefer the cached value, fall back to the track's
+        // embedded user_data, finally `false` if nothing is known. Mark
+        // played unless every track is *already* played.
+        let allPlayed = tracks.allSatisfy { track in
+            if let cached = playedById[track.id] { return cached }
+            return track.userData?.played ?? false
+        }
+        let target = !allPlayed
+        // Optimistic flip on the whole selection so the glyph updates instantly.
+        for track in tracks { playedById[track.id] = target }
+        Task {
+            for track in tracks {
+                await setPlayed(itemId: track.id, played: target)
+            }
+        }
     }
 
     // MARK: - Track sharing

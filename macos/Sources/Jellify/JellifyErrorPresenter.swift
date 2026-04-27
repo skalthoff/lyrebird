@@ -128,6 +128,7 @@ enum JellifyErrorPresenter {
         case search
         case playback
         case favorite
+        case markPlayed
         case playlistAdd
 
         fileprivate var fallbackKey: String? {
@@ -142,6 +143,7 @@ enum JellifyErrorPresenter {
             case .search: return "error.search"
             case .playback: return "error.playback"
             case .favorite: return "error.favorite"
+            case .markPlayed: return "error.markPlayed"
             case .playlistAdd: return "error.playlist.add"
             }
         }

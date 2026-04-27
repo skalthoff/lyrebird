@@ -693,6 +693,42 @@ impl JellifyCore {
         self.with_client(|c| self.runtime.block_on(c.toggle_favorite(&item_id, favorite)))
     }
 
+    /// Mark an item (track / album / playlist) as played for the current
+    /// user. Returns the full updated [`UserItemData`] so the UI can update
+    /// `played` + `play_count` + `last_played_at` without refetching. Errors
+    /// with [`JellifyError::NotAuthenticated`] if no session is active.
+    /// See issue #133.
+    pub fn mark_played(
+        &self,
+        item_id: String,
+    ) -> std::result::Result<UserItemData, JellifyError> {
+        self.with_client(|c| self.runtime.block_on(c.mark_played(&item_id)))
+    }
+
+    /// Clear the played flag from an item for the current user. Returns the
+    /// updated [`UserItemData`] (with `play_count = 0` and `last_played_at =
+    /// None`). Errors with [`JellifyError::NotAuthenticated`] if no session
+    /// is active. See issue #133.
+    pub fn mark_unplayed(
+        &self,
+        item_id: String,
+    ) -> std::result::Result<UserItemData, JellifyError> {
+        self.with_client(|c| self.runtime.block_on(c.mark_unplayed(&item_id)))
+    }
+
+    /// Set or clear an item's played flag in a single call. `played=true`
+    /// dispatches to [`Self::mark_played`], `false` dispatches to
+    /// [`Self::mark_unplayed`]. Mirrors the shape of [`Self::toggle_favorite`]
+    /// for multi-select callers that compute the target state from the
+    /// majority current state of the selection. See issue #133.
+    pub fn set_played(
+        &self,
+        item_id: String,
+        played: bool,
+    ) -> std::result::Result<UserItemData, JellifyError> {
+        self.with_client(|c| self.runtime.block_on(c.set_played(&item_id, played)))
+    }
+
     /// Create a new playlist for the current user. Returns the new
     /// playlist id — callers refetch the full [`Playlist`] via
     /// [`JellifyCore::fetch_item`] if they need the populated record.

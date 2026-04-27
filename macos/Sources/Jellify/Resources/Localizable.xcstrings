@@ -469,6 +469,18 @@
         }
       }
     },
+    "error.markPlayed" : {
+      "comment" : "Banner copy when marking an item played / unplayed fails.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't update played status."
+          }
+        }
+      }
+    },
     "error.playlist.add" : {
       "comment" : "Banner copy when adding a track to a playlist fails.",
       "extractionState" : "manual",

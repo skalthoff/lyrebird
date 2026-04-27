@@ -1526,6 +1526,121 @@ impl JellyfinClient {
         }
     }
 
+    /// Mark an item (track / album / playlist) as played for the current user.
+    ///
+    /// Uses the preferred `POST /UserPlayedItems/{itemId}` endpoint (user
+    /// inferred from the authentication token). Older Jellyfin builds that
+    /// answer 404 / 405 to that route fall back to the legacy
+    /// `POST /Users/{userId}/PlayedItems/{itemId}` endpoint.
+    ///
+    /// Returns the full updated [`UserItemData`] so the UI can update both
+    /// its `played` glyph and the `play_count` text without refetching the
+    /// item. Server-side this bumps `PlayCount` by one and stamps a fresh
+    /// `LastPlayedDate` (Jellyfin does NOT cascade to children — calling
+    /// this on an album does not increment per-track play counts).
+    ///
+    /// Requires an authenticated session; returns
+    /// [`JellifyError::NotAuthenticated`] if no token is set. See #133.
+    pub async fn mark_played(&self, item_id: &str) -> Result<UserItemData> {
+        self.require_token()?;
+
+        let url = self.endpoint(&format!("UserPlayedItems/{item_id}"))?;
+        let resp = self
+            .send_with_retry_raw(|| Ok(self.http.post(url.clone()).headers(self.build_headers()?)))
+            .await?;
+
+        if resp.status().is_success() {
+            let raw: RawUserData = resp.json().await?;
+            return Ok(raw.into());
+        }
+
+        if matches!(
+            resp.status(),
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        ) {
+            if let Some(user_id) = self.user_id.as_ref() {
+                let legacy_url =
+                    self.endpoint(&format!("Users/{user_id}/PlayedItems/{item_id}"))?;
+                let legacy_resp = self
+                    .send_with_retry(|| {
+                        Ok(self
+                            .http
+                            .post(legacy_url.clone())
+                            .headers(self.build_headers()?))
+                    })
+                    .await?;
+                let raw: RawUserData = legacy_resp.json().await?;
+                return Ok(raw.into());
+            }
+        }
+
+        let raw: RawUserData = Self::check(resp).await?.json().await?;
+        Ok(raw.into())
+    }
+
+    /// Clear the played flag from an item for the current user.
+    ///
+    /// Uses the preferred `DELETE /UserPlayedItems/{itemId}` endpoint, with
+    /// a fallback to `DELETE /Users/{userId}/PlayedItems/{itemId}` for
+    /// older Jellyfin builds that answer 404 / 405.
+    ///
+    /// Server-side this resets `PlayCount` to zero and clears
+    /// `LastPlayedDate`. Returns the updated [`UserItemData`] for the same
+    /// no-refetch UI refresh as [`Self::mark_played`].
+    ///
+    /// Requires an authenticated session; returns
+    /// [`JellifyError::NotAuthenticated`] if no token is set. See #133.
+    pub async fn mark_unplayed(&self, item_id: &str) -> Result<UserItemData> {
+        self.require_token()?;
+
+        let url = self.endpoint(&format!("UserPlayedItems/{item_id}"))?;
+        let resp = self
+            .send_with_retry_raw(|| {
+                Ok(self.http.delete(url.clone()).headers(self.build_headers()?))
+            })
+            .await?;
+
+        if resp.status().is_success() {
+            let raw: RawUserData = resp.json().await?;
+            return Ok(raw.into());
+        }
+
+        if matches!(
+            resp.status(),
+            StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED
+        ) {
+            if let Some(user_id) = self.user_id.as_ref() {
+                let legacy_url =
+                    self.endpoint(&format!("Users/{user_id}/PlayedItems/{item_id}"))?;
+                let legacy_resp = self
+                    .send_with_retry(|| {
+                        Ok(self
+                            .http
+                            .delete(legacy_url.clone())
+                            .headers(self.build_headers()?))
+                    })
+                    .await?;
+                let raw: RawUserData = legacy_resp.json().await?;
+                return Ok(raw.into());
+            }
+        }
+
+        let raw: RawUserData = Self::check(resp).await?.json().await?;
+        Ok(raw.into())
+    }
+
+    /// Convenience dispatcher: route to [`Self::mark_played`] when `played`
+    /// is `true` and [`Self::mark_unplayed`] otherwise. Mirrors the shape
+    /// of [`Self::toggle_favorite`] for callers that only know the desired
+    /// target state. See #133.
+    pub async fn set_played(&self, item_id: &str, played: bool) -> Result<UserItemData> {
+        if played {
+            self.mark_played(item_id).await
+        } else {
+            self.mark_unplayed(item_id).await
+        }
+    }
+
     /// Create a new playlist for the current user via `POST /Playlists`.
     ///
     /// The request body uses Jellyfin's PascalCase keys:
