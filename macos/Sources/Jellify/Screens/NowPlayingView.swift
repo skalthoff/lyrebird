@@ -285,6 +285,20 @@ struct NowPlayingView: View {
                     value: formatRuntime(track.durationSeconds)
                 )
 
+                if track.playCount > 0 {
+                    aboutSection(
+                        label: "Plays",
+                        value: formatPlayCount(track.playCount)
+                    )
+                }
+
+                if let bitrate = track.bitrate, bitrate > 0 {
+                    aboutSection(
+                        label: "Bitrate",
+                        value: formatBitrate(bitrate)
+                    )
+                }
+
                 if let album = matchingAlbum(for: track) {
                     if album.trackCount > 0 {
                         aboutSection(
@@ -347,6 +361,15 @@ struct NowPlayingView: View {
         let m = total / 60
         let s = total % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    private func formatPlayCount(_ count: UInt32) -> String {
+        count == 1 ? "1 play" : "\(count) plays"
+    }
+
+    private func formatBitrate(_ bitrate: UInt32) -> String {
+        let kbps = Int(bitrate) / 1000
+        return "\(kbps) kbps"
     }
 
     // MARK: - Credits tab (PR #508)
