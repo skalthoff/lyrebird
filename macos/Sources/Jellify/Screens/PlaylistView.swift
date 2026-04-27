@@ -37,6 +37,10 @@ struct PlaylistView: View {
     @State private var descriptionDraft: String? = nil
     @FocusState private var descriptionFocused: Bool
 
+    /// Tracks which row currently has keyboard focus so Alt+Up / Alt+Down
+    /// reorder can move without requiring multi-select. `nil` = no row focused.
+    @FocusState private var keyboardFocusedIndex: Int?
+
     /// Resolve the playlist: cached library page first, then whichever
     /// record the `.task` block fetched on demand. Nil means the id can't
     /// be resolved (deleted upstream, not a real Playlist, server errored).
@@ -347,6 +351,24 @@ struct PlaylistView: View {
                         trackId: track.id,
                         index: idx
                     )
+                    // Keyboard reorder (#73): make the row focusable so Tab
+                    // cycles through the list, then handle Alt+Up / Alt+Down.
+                    .focusable(true)
+                    .focused($keyboardFocusedIndex, equals: idx)
+                    .onKeyPress(.upArrow, phases: .down) { event in
+                        guard event.modifiers.contains(.option) else { return .ignored }
+                        guard idx > 0 else { return .ignored }
+                        model.moveTrackInPlaylist(playlistId: playlistID, from: idx, to: idx - 1)
+                        keyboardFocusedIndex = idx - 1
+                        return .handled
+                    }
+                    .onKeyPress(.downArrow, phases: .down) { event in
+                        guard event.modifiers.contains(.option) else { return .ignored }
+                        guard idx < tracks.count - 1 else { return .ignored }
+                        model.moveTrackInPlaylist(playlistId: playlistID, from: idx, to: idx + 2)
+                        keyboardFocusedIndex = idx + 1
+                        return .handled
+                    }
                 }
             }
         }
