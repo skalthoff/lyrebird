@@ -3264,11 +3264,52 @@ final class AppModel {
     }
 
     /// Present a save panel and write the playlist to disk as an `.m3u8` file.
-    /// TODO(#98): needs `playlist_tracks` (#125) to resolve file paths + the
-    /// save panel + an m3u8 writer. Logging stub for now.
+    /// Fetches the playlist's tracks via `playlist_tracks` FFI, then builds an
+    /// extended M3U file with `#EXTINF` metadata per track. Stream URLs are
+    /// written without auth tokens so the file is safe to share (#76).
     func exportPlaylist(playlist: Playlist) {
-        // TODO(#98): m3u8 export not yet wired — needs #125 + save panel.
-        print("[AppModel] exportPlaylist(playlist:) not yet wired — see #98 / #125")
+        Task {
+            // Fetch tracks before opening the panel so we know the export
+            // will succeed before the user picks a save location.
+            let tracks = await loadPlaylistTracks(playlist: playlist)
+            guard !tracks.isEmpty else {
+                errorMessage = "No tracks to export for \"\(playlist.name)\"."
+                return
+            }
+
+            // Build the extended M3U content. runtimeTicks is in 100-nanosecond
+            // units; divide by 10_000_000 to get whole seconds for #EXTINF.
+            var lines: [String] = ["#EXTM3U"]
+            let base = serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL
+            for track in tracks {
+                let durationSec = Int(track.runtimeTicks / 10_000_000)
+                let inf = "#EXTINF:\(durationSec),\(track.artistName) - \(track.name)"
+                // Use the auth-free universal-stream path: no query parameters,
+                // no api_key. Works with servers that allow unauthenticated
+                // download (many local setups), and is safe to share even when
+                // that's not the case.
+                let streamPath = "\(base)/Audio/\(track.id)/universal"
+                lines.append(inf)
+                lines.append(streamPath)
+            }
+            let m3u8Content = lines.joined(separator: "\n") + "\n"
+
+            // Present the save panel on the main actor.
+            let panel = NSSavePanel()
+            panel.title = "Export Playlist as .m3u8"
+            panel.nameFieldStringValue = "\(playlist.name).m3u8"
+            panel.allowedContentTypes = [.init(filenameExtension: "m3u8") ?? .plainText]
+            panel.canCreateDirectories = true
+
+            let response = panel.runModal()
+            guard response == .OK, let url = panel.url else { return }
+
+            do {
+                try m3u8Content.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                errorMessage = "Export failed: \(error.localizedDescription)"
+            }
+        }
     }
 
     /// Rename a playlist in place from the playlist hero's click-to-edit
