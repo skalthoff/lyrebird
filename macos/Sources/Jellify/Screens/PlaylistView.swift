@@ -33,10 +33,6 @@ struct PlaylistView: View {
     @State private var titleDraft: String? = nil
     @FocusState private var titleFocused: Bool
 
-    /// Editor draft state for the description. Same lifecycle as `titleDraft`.
-    @State private var descriptionDraft: String? = nil
-    @FocusState private var descriptionFocused: Bool
-
     /// Tracks which row currently has keyboard focus so Alt+Up / Alt+Down
     /// reorder can move without requiring multi-select. `nil` = no row focused.
     @FocusState private var keyboardFocusedIndex: Int?
@@ -88,15 +84,13 @@ struct PlaylistView: View {
         .onChange(of: model.playlistTracks[playlistID]) { _, newValue in
             if let newValue = newValue { tracks = newValue }
         }
-        // Clear click-to-edit drafts when the user navigates away (#602).
+        // Clear the title draft when the user navigates away (#602).
         // SwiftUI may reuse the view struct across back-forward navigations
-        // (especially with `NavigationStack`), so stale `titleDraft` /
-        // `descriptionDraft` from a prior session would appear pre-filled
-        // on the next visit to the same playlist. Resetting on disappear
-        // ensures the next open starts with the committed (server) values.
+        // (especially with `NavigationStack`), so a stale `titleDraft` from a
+        // prior session would appear pre-filled on the next visit. Resetting
+        // on disappear ensures the next open starts with the committed value.
         .onDisappear {
             titleDraft = nil
-            descriptionDraft = nil
         }
     }
 
@@ -196,52 +190,20 @@ struct PlaylistView: View {
         titleDraft = nil
     }
 
-    // MARK: - Click-to-edit description
+    // MARK: - Read-only description
+    // Editing is hidden until the server-side update_playlist FFI lands (#130).
+    // The description renders as plain Text; when empty, nothing is shown
+    // (consistent with how empty bios and subtitles are handled elsewhere).
 
     @ViewBuilder
     private func editableDescription(playlist: Playlist) -> some View {
-        if let draft = descriptionDraft {
-            TextField(
-                "Add a description…",
-                text: Binding(
-                    get: { draft },
-                    set: { descriptionDraft = $0 }
-                ),
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .lineLimit(1...4)
-            .font(Theme.font(14, weight: .medium))
-            .foregroundStyle(Theme.ink2)
-            .focused($descriptionFocused)
-            .onSubmit { commitDescription(playlist: playlist) }
-            .onChange(of: descriptionFocused) { _, focused in
-                if !focused { commitDescription(playlist: playlist) }
-            }
-            .accessibilityLabel("Edit playlist description")
-        } else {
-            // Placeholder copy when the description is empty; matches the
-            // spec's 14pt `ink2` / placeholder treatment.
-            let text = description.isEmpty ? "Add a description…" : description
-            let color: Color = description.isEmpty ? Theme.ink3 : Theme.ink2
-            Text(text)
+        if !description.isEmpty {
+            Text(description)
                 .font(Theme.font(14, weight: .medium))
-                .foregroundStyle(color)
+                .foregroundStyle(Theme.ink2)
                 .lineLimit(4)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    descriptionDraft = description
-                    DispatchQueue.main.async { descriptionFocused = true }
-                }
-                .accessibilityLabel(description.isEmpty ? "No description" : description)
-                .accessibilityHint("Tap to edit description")
+                .accessibilityLabel(description)
         }
-    }
-
-    private func commitDescription(playlist: Playlist) {
-        guard let draft = descriptionDraft else { return }
-        model.updatePlaylistDescription(playlist, newDescription: draft)
-        descriptionDraft = nil
     }
 
     // MARK: - Stat cell
