@@ -43,7 +43,7 @@ struct HomeAlbumTile<Badge: View>: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
-            model.screen = .album(album.id)
+            model.navPath.append(AppModel.Route.album(album.id))
         }
         .onTapGesture(count: 1) {
             model.play(album: album)

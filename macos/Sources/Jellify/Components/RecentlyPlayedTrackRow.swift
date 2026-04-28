@@ -63,12 +63,12 @@ struct RecentlyPlayedTrackRow: View {
             }
             if let albumId = track.albumId, !albumId.isEmpty {
                 Button("Go to Album", systemImage: "square.stack") {
-                    model.screen = .album(albumId)
+                    model.navPath.append(AppModel.Route.album(albumId))
                 }
             }
             if let artistId = track.artistId, !artistId.isEmpty {
                 Button("Go to Artist", systemImage: "person") {
-                    model.screen = .artist(artistId)
+                    model.navPath.append(AppModel.Route.artist(artistId))
                 }
             }
         }

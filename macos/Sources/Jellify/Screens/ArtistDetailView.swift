@@ -727,7 +727,7 @@ private struct ArtistDiscographyTile: View {
 
     var body: some View {
         Button {
-            model.screen = .album(album.id)
+            model.navPath.append(AppModel.Route.album(album.id))
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .bottomTrailing) {

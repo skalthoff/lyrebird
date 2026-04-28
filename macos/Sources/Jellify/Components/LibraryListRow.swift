@@ -229,9 +229,9 @@ struct LibraryListRow: View {
     private func openDetail() {
         switch payload {
         case .album(let album):
-            model.screen = .album(album.id)
+            model.navPath.append(AppModel.Route.album(album.id))
         case .artist(let artist):
-            model.screen = .artist(artist.id)
+            model.navPath.append(AppModel.Route.artist(artist.id))
         case .playlist(let playlist):
             // Route through `goToPlaylist` so the playlist is seeded into
             // `model.playlists` before the screen flips. Without this seed,

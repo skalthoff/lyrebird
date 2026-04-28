@@ -9,7 +9,7 @@ import SwiftUI
 /// Context menu routes through `PlaylistContextMenu` so the grid, list rows,
 /// and any future surfaces share one set of actions.
 ///
-/// Spec: #212 (Library chips). Detail screen routed via `AppModel.Screen.playlist`.
+/// Spec: #212 (Library chips). Detail screen pushed via `AppModel.Route.playlist`.
 struct PlaylistCard: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -18,7 +18,7 @@ struct PlaylistCard: View {
 
     var body: some View {
         Button {
-            model.screen = .playlist(playlist.id)
+            model.navPath.append(AppModel.Route.playlist(playlist.id))
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 ZStack(alignment: .bottomTrailing) {

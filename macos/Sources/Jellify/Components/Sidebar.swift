@@ -177,7 +177,7 @@ struct Sidebar: View {
     private func playlistRow(_ playlist: Playlist) -> some View {
         let isEditing = model.sidebarEditingPlaylistId == playlist.id
         let isActiveScreen: Bool = {
-            if case .playlist(let id) = model.screen { return id == playlist.id }
+            if case .playlist(let id) = model.navPath.last { return id == playlist.id }
             return false
         }()
         let isCopying = model.sidebarCopyingPlaylistIds.contains(playlist.id)
@@ -262,8 +262,8 @@ struct Sidebar: View {
 
     @ViewBuilder
     private func navItem(_ icon: String, label: LocalizedStringKey, screen: AppModel.Screen) -> some View {
-        let active = model.screen == screen
-        Button { model.screen = screen } label: {
+        let active = model.screen == screen && model.navPath.isEmpty
+        Button { model.selectTab(screen) } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
                     .foregroundStyle(active ? Theme.accent : Theme.ink2)
@@ -311,7 +311,7 @@ struct Sidebar: View {
             // Library view reads the right chip on its first render. See
             // `AppModel.libraryTab`.
             model.libraryTab = tab
-            model.screen = .library
+            model.selectTab(.library)
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)

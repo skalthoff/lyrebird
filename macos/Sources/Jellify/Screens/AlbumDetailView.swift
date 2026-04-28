@@ -122,7 +122,7 @@ struct AlbumDetailView: View {
             }
         if let artistId = album.artistId, !artistId.isEmpty {
             Button {
-                model.screen = .artist(artistId)
+                model.navPath.append(AppModel.Route.artist(artistId))
             } label: {
                 line
             }
@@ -456,7 +456,7 @@ struct AlbumDetailView: View {
                 ForEach(Array(row.people.enumerated()), id: \.offset) { _, person in
                     CreditChip(person: person) {
                         if let id = person.id {
-                            model.screen = .artist(id)
+                            model.navPath.append(AppModel.Route.artist(id))
                         }
                     }
                 }
