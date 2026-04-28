@@ -10,11 +10,11 @@ struct MainShell: View {
             // Native two-column shell (#1, #4). The sidebar lives in the
             // OS-managed column so users get the standard show/hide
             // affordance + draggable separator for free; the detail column
-            // wraps the existing screen switch in a `NavigationStack` driven
-            // by `model.navPath`. `model.screen` remains the source of truth
-            // for which root view renders during B2 — `navPath` is empty in
-            // production until B3 migrates the call sites that still write
-            // `model.screen` over to `model.navPath.append(...)`.
+            // wraps the active root tab in a `NavigationStack` driven by
+            // `model.navPath`. `model.screen` is the active root tab and
+            // drives `mainContent`; drill destinations (album / artist /
+            // playlist / nowPlaying) live as `Route` entries on `navPath`
+            // and render via the `.navigationDestination` handler below.
             NavigationSplitView {
                 // Tab order (#334): sidebar gets first focus, then the
                 // detail column, then the queue inspector / player bar.
@@ -28,11 +28,11 @@ struct MainShell: View {
                 HStack(spacing: 0) {
                     NavigationStack(path: $model.navPath) {
                         contentColumn
-                            // Stub destinations during B2 — the path is
-                            // empty in production because every navigation
-                            // currently goes through `model.screen`. B3
-                            // wires real call sites and these handlers
-                            // dispatch on `Route` instead of `Screen`.
+                            // Drill destinations dispatch on `Route` so the
+                            // active root tab (driven by `model.screen` and
+                            // rendered inside `contentColumn`) stays in
+                            // place while the user pushes album / artist /
+                            // playlist / nowPlaying detail pages on top.
                             .navigationDestination(for: AppModel.Route.self) { route in
                                 routeDestination(for: route)
                             }
@@ -118,11 +118,9 @@ struct MainShell: View {
     }
 
     /// Routes a `Route` value pushed onto `navPath` to the matching screen.
-    /// During B2 the path is always empty in production because navigation
-    /// still writes `model.screen`; these handlers exist so the
-    /// `NavigationStack` is wired and ready for B3 to migrate the call
-    /// sites. Each case mirrors the equivalent `model.screen` arm in
-    /// `mainContent` so the eventual cutover is mechanical.
+    /// In practice only the drill cases (album / artist / playlist /
+    /// nowPlaying) are pushed — root-tab cases are kept on `Route` for
+    /// future deep-linking and render the same view as `mainContent`.
     @ViewBuilder
     private func routeDestination(for route: AppModel.Route) -> some View {
         switch route {
@@ -194,15 +192,12 @@ struct MainShell: View {
             DiscoverView()
         case .search:
             SearchView()
-        case .album(let id):
-            AlbumDetailView(albumID: id)
-        case .artist(let id):
-            ArtistDetailView(artistID: id)
-        case .playlist(let id):
-            PlaylistView(playlistID: id)
-        case .nowPlaying:
-            NowPlayingView()
-        default:
+        case .settings:
+            // Settings have a dedicated `Settings` scene in `JellifyApp`
+            // and aren't a destination inside the main shell. Falling
+            // through to Library keeps the detail column populated if
+            // `screen` is somehow `.settings` while the Settings scene is
+            // closed.
             LibraryView()
         }
     }
@@ -225,20 +220,27 @@ struct MainShell: View {
 
     /// Builds the breadcrumb trail for the current screen. The root segment is
     /// always "Jellify"; subsequent segments describe where in the app the
-    /// user has navigated.
+    /// user has navigated. Drill destinations live on `navPath`; root tabs
+    /// live on `model.screen`.
     private var breadcrumbSegments: [String] {
         var segments: [String] = ["Jellify"]
+        // Root tab segment. Settings is exposed via the dedicated scene and
+        // not breadcrumbed.
         switch model.screen {
-        case .home:
-            segments.append("Home")
-        case .discover:
-            segments.append("Discover")
-        case .library:
-            segments.append("Library")
-        case .search:
-            segments.append("Search")
-        case .album(let id):
-            segments.append("Library")
+        case .home: segments.append("Home")
+        case .discover: segments.append("Discover")
+        case .library: segments.append("Library")
+        case .search: segments.append("Search")
+        case .settings: segments.append("Settings")
+        }
+
+        // Drill segments. The current top of `navPath` is what's actually
+        // rendered; we anchor the trail at "Library > <section>" because
+        // every drill destination today is reachable from the Library
+        // hierarchy regardless of which root tab launched it.
+        switch model.navPath.last {
+        case .album(let id)?:
+            if model.screen != .library { segments.append("Library") }
             segments.append("Albums")
             if let album = model.albums.first(where: { $0.id == id }) {
                 segments.append(album.name)
@@ -247,55 +249,54 @@ struct MainShell: View {
                 // literal fallback ("Albums > Album") that reads like a bug.
                 segments.append("…")
             }
-        case .artist(let id):
-            segments.append("Library")
+        case .artist(let id)?:
+            if model.screen != .library { segments.append("Library") }
             segments.append("Artists")
             if let artist = model.artists.first(where: { $0.id == id }) {
                 segments.append(artist.name)
             } else {
                 segments.append("…")
             }
-        case .playlist(let id):
-            segments.append("Library")
+        case .playlist(let id)?:
+            if model.screen != .library { segments.append("Library") }
             segments.append("Playlists")
             if let playlist = model.playlist(id: id) {
                 segments.append(playlist.name)
             } else {
                 segments.append("…")
             }
-        case .nowPlaying:
+        case .nowPlaying?:
             segments.append("Now Playing")
-        case .settings:
-            segments.append("Settings")
+        case .home?, .discover?, .library?, .search?, .settings?, nil:
+            break
         }
         return segments
     }
 
-    /// Handles a tap on a breadcrumb segment at `idx`. Navigation is driven by
-    /// the current `model.screen` and the tapped index, so the component stays
-    /// agnostic of label strings (no brittle title matching). Index 0 is the
-    /// root ("Jellify") and always returns to the library. For nested screens
-    /// (e.g. album/artist/playlist detail), intermediate indices pop to the
-    /// library; the final index is the current location and is a no-op.
+    /// Handles a tap on a breadcrumb segment at `idx`. Navigation is driven
+    /// by the current screen and `navPath`, so the component stays agnostic
+    /// of label strings (no brittle title matching). Index 0 is the root
+    /// ("Jellify") and always pops the drill stack to the library tab. For
+    /// nested screens, intermediate indices pop to the library; the final
+    /// index is the current location and is a no-op.
     private func navigate(toBreadcrumbDepth idx: Int) {
-        // Index 0 is always the root and pops to library.
+        // Index 0 is the root ("Jellify") — pop everything and land on
+        // Library, which is the historical fallback root.
         guard idx > 0 else {
-            model.screen = .library
+            model.selectTab(.library)
             return
         }
 
-        switch model.screen {
-        case .home, .discover, .library, .search, .settings, .nowPlaying:
-            // Shape: ["Jellify", <current>] — only the final index, which is
-            // the current location and non-navigable. Nothing to do.
-            break
-        case .album, .artist, .playlist:
-            // Shape: ["Jellify", "Library", "<Albums|Artists|Playlists>", <name>].
-            // idx 1 = "Library" and idx 2 = the section both pop to library;
-            // idx 3 is the current location and is a no-op.
-            if idx < 3 {
-                model.screen = .library
-            }
+        // No drill on the stack: the trail is ["Jellify", <tab>] and the
+        // only navigable index (0) was handled above. Higher indices are
+        // the current location.
+        guard !model.navPath.isEmpty else { return }
+
+        // Drill on the stack: trail is ["Jellify", "Library", "<section>",
+        // <name>]. idx 1 = "Library" and idx 2 = the section both pop the
+        // drill; idx 3 is the current location.
+        if idx < 3 {
+            model.selectTab(.library)
         }
     }
 }

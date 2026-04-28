@@ -149,7 +149,7 @@ struct Person: Equatable {
     let type: String
     /// Jellyfin's `Id` for this person, when the server returns one. The
     /// id points at a `MusicArtist`-ish item for music credits, so the
-    /// album liner-note chips feed it straight into `screen = .artist(id)`.
+    /// album liner-note chips feed it straight into `Route.artist(id)`.
     /// Nil when the field is absent on the raw JSON — callers should render
     /// the chip as non-interactive in that case.
     let id: String?

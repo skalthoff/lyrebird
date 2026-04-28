@@ -25,12 +25,16 @@ final class AppModel {
     var username: String = ""
 
     // MARK: - Navigation
-    enum Screen: Hashable { case home, discover, library, search, settings, album(String), artist(String), playlist(String), nowPlaying }
+    /// Active root tab. Drill destinations (album / artist / playlist /
+    /// nowPlaying) live on `navPath` instead so back navigation is handled
+    /// by `NavigationStack` natively. See #1 / #4.
+    enum Screen: Hashable { case home, discover, library, search, settings }
     var screen: Screen = .library
 
-    /// Typed value-type for the SwiftUI NavigationStack migration (#1, #4).
-    /// Mirrors `Screen` 1:1. Coexists with `Screen` during the migration —
-    /// `Screen` is removed in B3 once all consumers move to `navPath`.
+    /// Typed value-type for `NavigationStack` destinations. Root tabs and
+    /// drill destinations are both representable so `Route` can address
+    /// any surface in the app, but in production the path only ever
+    /// holds drill entries — the active tab is `screen`. See #1 / #4.
     enum Route: Hashable {
         case home
         case discover
@@ -43,26 +47,28 @@ final class AppModel {
         case nowPlaying
     }
 
-    /// Typed `NavigationPath` for the new NavigationSplitView shell.
-    /// Empty when the user is on the root of a tab; gains entries as they
-    /// drill into albums / artists / playlists.
-    /// B2 wires this into the new shell; B3 makes it the source of truth.
-    var navPath = NavigationPath()
+    /// Drill stack for the current tab. Empty when the user is on the root
+    /// of a tab; gains entries as they push album / artist / playlist /
+    /// nowPlaying detail views. `selectTab(_:)` resets this when the user
+    /// flips tabs so the drill state doesn't leak across roots. Modeled as
+    /// a typed `[Route]` array (rather than `NavigationPath`) so call sites
+    /// can inspect the top of the stack — needed for the "toggle Now
+    /// Playing" menu command and similar reversible drills. See #1 / #4.
+    var navPath: [Route] = []
 
-    /// Returns the `Route` equivalent of the legacy `screen` enum.
-    /// Removed in B3 once all call sites move to `navPath`.
-    func currentRoute() -> Route {
-        switch screen {
-        case .home: return .home
-        case .discover: return .discover
-        case .library: return .library
-        case .search: return .search
-        case .settings: return .settings
-        case .album(let id): return .album(id)
-        case .artist(let id): return .artist(id)
-        case .playlist(let id): return .playlist(id)
-        case .nowPlaying: return .nowPlaying
-        }
+    /// Switch to a root tab and clear the drill stack. Use this from every
+    /// sidebar / menu tab handler so drill state doesn't survive a tab
+    /// change.
+    func selectTab(_ tab: Screen) {
+        screen = tab
+        navPath = []
+    }
+
+    /// True when the full Now Playing view is the top of the drill stack.
+    /// Used by the ⌘L menu toggle (see `JellifyApp.toggleNowPlaying`) so
+    /// the second press pops back rather than stacking another copy.
+    var isShowingNowPlaying: Bool {
+        navPath.last == .nowPlaying
     }
 
     /// Which chip is active on the Library screen. Driven by the sidebar's
@@ -558,13 +564,13 @@ final class AppModel {
             id: "nav.library",
             title: "Go to Library",
             symbol: "music.note.list",
-            run: { [weak self] in self?.screen = .library }
+            run: { [weak self] in self?.selectTab(.library) }
         ))
         actions.append(PaletteAction(
             id: "nav.home",
             title: "Go to Home",
             symbol: "house",
-            run: { [weak self] in self?.screen = .home }
+            run: { [weak self] in self?.selectTab(.home) }
         ))
         actions.append(PaletteAction(
             id: "nav.discover",
@@ -1452,7 +1458,7 @@ final class AppModel {
     func showAllFavorites() {
         // TODO(library-filter): once the library chip row supports a
         //   "Favorites" filter, route here with the filter pre-selected.
-        screen = .library
+        selectTab(.library)
     }
 
     /// Shared helper: build a `GET /Items` request against the user's
@@ -2288,7 +2294,7 @@ final class AppModel {
         if !playlists.contains(where: { $0.id == playlist.id }) {
             playlists.append(playlist)
         }
-        screen = .playlist(playlist.id)
+        navPath.append(Route.playlist(playlist.id))
     }
 
 
@@ -2298,27 +2304,26 @@ final class AppModel {
     /// and the new `isSearchFieldFocused` mirror so toolbar / field bindings
     /// introduced by #7 can attach a `@FocusState` via `$model.isSearchFieldFocused`.
     func focusSearch() {
-        screen = .search
+        selectTab(.search)
         requestSearchFocus = true
         isSearchFieldFocused = true
     }
 
-    /// Programmatic navigation entry point. Views that want to push a screen
-    /// should prefer this over assigning `model.screen` directly so there's
-    /// a single seam to add side effects (analytics, breadcrumb history, nav
-    /// animations) later. Today it's a thin setter — matches the direct
-    /// `model.screen = ...` pattern used elsewhere.
+    /// Programmatic drill-navigation entry point. Pushes a `Route` onto
+    /// `navPath` so the new `NavigationStack` shell renders the matching
+    /// destination. Views that want to drill into a detail screen should
+    /// prefer this over manipulating `navPath` directly so there's a single
+    /// seam to add side effects (analytics, breadcrumb history, etc.) later.
     ///
     /// Wired by the Artist detail page's Similar Artists tiles (BATCH-04)
-    /// and available to future surfaces that want a less brittle navigation
-    /// handle.
-    func navigate(to screen: Screen) {
-        self.screen = screen
+    /// and the command palette.
+    func navigate(to route: Route) {
+        navPath.append(route)
     }
 
     /// Navigate to the Discover screen. See #248.
     func goToDiscover() {
-        screen = .discover
+        selectTab(.discover)
     }
 
     /// Kick off a library-seeded Instant Mix from the Discover screen's CTA.
@@ -3041,14 +3046,14 @@ final class AppModel {
     /// Navigate to the artist detail screen for this album's artist, if known.
     func goToArtist(album: Album) {
         guard let artistID = album.artistId else { return }
-        screen = .artist(artistID)
+        navPath.append(Route.artist(artistID))
     }
 
     /// Navigate to the album's own detail screen. Used when the menu is
     /// invoked from a surface other than the album detail itself (e.g. a
     /// track row that links back to its album).
     func goToAlbum(album: Album) {
-        screen = .album(album.id)
+        navPath.append(Route.album(album.id))
     }
 
     /// Kick off an Instant Mix ("album radio") seeded by this album.
@@ -3172,7 +3177,7 @@ final class AppModel {
     /// from a surface other than the artist detail itself (e.g. a track
     /// row whose secondary line is the artist).
     func goToArtistPage(artist: Artist) {
-        screen = .artist(artist.id)
+        navPath.append(Route.artist(artist.id))
     }
 
     /// Kick off an Instant Mix ("artist radio") seeded by this artist.
@@ -3185,7 +3190,7 @@ final class AppModel {
     /// we just route to `.artist(id)` and let that view (when it lands) pick
     /// up the discography anchor.
     func goToDiscography(artist: Artist) {
-        screen = .artist(artist.id)
+        navPath.append(Route.artist(artist.id))
     }
 
     /// Show artists similar to this one. Navigates to the artist detail page
@@ -3196,7 +3201,7 @@ final class AppModel {
         Task {
             await loadSimilarArtists(artistId: artist.id)
         }
-        screen = .artist(artist.id)
+        navPath.append(Route.artist(artist.id))
     }
 
     // MARK: - Artist sharing
@@ -3778,13 +3783,13 @@ final class AppModel {
     /// Navigate to the album detail screen for this track's album.
     func goToAlbum(track: Track) {
         guard let albumID = track.albumId else { return }
-        screen = .album(albumID)
+        navPath.append(Route.album(albumID))
     }
 
     /// Navigate to the artist detail screen for this track's artist.
     func goToArtist(track: Track) {
         guard let artistID = track.artistId else { return }
-        screen = .artist(artistID)
+        navPath.append(Route.artist(artistID))
     }
 
     /// Present the per-track info sheet (title, album, bitrate, people).
@@ -4273,12 +4278,12 @@ final class AppModel {
             if let playlist = playlists.first(where: { $0.id == id }) {
                 goToPlaylist(playlist)
             } else {
-                screen = .playlist(id)
+                navPath.append(Route.playlist(id))
             }
         case .album:
-            screen = .album(id)
+            navPath.append(Route.album(id))
         case .artist:
-            screen = .artist(id)
+            navPath.append(Route.artist(id))
         case .genre, .search, .radio, .other:
             // No dedicated surface for these source types yet — do nothing
             // rather than route to a placeholder. The label itself is

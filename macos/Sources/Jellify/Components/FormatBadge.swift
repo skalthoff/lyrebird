@@ -70,7 +70,8 @@ struct FormatBadge: View {
 			artistName: "Artist", artistId: nil, indexNumber: nil,
 			discNumber: nil, year: nil, runtimeTicks: 0,
 			isFavorite: false, playCount: 0,
-			container: "flac", bitrate: 1_411_000, imageTag: nil
+			container: "flac", bitrate: 1_411_000, imageTag: nil,
+			playlistItemId: nil, userData: nil
 		))
 		// MP3 with bitrate
 		FormatBadge(track: Track(
@@ -78,7 +79,8 @@ struct FormatBadge: View {
 			artistName: "Artist", artistId: nil, indexNumber: nil,
 			discNumber: nil, year: nil, runtimeTicks: 0,
 			isFavorite: false, playCount: 0,
-			container: "mp3", bitrate: 320_000, imageTag: nil
+			container: "mp3", bitrate: 320_000, imageTag: nil,
+			playlistItemId: nil, userData: nil
 		))
 		// Container only, no bitrate
 		FormatBadge(track: Track(
@@ -86,7 +88,8 @@ struct FormatBadge: View {
 			artistName: "Artist", artistId: nil, indexNumber: nil,
 			discNumber: nil, year: nil, runtimeTicks: 0,
 			isFavorite: false, playCount: 0,
-			container: "aac", bitrate: nil, imageTag: nil
+			container: "aac", bitrate: nil, imageTag: nil,
+			playlistItemId: nil, userData: nil
 		))
 		// No container — badge hidden
 		FormatBadge(track: Track(
@@ -94,7 +97,8 @@ struct FormatBadge: View {
 			artistName: "Artist", artistId: nil, indexNumber: nil,
 			discNumber: nil, year: nil, runtimeTicks: 0,
 			isFavorite: false, playCount: 0,
-			container: nil, bitrate: nil, imageTag: nil
+			container: nil, bitrate: nil, imageTag: nil,
+			playlistItemId: nil, userData: nil
 		))
 	}
 	.padding(16)

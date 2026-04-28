@@ -210,7 +210,7 @@ struct HomeView: View {
                     subtitle: album.artistName,
                     artworkURL: model.imageURL(for: album.id, tag: album.imageTag, maxWidth: 96),
                     seed: album.name,
-                    action: { model.screen = .album(album.id) },
+                    action: { model.navPath.append(AppModel.Route.album(album.id)) },
                     onPlay: { model.play(album: album) }
                 )
             }

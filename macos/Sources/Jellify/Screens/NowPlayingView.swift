@@ -20,7 +20,7 @@ import SwiftUI
 /// Out of scope — tracked in separate batches:
 /// - The quote-icon entry on the `PlayerBar` is wired in BATCH-02 (the
 ///   `PlayerBar` is off-limits for this batch). `Cmd+Opt+L` from
-///   `JellifyCommands` plus the `AppModel.screen = .nowPlaying` route
+///   `JellifyCommands` plus pushing `Route.nowPlaying` onto `navPath`
 ///   are enough to reach this view today.
 /// - The queue inspector (#272) is owned by BATCH-07 — the Queue tab
 ///   here renders a placeholder until that lands.
@@ -105,8 +105,7 @@ struct NowPlayingView: View {
 
                 Button(action: {
                     if let artistId = track.artistId {
-                        model.previousScreen = .nowPlaying
-                        model.screen = .artist(artistId)
+                        model.navPath.append(AppModel.Route.artist(artistId))
                     }
                 }) {
                     Text(track.artistName)
@@ -121,8 +120,7 @@ struct NowPlayingView: View {
                 if let album = track.albumName, !album.isEmpty {
                     Button(action: {
                         if let albumId = track.albumId {
-                            model.previousScreen = .nowPlaying
-                            model.screen = .album(albumId)
+                            model.navPath.append(AppModel.Route.album(albumId))
                         }
                     }) {
                         Text(album)
@@ -418,8 +416,15 @@ struct NowPlayingView: View {
     }
 
     private func dismiss() {
-        model.screen = model.previousScreen ?? .library
-        model.previousScreen = nil
+        // NavigationStack handles popping the path; we only need to walk
+        // back one entry. If the user reached this view from a non-stack
+        // entry (legacy paths), fall back to the user's previous tab.
+        if !model.navPath.isEmpty {
+            model.navPath.removeLast()
+        } else if let previous = model.previousScreen {
+            model.selectTab(previous)
+            model.previousScreen = nil
+        }
     }
 
     // MARK: - Empty state
@@ -437,7 +442,7 @@ struct NowPlayingView: View {
                 .font(Theme.font(12, weight: .medium))
                 .foregroundStyle(Theme.ink3)
             Button("Back to Library") {
-                model.screen = .library
+                model.selectTab(.library)
                 model.previousScreen = nil
             }
             .buttonStyle(.borderedProminent)

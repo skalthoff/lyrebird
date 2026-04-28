@@ -746,7 +746,7 @@ struct AlbumCard: View {
 
     var body: some View {
         Button {
-            model.screen = .album(album.id)
+            model.navPath.append(AppModel.Route.album(album.id))
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 ZStack(alignment: .bottomTrailing) {

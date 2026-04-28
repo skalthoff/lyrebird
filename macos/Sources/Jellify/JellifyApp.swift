@@ -125,7 +125,7 @@ struct JellifyCommands: Commands {
         // mode on a fresh placeholder row. See BATCH-06b / #71.
         CommandGroup(replacing: .newItem) {
             Button("menu.file.new_playlist") {
-                model.screen = .library
+                model.selectTab(.library)
                 model.beginNewPlaylist()
             }
             .keyboardShortcut("n", modifiers: .command)
@@ -166,19 +166,19 @@ struct JellifyCommands: Commands {
             // and re-assigning it triggers the same `MainShell` animation
             // as clicking the sidebar.
             Button("menu.nav.home") {
-                model.screen = .home
+                model.selectTab(.home)
             }
             .keyboardShortcut("1", modifiers: .command)
             .disabled(model.session == nil)
 
             Button("menu.nav.library") {
-                model.screen = .library
+                model.selectTab(.library)
             }
             .keyboardShortcut("2", modifiers: .command)
             .disabled(model.session == nil)
 
             Button("menu.nav.search") {
-                model.screen = .search
+                model.selectTab(.search)
             }
             .keyboardShortcut("3", modifiers: .command)
             .disabled(model.session == nil)
@@ -340,12 +340,12 @@ struct JellifyCommands: Commands {
     /// the View / Library ⌘L entry and the Playback ⌘L mirror so either
     /// menu gesture does the same thing. See #89.
     private func toggleNowPlaying() {
-        if model.screen == .nowPlaying {
-            model.screen = model.previousScreen ?? .library
-            model.previousScreen = nil
+        // The full player is a drill destination on `navPath`. If it's the
+        // top of the stack already, pop it; otherwise push it.
+        if model.isShowingNowPlaying {
+            model.navPath.removeLast()
         } else {
-            model.previousScreen = model.screen
-            model.screen = .nowPlaying
+            model.navPath.append(AppModel.Route.nowPlaying)
         }
     }
 

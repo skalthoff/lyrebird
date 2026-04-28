@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Square grid tile used in the Library Artists tab. Mirrors the shape and
 /// visual language of `AlbumCard`: square artwork, name below, hover reveals
-/// a play overlay. Tapping the card routes to the artist detail screen via
-/// `model.screen = .artist(artist.id)`.
+/// a play overlay. Tapping the card pushes the artist detail screen onto
+/// `model.navPath` via `Route.artist(artist.id)`.
 ///
 /// Issue: #213 (Library → Artists grid). The overlay play button calls
 /// `AppModel.playAll(artist:)`, which is a logging stub today pending
@@ -34,7 +34,7 @@ struct ArtistCard: View {
 
     var body: some View {
         Button {
-            model.screen = .artist(artist.id)
+            model.navPath.append(AppModel.Route.artist(artist.id))
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 ZStack(alignment: .bottomTrailing) {
