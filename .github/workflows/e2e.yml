@@ -3,8 +3,6 @@ name: E2E
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   # Nightly re-run catches regressions even when nobody touches the repo.
   schedule:
     - cron: '0 6 * * *'

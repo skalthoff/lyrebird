@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Nightly re-run on main keeps the jobs we skip on PRs (Windows build,
+  # universal xcframework) honest even when nobody pushes for a day.
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -126,6 +131,9 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+      # Apple Silicon only (#660 wontfix). The PR-vs-push-to-main split
+      # the original "trim CI" PR introduced collapses to a single target
+      # now that Intel is permanently dropped.
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin
@@ -159,6 +167,8 @@ jobs:
             macos/Sources/JellifyCore/Generated/jellify_core.swift
       - name: Build xcframework
         working-directory: macos
+        # Apple Silicon only (#660). build-core.sh defaults to arm64 — the
+        # PR-vs-push split that used to live here is moot post-Intel-drop.
         run: ./Scripts/build-core.sh
       - name: swift build (clean when FFI-relevant)
         working-directory: macos
@@ -202,6 +212,10 @@ jobs:
 
   windows:
     name: Windows build
+    # The Windows build dominates PR wall-clock (~10 min). Skip it on
+    # PRs and rely on push-to-main / nightly / dispatch to catch Windows
+    # regressions on the merge commit.
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
