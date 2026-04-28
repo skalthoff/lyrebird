@@ -99,11 +99,16 @@ fi
 while IFS= read -r tag; do
   [[ -z "$tag" ]] && continue
   echo "    tag: $tag"
-  # Glob the DMG assets — there may be one (universal) or two (per-arch).
+  # Each tag's DMGs go into their own subdir so generate_appcast emits
+  # relative paths like "$tag/Jellify-X.Y.Z.dmg". Combined with the
+  # url-prefix below (.../releases/download/), this produces the working
+  # GitHub release-asset URL .../releases/download/$tag/Jellify-X.Y.Z.dmg.
+  # Flat layout would drop the $tag segment and 404. Fixes #742.
+  mkdir -p "$DMG_DIR/$tag"
   gh release download "$tag" \
     --repo "$GITHUB_REPOSITORY" \
     --pattern "*.dmg" \
-    --dir "$DMG_DIR" \
+    --dir "$DMG_DIR/$tag" \
     --skip-existing \
     || echo "    (no DMGs on $tag — skipping)"
 done <<<"$TAGS"
@@ -118,7 +123,9 @@ chmod 600 "$KEY_FILE"
 
 # Prefix used when rewriting download URLs in the feed. Each DMG must be
 # reachable at ${PREFIX}/${TAG}/${FILENAME} so Sparkle clients can fetch
-# it directly from the GitHub release.
+# it directly from the GitHub release. The ${TAG}/${FILENAME} portion is
+# emitted by generate_appcast as a *relative path* derived from each DMG's
+# location under $DMG_DIR — see the per-tag subdir layout above.
 DOWNLOAD_URL_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download"
 
 echo "==> Running generate_appcast"
@@ -128,6 +135,16 @@ echo "==> Running generate_appcast"
   --link "https://skalthoff.github.io/jellify-desktop/" \
   -o "$DOCS/appcast.xml" \
   "$DMG_DIR"
+
+# Sanity-check: assert the regenerated appcast contains tag-prefixed enclosure
+# URLs. If we shipped an appcast with bare /releases/download/<filename>.dmg
+# entries (the bug fixed in #742), every Sparkle client would 404 silently.
+# This grep fails the build before publish so a broken appcast never hits
+# gh-pages.
+if grep -q 'enclosure url="[^"]*/releases/download/[^/"]*\.dmg"' "$DOCS/appcast.xml"; then
+  echo "error: appcast contains tag-less enclosure URL. Each <enclosure url> must include the tag segment (e.g. .../releases/download/v1.0.0/Jellify-1.0.0.dmg). See #742." >&2
+  exit 1
+fi
 
 echo "==> Wrote $DOCS/appcast.xml ($(wc -l < "$DOCS/appcast.xml") lines)"
 
