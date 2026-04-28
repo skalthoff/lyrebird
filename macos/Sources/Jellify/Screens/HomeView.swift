@@ -31,6 +31,7 @@ struct HomeView: View {
                 recentlyPlayedTracksSection
                 recentlyAddedSection
                 quickPicksSection
+                suggestionsSection
                 favoritesSection
                 pinnedStationsRow
                 artistRadioRow
@@ -489,6 +490,31 @@ struct HomeView: View {
                                 PlayCountBadge(plays: plays)
                             }
                         }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// "You might like" — server-curated discovery tracks (#145). Backed by
+    /// `core.suggestions()` which calls Jellyfin's `/Items/Suggestions`
+    /// endpoint. Hidden until data arrives so new users don't see an empty
+    /// shelf. Rendered as compact track rows (same component as the
+    /// Recently Played track list) — tap to play a single track instantly.
+    @ViewBuilder
+    private var suggestionsSection: some View {
+        if !model.suggestions.isEmpty {
+            carouselSection(
+                icon: "wand.and.sparkles",
+                iconColor: Theme.primary,
+                title: "You Might Like",
+                subtitle: "Picks the server thinks you'll love",
+                onSeeAll: nil
+            ) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(model.suggestions, id: \.id) { track in
+                        RecentlyPlayedTrackRow(track: track)
                     }
                 }
                 .padding(.vertical, 4)

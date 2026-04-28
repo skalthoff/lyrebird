@@ -148,6 +148,11 @@ final class AppModel {
     /// 12. Re-derived every time the backing set is refreshed so the view
     /// doesn't have to know about the shuffle.
     var favoriteAlbumsVisible: [Album] = []
+    /// Server-curated "You might like" tracks for the Home discovery row
+    /// (#145). Backed by `core.suggestions()`, which hits Jellyfin's
+    /// `/Items/Suggestions` endpoint. Up to 20 tracks. Hidden until data
+    /// arrives so first-time users don't see an empty shelf.
+    var suggestions: [Track] = []
     var searchResults: SearchResults?
     var searchQuery: String = ""
 
@@ -778,6 +783,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        suggestions = []
         searchResults = nil
         searchQuery = ""
 
@@ -839,6 +845,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        suggestions = []
         searchResults = nil
         searchQuery = ""
 
@@ -995,6 +1002,7 @@ final class AppModel {
         await refreshRecentlyAdded()
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
+        await refreshSuggestions()
     }
 
     /// Fetch the next page of albums and append to `albums`. No-op when a
@@ -1365,6 +1373,20 @@ final class AppModel {
     /// the server.
     func reshuffleFavoriteAlbumsVisible() {
         self.favoriteAlbumsVisible = Array(favoriteAlbumsAll.shuffled().prefix(12))
+    }
+
+    /// Refresh the "You might like" discovery row (#145). Calls
+    /// `core.suggestions()` which hits Jellyfin's `/Items/Suggestions`
+    /// endpoint filtered to Audio + MusicAlbum/MusicArtist. Returns up to
+    /// 20 tracks server-ranked by play history and social signals. Runs
+    /// off the MainActor per the gap-#2 pattern so the Rust mutex doesn't
+    /// block the UI thread. Silent on error — an empty shelf is a fine
+    /// first-time-user state.
+    func refreshSuggestions() async {
+        let fetched = await Task.detached(priority: .userInitiated) { [core] in
+            (try? core.suggestions(limit: 20)) ?? []
+        }.value
+        self.suggestions = fetched
     }
 
     /// Load every favorite track on the server and play them shuffled.
