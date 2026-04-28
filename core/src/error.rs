@@ -97,7 +97,7 @@ impl JellifyError {
     ///
     /// `JellifyError` is declared `#[uniffi(flat_error)]` so UniFFI treats it
     /// as an opaque thrown-error type and cannot export methods on it directly.
-    /// The Swift layer ([`JellifyErrorPresenter`]) currently mirrors this
+    /// The Swift layer (`JellifyErrorPresenter`) currently mirrors this
     /// mapping by substring-matching the `Display` string; a follow-up PR can
     /// replace that with a proper call once the bindings layer adds support for
     /// error-type method dispatch.
