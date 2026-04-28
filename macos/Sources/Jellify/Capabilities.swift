@@ -22,7 +22,7 @@ extension AppModel {
     /// on artist surfaces. Top-track-driven actions (Play Next via
     /// top-tracks fallback, Start Artist Radio) remain available because
     /// they route through wired FFIs.
-    var supportsArtistPlayShuffle: Bool { false }
+    var supportsArtistPlayShuffle: Bool { true }
 
     /// New-playlist picker (#72, #126). Gates the "New Playlist…" entry
     /// at the bottom of Add to Playlist submenus on album and track
