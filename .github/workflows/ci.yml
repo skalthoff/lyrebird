@@ -206,8 +206,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
+      # rust-toolchain.toml at the repo root pins to 1.86 and overrides the
+      # action's `targets:` input — the action installs targets for the
+      # *requested* (stable) toolchain, not the one rustup actually selects.
+      # So we install Windows targets explicitly under the active toolchain.
+      - name: Install Windows Rust targets under the pinned toolchain
+        shell: pwsh
+        run: |
+          rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
         with:
           key: windows
