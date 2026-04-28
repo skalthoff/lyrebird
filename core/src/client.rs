@@ -1014,6 +1014,86 @@ impl JellyfinClient {
         Ok(raw.items.into_iter().map(Track::from).collect())
     }
 
+    /// Fetch every audio track in an artist's catalog, ordered for "play all"
+    /// — albums alphabetised, each album in disc + track order. Filters by
+    /// `AlbumArtistIds` (not `ArtistIds`) so guest features on other artists'
+    /// albums don't leak in; matches [`Self::albums_by_artist`]'s scope.
+    ///
+    /// Backed by `GET /Users/{id}/Items?AlbumArtistIds={id}&IncludeItemTypes=Audio
+    /// &Recursive=true&SortBy=Album,ParentIndexNumber,IndexNumber
+    /// &SortOrder=Ascending,Ascending,Ascending`. The three-column sort matches
+    /// `album_tracks` (#571 fix) — `ItemSortBy` doesn't expose
+    /// ParentIndexNumber / IndexNumber so the URL is hand-rolled. `paging`
+    /// drives the standard `Limit` / `StartIndex` pair; callers wanting the
+    /// full discography pass a generous `limit` (e.g. 500) and accept the
+    /// soft cap. See #156.
+    ///
+    /// Requires an authenticated session; returns
+    /// [`JellifyError::NotAuthenticated`] if no `user_id` is set.
+    pub async fn tracks_by_artist(
+        &self,
+        artist_id: &str,
+        paging: Paging,
+    ) -> Result<PaginatedTracks> {
+        let user_id = self
+            .user_id
+            .as_ref()
+            .ok_or(JellifyError::NotAuthenticated)?;
+        let mut url = self.endpoint(&format!("Users/{user_id}/Items"))?;
+        {
+            let mut q = url.query_pairs_mut();
+            q.append_pair("AlbumArtistIds", artist_id);
+            q.append_pair("Recursive", "true");
+            q.append_pair("IncludeItemTypes", ItemKind::Audio.as_str());
+            q.append_pair("Limit", &paging.limit.max(1).to_string());
+            q.append_pair("StartIndex", &paging.offset.to_string());
+            // Three-field sort gives proper catalog order: album name,
+            // then disc, then track. Hand-rolled because ItemSortBy doesn't
+            // expose ParentIndexNumber / IndexNumber.
+            q.append_pair("SortBy", "Album,ParentIndexNumber,IndexNumber");
+            q.append_pair(
+                "SortOrder",
+                &enums::csv(
+                    &[
+                        SortOrder::Ascending,
+                        SortOrder::Ascending,
+                        SortOrder::Ascending,
+                    ],
+                    SortOrder::as_str,
+                ),
+            );
+            q.append_pair("EnableUserData", "true");
+            q.append_pair("EnableImages", "true");
+            q.append_pair("ImageTypeLimit", "1");
+            q.append_pair(
+                "Fields",
+                &enums::csv(
+                    &[
+                        ItemField::MediaSources,
+                        ItemField::UserData,
+                        ItemField::ParentId,
+                        ItemField::AlbumId,
+                        ItemField::AlbumArtist,
+                        ItemField::Artists,
+                        ItemField::ProductionYear,
+                        ItemField::PrimaryImageAspectRatio,
+                        ItemField::RunTimeTicks,
+                    ],
+                    ItemField::as_str,
+                ),
+            );
+        }
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let raw: RawItems<RawItem> = resp.json().await?;
+        let items: Vec<Track> = raw.items.into_iter().map(Track::from).collect();
+        Ok(PaginatedTracks {
+            items,
+            total_count: raw.total_record_count,
+        })
+    }
+
     /// Fetch an artist's "top tracks" — audio items credited to the given
     /// artist, sorted by the user's `PlayCount` descending with `SortName` as
     /// a stable tiebreaker. Backed by

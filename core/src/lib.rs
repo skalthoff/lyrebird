@@ -393,6 +393,22 @@ impl JellifyCore {
         })
     }
 
+    /// Every audio track in an artist's catalog, paginated, in catalog order
+    /// (album name → disc → track). Filters by `AlbumArtistIds` so guest
+    /// features on other artists' albums don't leak in. Powers the artist
+    /// page "Play All" / "Shuffle" affordances — see #156.
+    pub fn tracks_by_artist(
+        &self,
+        artist_id: String,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedTracks, JellifyError> {
+        self.with_client(|c| {
+            self.runtime
+                .block_on(c.tracks_by_artist(&artist_id, Paging::new(offset, limit)))
+        })
+    }
+
     /// Seed a station around any item (track, album, artist, playlist,
     /// genre) via Jellyfin's polymorphic `/Items/{id}/InstantMix`. Returns a
     /// freshly generated queue of audio tracks the caller drops into the

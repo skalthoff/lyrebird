@@ -3152,19 +3152,49 @@ final class AppModel {
 
     // MARK: - Artist actions
 
-    /// Play every track by an artist in catalog order.
-    /// TODO: #156 / #465 — artist-tracks FFI (and an ItemsQuery filter for
-    /// `artist_id`) isn't wired yet, so this is a logging stub.
+    /// Play every track in an artist's catalog (album → disc → track order).
+    /// Caps at the soft 500-track ceiling — prolific artists may have more,
+    /// but the player gets a deterministic prefix that matches what
+    /// `tracks_by_artist` returned. See #156.
     func playAll(artist: Artist) {
-        // TODO: #156 / #465 — artist-tracks FFI not yet wired.
-        print("[AppModel] playAll(artist:) not yet wired — see #156 / #465")
+        Task {
+            let tracks = await loadTracks(forArtist: artist.id)
+            guard !tracks.isEmpty else { return }
+            play(tracks: tracks, startIndex: 0)
+        }
     }
 
-    /// Shuffle every track by an artist.
-    /// TODO: #156 / #465 — same artist-tracks FFI dependency as `playAll`.
+    /// Shuffle every track in an artist's catalog. Loads in catalog order,
+    /// shuffles client-side, plays from the head. Same 500-track soft cap
+    /// as `playAll(artist:)`. See #156.
     func shuffle(artist: Artist) {
-        // TODO: #156 / #465 — artist-tracks FFI not yet wired.
-        print("[AppModel] shuffle(artist:) not yet wired — see #156 / #465")
+        Task {
+            let tracks = await loadTracks(forArtist: artist.id)
+            guard !tracks.isEmpty else { return }
+            play(tracks: tracks.shuffled(), startIndex: 0)
+        }
+    }
+
+    /// Internal helper — fetch the first page of an artist's catalog via the
+    /// `tracks_by_artist` FFI. Mirrors `loadTracks(forAlbum:)` in shape so
+    /// `playAll(artist:)` / `shuffle(artist:)` collapse to a one-liner. The
+    /// 500-row limit is a deliberate soft cap to keep the FFI / queue under
+    /// a single round-trip. See #156.
+    private func loadTracks(forArtist artistId: String) async -> [Track] {
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.tracksByArtist(artistId: artistId, offset: 0, limit: 500)
+            }.value
+            return page.items
+        } catch {
+            if !handleAuthError(error) {
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = JellifyErrorPresenter.message(for: error, context: .libraryLoad)
+            }
+            return []
+        }
     }
 
     /// Play the artist's top tracks (play-count-weighted). Fetches the

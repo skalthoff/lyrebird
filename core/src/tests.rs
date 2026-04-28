@@ -7246,3 +7246,101 @@ async fn mark_played_without_session_returns_not_authenticated() {
         requests
     );
 }
+
+// ============================================================================
+// tracks_by_artist (#156)
+// ============================================================================
+
+#[tokio::test]
+async fn tracks_by_artist_filters_by_album_artist_with_catalog_sort() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Users/u1/Items"))
+        .and(query_param("AlbumArtistIds", "artist-77"))
+        .and(query_param("Recursive", "true"))
+        .and(query_param("IncludeItemTypes", "Audio"))
+        .and(query_param("SortBy", "Album,ParentIndexNumber,IndexNumber"))
+        .and(query_param("SortOrder", "Ascending,Ascending,Ascending"))
+        .and(query_param("EnableUserData", "true"))
+        .and(query_param("Limit", "500"))
+        .and(query_param("StartIndex", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                { "Id": "t1", "Name": "Track One", "Type": "Audio", "AlbumId": "a1", "AlbumArtist": "X" },
+                { "Id": "t2", "Name": "Track Two", "Type": "Audio", "AlbumId": "a1", "AlbumArtist": "X" }
+            ],
+            "TotalRecordCount": 2
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let page = client
+        .tracks_by_artist("artist-77", Paging::new(0, 500))
+        .await
+        .unwrap();
+    assert_eq!(page.total_count, 2);
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(page.items[0].id, "t1");
+    assert_eq!(page.items[1].id, "t2");
+}
+
+#[tokio::test]
+async fn tracks_by_artist_propagates_pagination_offset() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Users/u1/Items"))
+        .and(query_param("AlbumArtistIds", "artist-77"))
+        .and(query_param("Limit", "50"))
+        .and(query_param("StartIndex", "100"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [],
+            "TotalRecordCount": 250
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let page = client
+        .tracks_by_artist("artist-77", Paging::new(100, 50))
+        .await
+        .unwrap();
+    assert_eq!(page.total_count, 250, "server-reported total wins over page len");
+    assert!(page.items.is_empty());
+}
+
+#[tokio::test]
+async fn tracks_by_artist_without_session_returns_not_authenticated() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client
+        .tracks_by_artist("artist-77", Paging::new(0, 500))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, crate::error::JellifyError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "guard must short-circuit before any HTTP call"
+    );
+}
