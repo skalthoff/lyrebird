@@ -53,6 +53,7 @@ struct Sidebar: View {
             VStack(alignment: .leading, spacing: 2) {
                 navItem("house", label: "sidebar.nav.home", screen: .home)
                 navItem("music.note.list", label: "sidebar.nav.library", screen: .library)
+                navItem("sparkles", label: "sidebar.nav.discover", screen: .discover)
                 navItem("magnifyingglass", label: "sidebar.nav.search", screen: .search)
             }
             .padding(.horizontal, 10)
