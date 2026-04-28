@@ -60,7 +60,7 @@ struct PreferencesGeneral: View {
 
             PreferenceSection(
                 title: "Language",
-                footnote: "Only English ships today. The picker is here so you can see the setting exists — additional languages will appear as translations land. TODO(i18n-#345)."
+                footnote: "Only English ships today — additional languages will appear as translations land."
             ) {
                 PreferenceRow(
                     label: "Language",
