@@ -148,7 +148,7 @@ jobs:
       # this just invalidates it when the FFI surface moves.
       - name: Detect FFI-relevant changes
         id: ffi_changed
-        uses: tj-actions/changed-files@v45
+        uses: tj-actions/changed-files@v47
         with:
           files: |
             core/src/lib.rs
