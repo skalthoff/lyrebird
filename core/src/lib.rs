@@ -698,10 +698,7 @@ impl JellifyCore {
     /// `played` + `play_count` + `last_played_at` without refetching. Errors
     /// with [`JellifyError::NotAuthenticated`] if no session is active.
     /// See issue #133.
-    pub fn mark_played(
-        &self,
-        item_id: String,
-    ) -> std::result::Result<UserItemData, JellifyError> {
+    pub fn mark_played(&self, item_id: String) -> std::result::Result<UserItemData, JellifyError> {
         self.with_client(|c| self.runtime.block_on(c.mark_played(&item_id)))
     }
 

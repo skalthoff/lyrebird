@@ -7056,14 +7056,21 @@ async fn mark_played_uses_preferred_endpoint_and_returns_user_data() {
     let state = client.mark_played("track-abc").await.unwrap();
     assert!(state.played);
     assert_eq!(state.play_count, 3);
-    assert_eq!(state.last_played_at.as_deref(), Some("2026-04-25T18:00:00Z"));
+    assert_eq!(
+        state.last_played_at.as_deref(),
+        Some("2026-04-25T18:00:00Z")
+    );
 
     let requests = server.received_requests().await.unwrap();
     let post = requests
         .iter()
         .find(|r| r.method.as_str() == "POST" && r.url.path() == "/UserPlayedItems/track-abc")
         .expect("expected POST to preferred played endpoint");
-    assert!(post.body.is_empty(), "expected empty body, got {:?}", post.body);
+    assert!(
+        post.body.is_empty(),
+        "expected empty body, got {:?}",
+        post.body
+    );
     assert!(
         !requests
             .iter()
@@ -7104,8 +7111,9 @@ async fn mark_unplayed_uses_preferred_endpoint_and_returns_user_data() {
 
     let requests = server.received_requests().await.unwrap();
     assert!(
-        requests.iter().any(|r| r.method.as_str() == "DELETE"
-            && r.url.path() == "/UserPlayedItems/track-abc"),
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "DELETE" && r.url.path() == "/UserPlayedItems/track-abc"),
         "expected DELETE to /UserPlayedItems/track-abc"
     );
     assert!(
@@ -7202,8 +7210,9 @@ async fn mark_unplayed_falls_back_to_legacy_route_on_405() {
 
     let requests = server.received_requests().await.unwrap();
     assert!(
-        requests.iter().any(|r| r.method.as_str() == "DELETE"
-            && r.url.path() == "/UserPlayedItems/track-abc"),
+        requests
+            .iter()
+            .any(|r| r.method.as_str() == "DELETE" && r.url.path() == "/UserPlayedItems/track-abc"),
         "expected preferred route to be tried first"
     );
     assert!(
