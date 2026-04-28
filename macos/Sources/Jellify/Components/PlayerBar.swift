@@ -101,7 +101,11 @@ struct PlayerBar: View {
     private var centerTransport: some View {
         VStack(spacing: 6) {
             HStack(spacing: 20) {
-                iconBtn("shuffle", label: "Shuffle")
+                iconBtn(
+                    "shuffle",
+                    label: "Shuffle",
+                    tint: model.status.shuffle ? Theme.accent : Theme.ink2
+                ) { model.mediaSessionSetShuffle(!model.status.shuffle) }
                     .help("Shuffle")
                 iconBtn("backward.fill", label: "Previous track", size: 16) { model.skipPrevious() }
                     .help("Previous · ⌘←")
@@ -120,7 +124,20 @@ struct PlayerBar: View {
                 .help(isPlaying ? "Pause · Space" : "Play · Space")
                 iconBtn("forward.fill", label: "Next track", size: 16) { model.skipNext() }
                     .help("Next · ⌘→")
-                iconBtn("repeat", label: "Repeat")
+                iconBtn(
+                    model.status.repeatMode == .one ? "repeat.1" : "repeat",
+                    label: "Repeat",
+                    tint: model.status.repeatMode != .off ? Theme.accent : Theme.ink2
+                ) {
+                    let next: RepeatMode = {
+                        switch model.status.repeatMode {
+                        case .off: return .all
+                        case .all: return .one
+                        case .one: return .off
+                        }
+                    }()
+                    model.mediaSessionSetRepeatMode(next)
+                }
                     .help("Repeat")
             }
             scrubber
@@ -285,12 +302,13 @@ struct PlayerBar: View {
         _ name: String,
         label: String,
         size: CGFloat = 14,
+        tint: Color = Theme.ink2,
         action: @escaping () -> Void = {}
     ) -> some View {
         Button(action: action) {
             Image(systemName: name)
                 .font(.system(size: size))
-                .foregroundStyle(Theme.ink2)
+                .foregroundStyle(tint)
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
