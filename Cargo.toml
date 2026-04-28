@@ -9,7 +9,7 @@ members = [
 [workspace.package]
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.92"
+rust-version = "1.86"
 license = "GPL-3.0-only"
 repository = "https://github.com/Jellify-Music/Jellify"
 
