@@ -131,10 +131,18 @@ chmod 600 "$KEY_FILE"
 DOWNLOAD_URL_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download"
 
 echo "==> Running generate_appcast"
+# --maximum-deltas 0 disables Sparkle delta generation. Deltas need the
+# .delta files to be uploaded to the GitHub release, which the workflow
+# doesn't do — every shipped release referenced .delta enclosures whose
+# URLs 404. Sparkle clients silently retry with the full DMG, so the
+# only cost of disabling deltas is slightly larger update downloads
+# (~10 MB DMG vs ~1 MB delta). Re-enable when the workflow learns to
+# upload Sparkle's .delta artifacts. See #758.
 "$SPARKLE_BIN" \
   --ed-key-file "$KEY_FILE" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX/" \
   --link "https://skalthoff.github.io/jellify-desktop/" \
+  --maximum-deltas 0 \
   -o "$DOCS/appcast.xml" \
   "$DMG_DIR"
 
