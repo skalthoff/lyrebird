@@ -33,5 +33,11 @@ anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+# NOTE: pinned to 0.20.x to keep workspace MSRV at 1.86. The 0.22.x line
+# of every glib-rs crate (gio, glib, glib-macros, glib-build-tools, etc.)
+# raises rust-version metadata to 1.92 — Cargo's MSRV-aware resolver then
+# rejects every workspace `cargo` invocation when the toolchain is 1.86.
+# Bumping back to 0.22 lands together with the wider Rust-toolchain
+# bump tracked in #750.
 [build-dependencies]
-glib-build-tools = "0.22"
+glib-build-tools = "0.20"
