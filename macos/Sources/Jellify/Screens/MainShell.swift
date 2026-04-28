@@ -329,14 +329,15 @@ struct MainShell: View {
     /// Handles a tap on a breadcrumb segment at `idx`. Navigation is driven
     /// by the current screen and `navPath`, so the component stays agnostic
     /// of label strings (no brittle title matching). Index 0 is the root
-    /// ("Jellify") and always pops the drill stack to the library tab. For
-    /// nested screens, intermediate indices pop to the library; the final
-    /// index is the current location and is a no-op.
+    /// ("Jellify") and clears the drill stack while staying on the current
+    /// tab. For nested screens, intermediate indices pop back to the current
+    /// tab root; the final index is the current location and is a no-op.
     private func navigate(toBreadcrumbDepth idx: Int) {
-        // Index 0 is the root ("Jellify") — pop everything and land on
-        // Library, which is the historical fallback root.
+        // Index 0 is the root ("Jellify") — clear the drill stack and stay
+        // on whichever tab the user is already on.
         guard idx > 0 else {
-            model.selectTab(.library)
+            model.navPath = []
+            model.selectTab(model.screen)
             return
         }
 
@@ -345,11 +346,11 @@ struct MainShell: View {
         // the current location.
         guard !model.navPath.isEmpty else { return }
 
-        // Drill on the stack: trail is ["Jellify", "Library", "<section>",
-        // <name>]. idx 1 = "Library" and idx 2 = the section both pop the
+        // Drill on the stack: trail is ["Jellify", "<tab>", "<section>",
+        // <name>]. idx 1 = tab root and idx 2 = the section both pop the
         // drill; idx 3 is the current location.
         if idx < 3 {
-            model.selectTab(.library)
+            model.selectTab(model.screen)
         }
     }
 }
