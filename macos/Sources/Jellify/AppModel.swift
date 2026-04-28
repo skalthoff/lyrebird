@@ -28,7 +28,7 @@ final class AppModel {
     /// Active root tab. Drill destinations (album / artist / playlist /
     /// nowPlaying) live on `navPath` instead so back navigation is handled
     /// by `NavigationStack` natively. See #1 / #4.
-    enum Screen: Hashable { case home, discover, library, search, settings }
+    enum Screen: Hashable { case home, discover, library, favorites, search, settings }
     var screen: Screen = .library
 
     /// Typed value-type for `NavigationStack` destinations. Root tabs and
@@ -39,6 +39,7 @@ final class AppModel {
         case home
         case discover
         case library
+        case favorites
         case search
         case settings
         case album(String)
@@ -1451,14 +1452,10 @@ final class AppModel {
     }
 
     /// Navigate to the full library scoped to favorites (#55 "See All").
-    /// The library view doesn't yet carry a "filter to favorites" chip
-    /// (tracked alongside the filter UI in a future library polish pass),
-    /// so this just routes the user to the library for now. The view
-    /// accepts additional filters once the chip row grows one.
+    /// Open the dedicated Favorites screen. Used by the sidebar's
+    /// Favorites row and the Home Favorites carousel "See all" CTA.
     func showAllFavorites() {
-        // TODO(library-filter): once the library chip row supports a
-        //   "Favorites" filter, route here with the filter pre-selected.
-        selectTab(.library)
+        selectTab(.favorites)
     }
 
     /// Shared helper: build a `GET /Items` request against the user's
@@ -1599,6 +1596,78 @@ final class AppModel {
         }
     }
 
+    // MARK: - Favorites surface (#760)
+    //
+    // Public load helpers backing the dedicated Favorites screen. Each
+    // returns the user's favorited items in stable, name-sorted order
+    // (Random order on the Home shuffle CTA is the exception above).
+
+    /// Fetch up to `limit` favorited audio tracks, sorted by name.
+    /// Backs the "Songs" section of the Favorites screen. Returns an
+    /// empty array on auth/network/parse failure.
+    @discardableResult
+    func loadFavoriteTracks(limit: UInt32 = 500) async -> [Track] {
+        guard let request = buildItemsQuery(
+            includeItemTypes: "Audio",
+            sortBy: "SortName",
+            sortOrder: "Ascending",
+            filters: "IsFavorite",
+            limit: limit,
+            extraFields: [],
+            minDateLastSaved: nil,
+            parentId: nil
+        ) else { return [] }
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: request)
+            if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
+                markAuthExpired()
+                return []
+            }
+            return Self.parseTracksFromItems(data: data)
+        } catch {
+            print("[AppModel] loadFavoriteTracks failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
+    /// Fetch up to `limit` favorited albums, sorted by name. Backs the
+    /// "Albums" section of the Favorites screen.
+    func loadFavoriteAlbums(limit: UInt32 = 500) async -> [Album] {
+        await fetchAlbumsViaItemsQuery(
+            sortBy: "SortName",
+            filters: "IsFavorite",
+            limit: limit,
+            extraFields: [],
+            minDateLastSaved: nil
+        )
+    }
+
+    /// Fetch up to `limit` favorited artists, sorted by name. Backs the
+    /// "Artists" section of the Favorites screen.
+    func loadFavoriteArtists(limit: UInt32 = 500) async -> [Artist] {
+        guard let request = buildItemsQuery(
+            includeItemTypes: "MusicArtist",
+            sortBy: "SortName",
+            sortOrder: "Ascending",
+            filters: "IsFavorite",
+            limit: limit,
+            extraFields: [],
+            minDateLastSaved: nil,
+            parentId: nil
+        ) else { return [] }
+        do {
+            let (data, resp) = try await URLSession.shared.data(for: request)
+            if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
+                markAuthExpired()
+                return []
+            }
+            return Self.parseArtistsFromItems(data: data)
+        } catch {
+            print("[AppModel] loadFavoriteArtists failed: \(error.localizedDescription)")
+            return []
+        }
+    }
+
     /// Build an authenticated `GET /Items` request against the current
     /// session's server. Returns `nil` when there is no session or the
     /// core refuses to hand out an auth header. Keeps the URL
@@ -1715,6 +1784,52 @@ final class AppModel {
     /// typed `Album` the core produces. Returns `nil` when the minimum
     /// required fields (`Id`, `Name`) aren't present so we don't render
     /// blank tiles.
+    /// Parse `{ Items: [...] }` into typed `Artist` values. Mirror of
+    /// `parseAlbumsFromItems` — used by the Favorites screen's "Artists"
+    /// section. See `loadFavoriteArtists`.
+    private static func parseArtistsFromItems(data: Data) -> [Artist] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let items = root["Items"] as? [[String: Any]]
+        else { return [] }
+        return items.compactMap { Self.artistFromDTO($0) }
+    }
+
+    /// Project a Jellyfin `BaseItemDto` into the typed `Artist` shape.
+    /// `albumCount` / `songCount` come back from the server when they're
+    /// available; defaults to 0 otherwise so the tile count line stays
+    /// renderable.
+    private static func artistFromDTO(_ entry: [String: Any]) -> Artist? {
+        guard
+            let id = (entry["Id"] as? String)?.trimmingCharacters(in: .whitespaces),
+            !id.isEmpty,
+            let name = (entry["Name"] as? String)?.trimmingCharacters(in: .whitespaces),
+            !name.isEmpty
+        else { return nil }
+        let albumCount: UInt32 = {
+            if let c = entry["AlbumCount"] as? Int, c >= 0 { return UInt32(c) }
+            return 0
+        }()
+        let songCount: UInt32 = {
+            if let c = entry["SongCount"] as? Int, c >= 0 { return UInt32(c) }
+            return 0
+        }()
+        let genres: [String] = (entry["Genres"] as? [String]) ?? []
+        let imageTag: String? = {
+            if let tags = entry["ImageTags"] as? [String: String],
+               let primary = tags["Primary"], !primary.isEmpty { return primary }
+            return nil
+        }()
+        return Artist(
+            id: id,
+            name: name,
+            albumCount: albumCount,
+            songCount: songCount,
+            genres: genres,
+            imageTag: imageTag,
+            userData: nil
+        )
+    }
+
     private static func albumFromDTO(_ entry: [String: Any]) -> Album? {
         guard
             let id = (entry["Id"] as? String)?.trimmingCharacters(in: .whitespaces),

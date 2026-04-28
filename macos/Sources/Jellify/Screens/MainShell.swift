@@ -194,6 +194,8 @@ struct MainShell: View {
             DiscoverView()
         case .library:
             LibraryView()
+        case .favorites:
+            FavoritesView()
         case .search:
             SearchView()
         case .settings:
@@ -252,6 +254,8 @@ struct MainShell: View {
             HomeView()
         case .library:
             LibraryView()
+        case .favorites:
+            FavoritesView()
         case .discover:
             DiscoverView()
         case .search:
@@ -294,6 +298,7 @@ struct MainShell: View {
         case .home: segments.append("Home")
         case .discover: segments.append("Discover")
         case .library: segments.append("Library")
+        case .favorites: segments.append("Favorites")
         case .search: segments.append("Search")
         case .settings: segments.append("Settings")
         }
@@ -331,7 +336,7 @@ struct MainShell: View {
             }
         case .nowPlaying?:
             segments.append("Now Playing")
-        case .home?, .discover?, .library?, .search?, .settings?, nil:
+        case .home?, .discover?, .library?, .favorites?, .search?, .settings?, nil:
             break
         }
         return segments

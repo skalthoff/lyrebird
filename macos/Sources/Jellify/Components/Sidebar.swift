@@ -63,10 +63,7 @@ struct Sidebar: View {
             // in place; the playlist list lives as its own section below.
             sectionHeader("sidebar.section.your_library")
             VStack(alignment: .leading, spacing: 2) {
-                // "Favorites" has no dedicated surface yet — route to the
-                // library's default tab for now so the row isn't a dead
-                // click (follow-up: dedicated favorites tab, #133).
-                libRow("heart", label: "sidebar.stats.favorites", count: nil, tab: .albums)
+                favoritesRow
                 libRow("square.stack", label: "sidebar.stats.albums", count: UInt32(model.albums.count), tab: .albums)
                 libRow("person.crop.circle", label: "sidebar.stats.artists", count: UInt32(model.artists.count), tab: .artists)
                 libRow("music.note.list", label: "sidebar.stats.playlists", count: UInt32(model.playlists.count), tab: .playlists)
@@ -298,6 +295,34 @@ struct Sidebar: View {
         // user hears which one they're on without parsing visual chrome.
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
+    }
+
+    /// Sidebar entry for the dedicated Favorites surface. Mirrors libRow
+    /// visually but routes to `.favorites` (its own root tab) instead of
+    /// the Library with a tab pre-selected.
+    @ViewBuilder
+    private var favoritesRow: some View {
+        Button {
+            model.selectTab(.favorites)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "heart")
+                    .foregroundStyle(Theme.ink2)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+                Text("sidebar.stats.favorites")
+                    .font(Theme.font(13, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("sidebar.stats.favorites")
+        .accessibilityAddTraits(.isButton)
     }
 
     @ViewBuilder
