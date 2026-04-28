@@ -137,7 +137,7 @@ struct PreferencesAccount: View {
             // Not yet implemented; see #609.
             Button("Quick Connect") {}
                 .disabled(true)
-                .help("Coming soon — see #609")
+                .help("Quick Connect pairing is not yet supported.")
                 .accessibilityLabel("Quick Connect")
                 .accessibilityHint("Not yet available. Jellyfin Quick Connect pairing is coming in a future update.")
         }

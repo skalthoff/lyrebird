@@ -694,33 +694,35 @@ private struct GenreResultRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: { model.browseGenre(genre: name) }) {
-            HStack(spacing: 12) {
-                Image(systemName: "guitars")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Theme.ink2)
-                    .frame(width: 24)
-                Text(name)
-                    .font(Theme.font(13, weight: .semibold))
-                    .foregroundStyle(Theme.ink)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.ink3)
-                    .opacity(isHovering ? 1 : 0.4)
+        if model.supportsGenreActions {
+            Button(action: { model.browseGenre(genre: name) }) {
+                HStack(spacing: 12) {
+                    Image(systemName: "guitars")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(width: 24)
+                    Text(name)
+                        .font(Theme.font(13, weight: .semibold))
+                        .foregroundStyle(Theme.ink)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
+                        .opacity(isHovering ? 1 : 0.4)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isHovering ? Theme.rowHover : .clear)
+                )
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovering ? Theme.rowHover : .clear)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .onHover { isHovering = $0 }
+            .contextMenu { GenreContextMenu(genre: name) }
+            .accessibilityLabel("Browse genre \(name)")
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .contextMenu { GenreContextMenu(genre: name) }
-        .accessibilityLabel("Browse genre \(name)")
     }
 }
 

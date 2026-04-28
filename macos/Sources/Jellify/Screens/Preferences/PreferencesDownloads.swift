@@ -31,7 +31,7 @@ struct PreferencesDownloads: View {
 
             PreferenceSection(
                 title: "Location",
-                footnote: "Offline copies live inside Jellify's cache folder so macOS can evict them under disk pressure. Choosing a custom location lives with the rest of the download manager work — TODO(#570)."
+                footnote: "Offline copies live inside Jellify's cache folder so macOS can evict them under disk pressure."
             ) {
                 PreferenceRow(
                     label: "Download location",
