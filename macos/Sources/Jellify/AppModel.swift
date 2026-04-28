@@ -28,6 +28,43 @@ final class AppModel {
     enum Screen: Hashable { case home, discover, library, search, settings, album(String), artist(String), playlist(String), nowPlaying }
     var screen: Screen = .library
 
+    /// Typed value-type for the SwiftUI NavigationStack migration (#1, #4).
+    /// Mirrors `Screen` 1:1. Coexists with `Screen` during the migration —
+    /// `Screen` is removed in B3 once all consumers move to `navPath`.
+    enum Route: Hashable {
+        case home
+        case discover
+        case library
+        case search
+        case settings
+        case album(String)
+        case artist(String)
+        case playlist(String)
+        case nowPlaying
+    }
+
+    /// Typed `NavigationPath` for the new NavigationSplitView shell.
+    /// Empty when the user is on the root of a tab; gains entries as they
+    /// drill into albums / artists / playlists.
+    /// B2 wires this into the new shell; B3 makes it the source of truth.
+    var navPath = NavigationPath()
+
+    /// Returns the `Route` equivalent of the legacy `screen` enum.
+    /// Removed in B3 once all call sites move to `navPath`.
+    func currentRoute() -> Route {
+        switch screen {
+        case .home: return .home
+        case .discover: return .discover
+        case .library: return .library
+        case .search: return .search
+        case .settings: return .settings
+        case .album(let id): return .album(id)
+        case .artist(let id): return .artist(id)
+        case .playlist(let id): return .playlist(id)
+        case .nowPlaying: return .nowPlaying
+        }
+    }
+
     /// Which chip is active on the Library screen. Driven by the sidebar's
     /// "Albums / Artists / Playlists" libRows so they can deep-link into a
     /// specific tab rather than always landing on the default. `LibraryView`
