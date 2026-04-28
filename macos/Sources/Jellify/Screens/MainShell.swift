@@ -7,33 +7,63 @@ struct MainShell: View {
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                // Tab order (#334): sidebar → primary content (toolbar +
-                // body) → queue inspector → player bar. Higher sort
-                // priority wins first, so sidebar is the entry point.
+            // Native two-column shell (#1, #4). The sidebar lives in the
+            // OS-managed column so users get the standard show/hide
+            // affordance + draggable separator for free; the detail column
+            // wraps the existing screen switch in a `NavigationStack` driven
+            // by `model.navPath`. `model.screen` remains the source of truth
+            // for which root view renders during B2 — `navPath` is empty in
+            // production until B3 migrates the call sites that still write
+            // `model.screen` over to `model.navPath.append(...)`.
+            NavigationSplitView {
+                // Tab order (#334): sidebar gets first focus, then the
+                // detail column, then the queue inspector / player bar.
                 Sidebar()
                     .accessibilitySortPriority(100)
-                Divider().background(Theme.border)
-                contentColumn
+                    // Pin the sidebar to the existing 252pt design width so
+                    // NavigationSplitView's auto-sizing doesn't expand the
+                    // column past what the brand mark + nav rows assume.
+                    .navigationSplitViewColumnWidth(252)
+            } detail: {
+                HStack(spacing: 0) {
+                    NavigationStack(path: $model.navPath) {
+                        contentColumn
+                            // Stub destinations during B2 — the path is
+                            // empty in production because every navigation
+                            // currently goes through `model.screen`. B3
+                            // wires real call sites and these handlers
+                            // dispatch on `Route` instead of `Screen`.
+                            .navigationDestination(for: AppModel.Route.self) { route in
+                                routeDestination(for: route)
+                            }
+                    }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilitySortPriority(90)
-                // Right-side Queue Inspector (#79). Hidden by default; toggled
-                // by Cmd+Opt+Q or a future PlayerBar button (BATCH-07b). Kept
-                // at 320pt so it doesn't crowd the detail column on a 13"
-                // laptop but is wide enough for readable track titles.
-                if model.isQueueInspectorOpen {
-                    Divider().background(Theme.border)
-                    QueueInspector()
-                        .frame(width: 320)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .accessibilitySortPriority(70)
+
+                    // Right-side Queue Inspector (#79). Hidden by default;
+                    // toggled by Cmd+Opt+Q or a future PlayerBar button
+                    // (BATCH-07b). Kept at 320pt so it doesn't crowd the
+                    // detail column on a 13" laptop but is wide enough for
+                    // readable track titles. Mounted inside the detail
+                    // column rather than promoted to a 3-column
+                    // NavigationSplitView so the diff stays minimal.
+                    if model.isQueueInspectorOpen {
+                        Divider().background(Theme.border)
+                        QueueInspector()
+                            .frame(width: 320)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .accessibilitySortPriority(70)
+                    }
                 }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.isQueueInspectorOpen)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.isQueueInspectorOpen)
 
             // Persistent player bar comes last in the tab traversal so
             // Tab / Shift+Tab lands in the main content first. See #334.
+            // Anchored outside the NavigationSplitView so it spans the full
+            // window width (sidebar + detail) like the previous custom
+            // shell did.
             PlayerBar()
                 .accessibilitySortPriority(50)
         }
@@ -84,6 +114,39 @@ struct MainShell: View {
             // explainer on the next line.
             Text(verbatim: "\u{201C}\(playlist.name)\u{201D}\n")
                 + Text("playlist.delete.message")
+        }
+    }
+
+    /// Routes a `Route` value pushed onto `navPath` to the matching screen.
+    /// During B2 the path is always empty in production because navigation
+    /// still writes `model.screen`; these handlers exist so the
+    /// `NavigationStack` is wired and ready for B3 to migrate the call
+    /// sites. Each case mirrors the equivalent `model.screen` arm in
+    /// `mainContent` so the eventual cutover is mechanical.
+    @ViewBuilder
+    private func routeDestination(for route: AppModel.Route) -> some View {
+        switch route {
+        case .home:
+            HomeView()
+        case .discover:
+            DiscoverView()
+        case .library:
+            LibraryView()
+        case .search:
+            SearchView()
+        case .settings:
+            // Settings have a dedicated `Settings` scene in `JellifyApp`
+            // and aren't a destination inside the main shell. Kept here so
+            // the switch is exhaustive over `Route`.
+            EmptyView()
+        case .album(let id):
+            AlbumDetailView(albumID: id)
+        case .artist(let id):
+            ArtistDetailView(artistID: id)
+        case .playlist(let id):
+            PlaylistView(playlistID: id)
+        case .nowPlaying:
+            NowPlayingView()
         }
     }
 
