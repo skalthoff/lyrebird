@@ -102,7 +102,9 @@ struct PlayerBar: View {
         VStack(spacing: 6) {
             HStack(spacing: 20) {
                 iconBtn("shuffle", label: "Shuffle")
+                    .help("Shuffle")
                 iconBtn("backward.fill", label: "Previous track", size: 16) { model.skipPrevious() }
+                    .help("Previous · ⌘←")
                 Button(action: model.togglePlayPause) {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15))
@@ -115,8 +117,11 @@ struct PlayerBar: View {
                 // Symbol name so VoiceOver reads the action the user is
                 // about to take. See #331.
                 .accessibilityLabel(Text(isPlaying ? "Pause" : "Play"))
+                .help(isPlaying ? "Pause · Space" : "Play · Space")
                 iconBtn("forward.fill", label: "Next track", size: 16) { model.skipNext() }
+                    .help("Next · ⌘→")
                 iconBtn("repeat", label: "Repeat")
+                    .help("Repeat")
             }
             scrubber
         }
