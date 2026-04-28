@@ -23,6 +23,23 @@ updates:
         patterns:
           - serde
           - serde_*
+    ignore:
+      # The 0.22 line of glib-rs (gio, glib, glib-build-tools, glib-macros,
+      # glib-sys, gio-sys, gobject-sys) raises rust-version metadata to 1.92.
+      # Workspace MSRV is 1.86 (intentional pin — Rust 1.92 doesn't exist as
+      # a stable release). Cargo's MSRV-aware resolver rejects every workspace
+      # `cargo` invocation when these are bumped. Held to 0.20 in #751 (#750).
+      # Re-enable when the wider Rust-toolchain bump is on the table.
+      - dependency-name: gio
+      - dependency-name: glib
+      - dependency-name: glib-build-tools
+      - dependency-name: glib-macros
+      - dependency-name: glib-sys
+      - dependency-name: gio-sys
+      - dependency-name: gobject-sys
+      # wiremock 0.6.5 introduced unstable `let` expressions that don't
+      # compile under workspace MSRV (Rust 1.86). Held at 0.6.4 in #751.
+      - dependency-name: wiremock
 
   - package-ecosystem: github-actions
     directory: /
