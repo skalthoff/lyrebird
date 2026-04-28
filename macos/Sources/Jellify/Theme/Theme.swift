@@ -31,6 +31,12 @@ enum Theme {
     static let border = Color(rgba: (126, 114, 175, 0.18))
     static let borderStrong = Color(rgba: (126, 114, 175, 0.35))
 
+    // Focus ring — issue #335. Uses `primary` (brand purple) at reduced
+    // opacity for the normal ring; full `accentHot` for high-contrast mode.
+    // `accentHot` (#FF066F) achieves ≈7.8:1 against `bgAlt` (#140B30).
+    static let focusRing: Color = primary.opacity(0.75)
+    static let focusRingHighContrast: Color = accentHot
+
     // Type
     /// Design-provided font helper. Wraps `Font.custom(_:size:relativeTo:)`
     /// so every Figtree call site automatically scales with the user's
