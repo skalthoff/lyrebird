@@ -90,6 +90,96 @@ pub enum JellifyError {
 }
 
 impl JellifyError {
+    /// Returns a human-readable, action-oriented message suitable for
+    /// displaying directly to the user in the UI.  Unlike the `Display`
+    /// implementation (which is verbose and intended for logs), this method
+    /// never surfaces HTTP status codes, error prefixes, or internal details.
+    ///
+    /// `JellifyError` is declared `#[uniffi(flat_error)]` so UniFFI treats it
+    /// as an opaque thrown-error type and cannot export methods on it directly.
+    /// The Swift layer ([`JellifyErrorPresenter`]) currently mirrors this
+    /// mapping by substring-matching the `Display` string; a follow-up PR can
+    /// replace that with a proper call once the bindings layer adds support for
+    /// error-type method dispatch.
+    ///
+    /// # Examples
+    /// ```
+    /// use jellify_core::JellifyError;
+    /// let e = JellifyError::Auth("token expired".into());
+    /// assert_eq!(e.user_message(), "Your session expired. Please sign in again.");
+    /// ```
+    pub fn user_message(&self) -> String {
+        match self {
+            // Authentication failures — user needs to re-login.
+            JellifyError::Auth(_)
+            | JellifyError::AuthExpired
+            | JellifyError::NotAuthenticated
+            | JellifyError::NoSession
+            | JellifyError::InvalidCredentials => {
+                "Your session expired. Please sign in again.".to_string()
+            }
+
+            // Permission denied — the user's account lacks access.
+            JellifyError::Forbidden(_) => {
+                "You don't have permission to access that.".to_string()
+            }
+
+            // Resource missing.
+            JellifyError::NotFound(_) => {
+                "We couldn't find what you were looking for.".to_string()
+            }
+
+            // Transport-level failures — connectivity problem.
+            JellifyError::Network(_) => {
+                "Couldn't reach the server. Check your connection and try again.".to_string()
+            }
+
+            // TLS / certificate issues — connectivity problem with extra context.
+            JellifyError::SelfSignedCertificate { .. } => {
+                "Couldn't reach the server. Check your connection and try again.".to_string()
+            }
+
+            // Rate-limiting — tell the user to wait.
+            JellifyError::RateLimit { .. } => {
+                "The server is busy. Please wait a moment and try again.".to_string()
+            }
+
+            // Server-side errors: 5xx get a generic "try again" message.
+            JellifyError::Server { status, .. } if (500..600).contains(status) => {
+                "The server ran into an error. Please try again.".to_string()
+            }
+
+            // Other server-side HTTP errors (4xx not already caught above).
+            JellifyError::Server { .. } => {
+                "The server didn't understand the request. Please report this if it keeps happening.".to_string()
+            }
+
+            // Credential store failures — OS Keychain issue.
+            JellifyError::Credentials(_) | JellifyError::KeyringWrite { .. } => {
+                "We couldn't save your credentials. You may need to sign in again after restarting.".to_string()
+            }
+
+            // Audio / playback failures.
+            JellifyError::Audio(_) => {
+                "Playback failed. The track may be in an unsupported format.".to_string()
+            }
+
+            // Invalid queue index — shouldn't surface to users under normal
+            // operation, but map to a safe fallback.
+            JellifyError::InvalidIndex { .. } | JellifyError::InvalidInput(_) => {
+                "Something went wrong. Please try again.".to_string()
+            }
+
+            // Decode / storage are internal failures.
+            JellifyError::Decode(_) | JellifyError::Storage(_) => {
+                "Something went wrong. Please try again.".to_string()
+            }
+
+            // Catch-all.
+            JellifyError::Other(_) => "Something went wrong. Please try again.".to_string(),
+        }
+    }
+
     /// Should the caller retry the request after an exponential backoff?
     ///
     /// Returns `true` for:
