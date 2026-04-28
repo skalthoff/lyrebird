@@ -46,6 +46,14 @@ struct JellifyApp: App {
                 .focusedSceneValue(\.appModel, model)
         }
         .defaultSize(width: 1280, height: 820)
+        // Hide the system title bar so the sidebar runs edge-to-edge
+        // under the traffic lights (Apple Music / Music for Classical /
+        // Reeder / Spark layout). `.hiddenTitleBar` flips
+        // `titlebarAppearsTransparent` and adds `.fullSizeContentView`
+        // to the window's `styleMask`, letting our content flow into
+        // the title-bar strip. The unified toolbar style stays in place
+        // so any `.toolbar {}` content still lands in the right strip.
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
             JellifyCommands(model: model)

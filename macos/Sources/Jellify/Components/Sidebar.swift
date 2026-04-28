@@ -40,7 +40,13 @@ struct Sidebar: View {
                 Spacer()
             }
             .padding(.horizontal, 18)
-            .padding(.top, 16)
+            // Reserve clearance for the traffic-light controls floating
+            // over the sidebar — `.windowStyle(.hiddenTitleBar)` lets our
+            // content flow into the title-bar strip, so without this top
+            // padding the brand mark would render directly under
+            // close / minimize / zoom on a window that doesn't carve out
+            // a dedicated title-bar strip.
+            .padding(.top, 28)
             .padding(.bottom, 12)
 
             // Primary nav
