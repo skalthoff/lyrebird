@@ -38,3 +38,11 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      # dtolnay/rust-toolchain tags follow Rust release versions
+      # (`@1.86` → 1.86 stable). Dependabot can't reason about those —
+      # it tried to bump 1.86 → 1.92 → 1.100, both of which are not
+      # real Rust releases. The MSRV reference must stay pinned to the
+      # workspace's `rust-version`, and other call sites use `@stable`,
+      # so version bumps on this dependency are always wrong.
+      - dependency-name: dtolnay/rust-toolchain
