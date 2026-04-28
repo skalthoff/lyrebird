@@ -1,4 +1,8 @@
 [toolchain]
-channel = "1.92.0"
+# Pinned to 1.86 to match the MSRV CI job in `.github/workflows/ci.yml`.
+# Anything older breaks `clap v4.6.1` which requires the `edition2024`
+# Cargo feature (stabilized in 1.85). Bump in lockstep with CI's MSRV
+# matrix when it moves.
+channel = "1.86"
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
 components = ["rustfmt", "clippy"]
