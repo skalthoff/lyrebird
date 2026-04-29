@@ -730,11 +730,9 @@ private struct GenreResultRow: View {
 
 /// Illustrative zero-results state shown when a committed query returns
 /// no rows across any scope. In addition to the illustration + headline,
-/// it surfaces two helper suggestions the user can click — the
-/// first bounces them to a simplified query (artist name only), the
-/// second is a placeholder for a future "search full Jellyfin metadata"
-/// pass. Both are stubs that keep the affordance visible rather than
-/// leaving the user staring at a dead page. See #245.
+/// it surfaces a helper suggestion the user can click — bouncing them
+/// to a simplified query (artist name only). See #245 for the planned
+/// "wider metadata search" follow-up.
 private struct ZeroResultsState: View {
     let query: String
     /// Invoked when the user taps a suggestion — lets the parent commit
@@ -772,18 +770,6 @@ private struct ZeroResultsState: View {
                             .map(String.init)
                             ?? query
                         onUseSuggestion(firstToken)
-                    }
-                )
-                suggestionRow(
-                    label: "Search Jellyfin metadata",
-                    symbol: "magnifyingglass.circle",
-                    action: {
-                        // TODO: #245 — hook up a "wider metadata" search
-                        // pass once the core surface lands. For now this
-                        // is a visible-but-inert stub; tapping it just
-                        // re-commits the same query so the user gets
-                        // feedback rather than a silent no-op.
-                        onUseSuggestion(query)
                     }
                 )
             }
