@@ -3,8 +3,17 @@
     <channel>
         <title>Jellify</title>
         <item>
+            <title>1.0.0-rc8</title>
+            <pubDate>Wed, 29 Apr 2026 21:34:21 +0000</pubDate>
+            <link>https://skalthoff.github.io/jellify-desktop/</link>
+            <sparkle:version>202604292127</sparkle:version>
+            <sparkle:shortVersionString>1.0.0-rc8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.0-rc8/Jellify-1.0.0-rc8.dmg" length="7061172" type="application/octet-stream" sparkle:edSignature="4L+b5nmcIqQqC9iKvmNjxo1tLKy9pFSRdHvg4nmCZgoYe0EnPLsd20iCMwm6ChFmtz4RmCfdx6paB669wszhBQ=="/>
+        </item>
+        <item>
             <title>1.0.0-rc7</title>
-            <pubDate>Wed, 29 Apr 2026 20:49:24 +0000</pubDate>
+            <pubDate>Wed, 29 Apr 2026 21:34:22 +0000</pubDate>
             <link>https://skalthoff.github.io/jellify-desktop/</link>
             <sparkle:version>202604292044</sparkle:version>
             <sparkle:shortVersionString>1.0.0-rc7</sparkle:shortVersionString>
@@ -13,21 +22,12 @@
         </item>
         <item>
             <title>1.0.0-rc6</title>
-            <pubDate>Wed, 29 Apr 2026 20:49:25 +0000</pubDate>
+            <pubDate>Wed, 29 Apr 2026 21:34:22 +0000</pubDate>
             <link>https://skalthoff.github.io/jellify-desktop/</link>
             <sparkle:version>202604291923</sparkle:version>
             <sparkle:shortVersionString>1.0.0-rc6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.0-rc6/Jellify-1.0.0-rc6.dmg" length="7056607" type="application/octet-stream" sparkle:edSignature="nAjBckKaxEgnB5uQlHCLQfPlgOTQ4r+3YVEHYHcVrfNN7ICpK1sUoqzmk9b/hg+tE17uOokjbQKTzGfsB+ysBw=="/>
-        </item>
-        <item>
-            <title>1.0.0-rc5</title>
-            <pubDate>Wed, 29 Apr 2026 20:49:26 +0000</pubDate>
-            <link>https://skalthoff.github.io/jellify-desktop/</link>
-            <sparkle:version>202604290927</sparkle:version>
-            <sparkle:shortVersionString>1.0.0-rc5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.0-rc5/Jellify-1.0.0-rc5.dmg" length="7054223" type="application/octet-stream" sparkle:edSignature="MKPNQQ+/oFklg+BaPyYapNs3ob7sdAaXTMyCyg4tWSX1Rs0pCzMOsJejq8UfsIaZsTHRlAPGj/22C6DJHzHdBA=="/>
         </item>
     </channel>
 </rss>
