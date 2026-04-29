@@ -128,6 +128,20 @@ struct TrackListRow: View {
                         .frame(maxWidth: 240, alignment: .trailing)
                 }
 
+                let isFav = model.isFavorite(id: track.id)
+                if isFav || isHovering {
+                    Button {
+                        model.toggleFavorite(track: track)
+                    } label: {
+                        Image(systemName: isFav ? "heart.fill" : "heart")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isFav ? "Unfavorite" : "Favorite")
+                }
+
                 Text(track.durationFormatted)
                     .font(Theme.font(12, weight: .medium))
                     .foregroundStyle(Theme.ink3)
