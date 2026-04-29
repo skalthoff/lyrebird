@@ -60,7 +60,7 @@ struct AlbumContextMenu: View {
 
         Divider()
 
-        let isFav = model.isFavorite(id: album.id)
+        let isFav = model.isFavorite(album: album)
         Button(isFav ? "Unfavorite Album" : "Favorite Album",
                systemImage: isFav ? "heart.fill" : "heart") {
             model.toggleFavorite(album: album)

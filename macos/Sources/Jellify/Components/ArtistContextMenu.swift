@@ -43,9 +43,10 @@ struct ArtistContextMenu: View {
 
         Divider()
 
+        let isFav = model.isFavorite(artist: artist)
         Button(
-            model.isFavorite(id: artist.id) ? "Unfavorite Artist" : "Favorite Artist",
-            systemImage: model.isFavorite(id: artist.id) ? "heart.fill" : "heart"
+            isFav ? "Unfavorite Artist" : "Favorite Artist",
+            systemImage: isFav ? "heart.fill" : "heart"
         ) { model.toggleFavorite(artist: artist) }
         if showGoToArtist {
             Button("Go to Artist Page", systemImage: "person") {

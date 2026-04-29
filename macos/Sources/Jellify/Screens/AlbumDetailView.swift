@@ -244,7 +244,10 @@ struct AlbumDetailView: View {
     }
 
     private var favouriteButton: some View {
-        let isFav = model.isFavorite(id: albumID)
+        // Snapshot-aware read: when `album` is non-nil we hit the
+        // server-authoritative `userData.isFavorite` projection on first
+        // paint; the `?? false` only triggers before resolveAlbum returns.
+        let isFav = album.map { model.isFavorite(album: $0) } ?? false
         return Button {
             if let album = album { model.toggleFavorite(album: album) }
         } label: {

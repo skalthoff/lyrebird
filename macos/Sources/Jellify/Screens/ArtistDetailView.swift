@@ -322,7 +322,7 @@ struct ArtistDetailView: View {
                 }
 
                 // Favorite — heart flips to filled/outlined based on server state.
-                let isFav = model.isFavorite(id: artist.id)
+                let isFav = model.isFavorite(artist: artist)
                 transportSecondary(
                     icon: isFav ? "heart.fill" : "heart",
                     help: isFav ? "Unfavorite" : "Favorite"

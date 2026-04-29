@@ -95,7 +95,7 @@ struct PlayerBar: View {
                 // Heart button — favorite the currently playing track without
                 // navigating away. Mirrors the treatment in NowPlayingView and
                 // in Apple Music's persistent transport bar. v1.0 audit #7.
-                let isFav = model.isFavorite(id: track.id)
+                let isFav = model.isFavorite(track: track)
                 iconBtn(
                     isFav ? "heart.fill" : "heart",
                     label: isFav ? "Unfavorite" : "Favorite",
