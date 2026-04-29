@@ -25,7 +25,10 @@ struct HomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                quickTilesRow
+                // quickTilesRow — hidden for v1.0: uses albums.prefix(3) as a
+                // placeholder for "top tracks of the day"; random albums are
+                // not meaningful here. Re-enable once the ranked data sources
+                // land (#206, #209).
                 recentlyPlayedSection
                 jumpBackInSection
                 recentlyPlayedTracksSection
@@ -33,7 +36,10 @@ struct HomeView: View {
                 quickPicksSection
                 suggestionsSection
                 favoritesSection
-                pinnedStationsRow
+                // pinnedStationsRow — hidden for v1.0: section is backed by
+                // @AppStorage mock data only; tapping tiles or the + button
+                // does nothing. Re-enable once the real pin infrastructure
+                // lands (#144, #253).
                 artistRadioRow
                 Spacer(minLength: 24)
             }
@@ -581,10 +587,19 @@ struct HomeView: View {
     }
 
     /// Right-hand CTA cluster for the Favorites header — "Shuffle All
-    /// Favorites" (primary accent pill) + "Reshuffle" (ghost). Extracted
-    /// so the narrow and wide layouts share one source of truth.
+    /// Favorites" (primary accent pill) + "Reshuffle" (ghost) + "See All"
+    /// link to the full FavoritesView (#23). Extracted so the narrow and
+    /// wide layouts share one source of truth.
     private var favoritesCTAs: some View {
         HStack(spacing: 8) {
+            Button("See All") {
+                model.selectTab(.favorites)
+            }
+            .buttonStyle(.plain)
+            .font(Theme.font(13, weight: .semibold))
+            .foregroundStyle(Theme.accent)
+            .help("Open the full Favorites screen")
+            .accessibilityLabel("See all favorites")
             Button {
                 model.shuffleAllFavorites()
             } label: {
