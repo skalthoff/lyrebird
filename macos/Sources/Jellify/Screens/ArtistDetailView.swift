@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 @preconcurrency import JellifyCore
 
@@ -64,6 +65,7 @@ struct ArtistDetailView: View {
         }
         .background(Theme.bg)
         .task(id: artistID) {
+            Log.app.info("ArtistDetailView.task fire artist=\(artistID, privacy: .public)")
             isLoadingTopTracks = true
             if model.artists.first(where: { $0.id == artistID }) == nil {
                 fetchedArtist = await model.resolveArtist(id: artistID)
@@ -76,6 +78,7 @@ struct ArtistDetailView: View {
             topTracks = await model.loadArtistTopTracks(artistId: artistID)
             isLoadingTopTracks = false
             similarArtistsState = await model.loadSimilarArtists(artistId: artistID)
+            Log.app.info("ArtistDetailView.task done artist=\(artistID, privacy: .public) albums=\(artistAlbums.count, privacy: .public) topTracks=\(topTracks.count, privacy: .public) similar=\(similarArtistsState.count, privacy: .public)")
         }
     }
 
