@@ -1999,6 +1999,18 @@ final class AppModel {
                 try core.albumTracks(albumId: albumID)
             }.value
             albumTracks[albumID] = tracks
+            // Seed favoriteById from the server-authoritative `userData`
+            // projection so heart UIs on other surfaces (search, queue,
+            // now-playing) reflect the same state without each one having
+            // to call `isFavorite(track:)` and pay the snapshot fallback.
+            // Bool-only seeding (no `.removeValue`) is intentional: a `nil`
+            // server projection should NOT clobber a cache value the user
+            // just toggled.
+            for track in tracks {
+                if let userFav = track.userData?.isFavorite {
+                    favoriteById[track.id] = userFav
+                }
+            }
             serverReachability.noteSuccess()
             return tracks
         } catch {
@@ -3034,20 +3046,55 @@ final class AppModel {
     /// revoked, network flapping), but not so load-bearing that we want a
     /// modal.
     func toggleFavorite(album: Album) {
-        Task { await setFavorite(itemId: album.id, enabled: !isFavorite(id: album.id)) }
+        Task { await setFavorite(itemId: album.id, enabled: !isFavorite(album: album)) }
     }
 
     /// Toggle the favorite flag for a track. Same contract as
     /// `toggleFavorite(album:)` — see its doc for the state-cache semantics.
     func toggleFavorite(track: Track) {
-        Task { await setFavorite(itemId: track.id, enabled: !isFavorite(id: track.id)) }
+        Task { await setFavorite(itemId: track.id, enabled: !isFavorite(track: track)) }
     }
 
     /// Check the local favorite-state cache. Returns `false` when the item
-    /// hasn't been toggled this session — callers that need server truth on
-    /// first paint should trigger a refetch via #133 when that lands.
+    /// hasn't been toggled this session AND no snapshot is available — the
+    /// snapshot-aware overloads `isFavorite(track:)` / `isFavorite(album:)` /
+    /// `isFavorite(artist:)` are preferred at call sites that have a model
+    /// object on hand because they read the server-authoritative
+    /// `userData.isFavorite` from the snapshot when the cache is cold.
     func isFavorite(id: String) -> Bool {
         favoriteById[id] ?? false
+    }
+
+    /// Snapshot-aware favorite check for tracks. Reads the in-memory cache
+    /// first (toggled-this-session is authoritative), then falls back to
+    /// the server-authoritative `track.userData?.isFavorite` projection,
+    /// then to the legacy top-level `track.isFavorite` mirror. This is the
+    /// preferred read for any heart-glyph UI that has the `Track` value on
+    /// hand: it shows the correct state on first paint for already-favorited
+    /// tracks (the cache-only `isFavorite(id:)` returns `false` until the
+    /// user toggles, which makes the next tap appear to no-op against the
+    /// server). See the rc6 favorite-cache seeding fix.
+    func isFavorite(track: Track) -> Bool {
+        if let cached = favoriteById[track.id] { return cached }
+        if let userFav = track.userData?.isFavorite { return userFav }
+        return track.isFavorite
+    }
+
+    /// Snapshot-aware favorite check for albums. Mirrors
+    /// `isFavorite(track:)` — falls back to `album.userData?.isFavorite`
+    /// when the cache is cold so the album-detail heart shows the correct
+    /// state on first paint. `Album` has no legacy top-level `isFavorite`
+    /// mirror so the final fallback is `false`.
+    func isFavorite(album: Album) -> Bool {
+        if let cached = favoriteById[album.id] { return cached }
+        return album.userData?.isFavorite ?? false
+    }
+
+    /// Snapshot-aware favorite check for artists. Mirrors
+    /// `isFavorite(track:)` — falls back to `artist.userData?.isFavorite`.
+    func isFavorite(artist: Artist) -> Bool {
+        if let cached = favoriteById[artist.id] { return cached }
+        return artist.userData?.isFavorite ?? false
     }
 
     /// Internal helper — hits `set_favorite` / `unset_favorite` on the core
@@ -3350,7 +3397,7 @@ final class AppModel {
     /// so the same `set_favorite` / `unset_favorite` FFI used for albums
     /// and tracks works on artist ids too.
     func toggleFavorite(artist: Artist) {
-        Task { await setFavorite(itemId: artist.id, enabled: !isFavorite(id: artist.id)) }
+        Task { await setFavorite(itemId: artist.id, enabled: !isFavorite(artist: artist)) }
     }
 
     /// Toggle the follow flag for an artist. Routes through `setFavorite`
@@ -3358,14 +3405,14 @@ final class AppModel {
     /// correct server primitive for "following" an artist — the vocabulary
     /// differs but the data is the same `IsFavorite` flag on the artist item.
     func toggleFollow(artist: Artist) {
-        Task { await setFavorite(itemId: artist.id, enabled: !isFavorite(id: artist.id)) }
+        Task { await setFavorite(itemId: artist.id, enabled: !isFavorite(artist: artist)) }
     }
 
     /// `true` when the user has favorited/followed this artist.
-    /// Reads from the shared `favoriteById` cache so state is consistent
-    /// with `isFavorite(id:)` calls on the same artist id.
+    /// Snapshot-aware so first-paint state matches the server even before
+    /// the user toggles — see `isFavorite(artist:)` for the fallback chain.
     func isFollowing(artist: Artist) -> Bool {
-        isFavorite(id: artist.id)
+        isFavorite(artist: artist)
     }
 
     /// Insert a handful of the artist's top tracks immediately after the
@@ -4026,13 +4073,13 @@ final class AppModel {
     /// the un-favorited subset.
     func toggleFavorite(tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        let allFavorited = tracks.allSatisfy { isFavorite(id: $0.id) }
+        let allFavorited = tracks.allSatisfy { isFavorite(track: $0) }
         let target = !allFavorited
         // Fire each toggle on its own task so partial success is preserved —
         // one rate-limit or 500 doesn't poison the rest of the selection.
         for track in tracks {
             // Skip tracks already in the target state so we don't retoggle.
-            guard isFavorite(id: track.id) != target else { continue }
+            guard isFavorite(track: track) != target else { continue }
             Task { await setFavorite(itemId: track.id, enabled: target) }
         }
     }
@@ -4838,7 +4885,7 @@ extension AppModel: MediaSessionDelegate {
         // one we signal `.noActionableNowPlayingItem` back to the remote
         // surface via a `nil` return.
         guard let track = status.currentTrack else { return nil }
-        let previous = isFavorite(id: track.id) || track.isFavorite
+        let previous = isFavorite(track: track)
         let target = !previous
         // Optimistic local update so the heart glyph responds instantly.
         favoriteById[track.id] = target

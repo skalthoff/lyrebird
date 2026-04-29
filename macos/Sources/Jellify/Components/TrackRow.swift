@@ -93,7 +93,7 @@ struct TrackRow: View {
 
             Spacer()
 
-            let isFav = model.isFavorite(id: track.id)
+            let isFav = model.isFavorite(track: track)
             if isFav || isHovering {
                 Button {
                     model.toggleFavorite(track: track)

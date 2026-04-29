@@ -128,7 +128,7 @@ struct NowPlayingView: View {
                     .accessibilityHint(track.albumId == nil ? "" : "Open album page")
                 }
 
-                let isFav = model.isFavorite(id: track.id)
+                let isFav = model.isFavorite(track: track)
                 Button {
                     model.toggleFavorite(track: track)
                 } label: {
