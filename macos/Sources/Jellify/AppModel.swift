@@ -2185,17 +2185,30 @@ final class AppModel {
     /// stable for the duration of the user's browsing session and the
     /// detail screen may be entered / left repeatedly.
     @discardableResult
-    func loadArtistAlbums(artistId: String, limit: UInt32 = 500) async -> [Album] {
-        // Soft cap. Prolific catalogues > 500 will still truncate; pagination tracked as v1.x follow-up.
+    func loadArtistAlbums(artistId: String, limit: UInt32 = 200) async -> [Album] {
+        // Soft cap of 200. Was 500 in rc7, but a "Various Artists" entry
+        // returning the full 500 expands to a 4×125 fan-out across the
+        // discography groups (Albums / Singles / Compilations / Live), each
+        // rendered through a `LazyHStack`. On macOS 26.4 + M5 we observed
+        // SwiftUI's HVStack layout cache OOM during `_ContiguousArrayBuffer`
+        // allocation — the lazy stacks bound rendered tiles, but the parent
+        // VStack's subview enumeration scales with the total. 200 is plenty
+        // for any single artist; pagination for the long-tail compilations
+        // case is a v1.x follow-up.
         if let cached = artistAlbumsCache[artistId] { return cached }
+        let start = Date()
+        Log.app.info("loadArtistAlbums start artist=\(artistId, privacy: .public) limit=\(limit, privacy: .public)")
         do {
             let page = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.albumsByArtist(artistId: artistId, offset: 0, limit: limit)
             }.value
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            Log.app.info("loadArtistAlbums ok artist=\(artistId, privacy: .public) count=\(page.items.count, privacy: .public) ms=\(Int(elapsed), privacy: .public)")
             artistAlbumsCache[artistId] = page.items
             serverReachability.noteSuccess()
             return page.items
         } catch {
+            Log.app.error("loadArtistAlbums failed artist=\(artistId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             if handleAuthError(error) { return [] }
             if ServerReachability.shouldCount(error: error) {
                 serverReachability.noteFailure()
@@ -2239,16 +2252,24 @@ final class AppModel {
     /// `loadArtistTopTracks` — detached FFI call, silent fallback. See #146.
     @discardableResult
     func loadSimilarArtists(artistId: String, limit: UInt32 = 12) async -> [Artist] {
-        if let cached = artistSimilarCache[artistId] { return cached }
+        if let cached = artistSimilarCache[artistId] {
+            Log.app.debug("loadSimilarArtists cache hit artist=\(artistId, privacy: .public) count=\(cached.count, privacy: .public)")
+            return cached
+        }
+        let start = Date()
+        Log.app.info("loadSimilarArtists start artist=\(artistId, privacy: .public)")
         do {
             let similar = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.similarArtists(artistId: artistId, limit: limit)
             }.value
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            Log.app.info("loadSimilarArtists ok artist=\(artistId, privacy: .public) count=\(similar.count, privacy: .public) ms=\(Int(elapsed), privacy: .public)")
             artistSimilarCache[artistId] = similar
             serverReachability.noteSuccess()
             return similar
         } catch {
             // Silent fallback — don't surface errors for a secondary widget.
+            Log.app.notice("loadSimilarArtists failed artist=\(artistId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             if handleAuthError(error) { return [] }
             if ServerReachability.shouldCount(error: error) {
                 serverReachability.noteFailure()
