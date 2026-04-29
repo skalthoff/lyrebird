@@ -10,7 +10,7 @@ import SwiftUI
 ///     ─
 ///     Start Artist Radio
 ///     ─
-///     Follow / Unfollow, Go to Artist Page
+///     Favorite / Unfavorite, Go to Artist Page
 ///     ─
 ///     Copy Link
 ///
@@ -44,9 +44,9 @@ struct ArtistContextMenu: View {
         Divider()
 
         Button(
-            model.isFollowing(artist: artist) ? "Unfollow" : "Follow",
-            systemImage: model.isFollowing(artist: artist) ? "person.badge.minus" : "person.badge.plus"
-        ) { model.toggleFollow(artist: artist) }
+            model.isFavorite(id: artist.id) ? "Unfavorite Artist" : "Favorite Artist",
+            systemImage: model.isFavorite(id: artist.id) ? "heart.fill" : "heart"
+        ) { model.toggleFavorite(artist: artist) }
         if showGoToArtist {
             Button("Go to Artist Page", systemImage: "person") {
                 model.goToArtistPage(artist: artist)

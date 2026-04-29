@@ -321,13 +321,12 @@ struct ArtistDetailView: View {
                     ) { model.shuffle(artist: artist) }
                 }
 
-                // Follow — today toggles favorite. The "Follow" vocabulary
-                // is Jellify's; server-side it's `IsFavorite` on the artist
-                // item. See `toggleFollow` in AppModel for the shim.
+                // Favorite — heart flips to filled/outlined based on server state.
+                let isFav = model.isFavorite(id: artist.id)
                 transportSecondary(
-                    icon: "person.badge.plus",
-                    help: "Follow"
-                ) { model.toggleFollow(artist: artist) }
+                    icon: isFav ? "heart.fill" : "heart",
+                    help: isFav ? "Unfavorite" : "Favorite"
+                ) { model.toggleFavorite(artist: artist) }
 
                 transportSecondary(
                     icon: "dot.radiowaves.left.and.right",

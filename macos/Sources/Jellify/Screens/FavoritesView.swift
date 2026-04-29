@@ -38,7 +38,7 @@ struct FavoritesView: View {
             .padding(.vertical, 28)
         }
         .background(Theme.bg)
-        .task(id: model.session?.user.id) {
+        .task(id: "\(model.session?.user.id ?? "")|\(model.favoriteChangeToken)") {
             await refresh()
         }
     }

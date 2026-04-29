@@ -71,7 +71,8 @@ struct TrackContextMenu: View {
             AddToPlaylistSubmenu { playlist in
                 model.addTracksToPlaylist(tracks: selection, playlist: playlist)
             } onNewPlaylist: {
-                model.requestAddTracksToPlaylist(tracks: selection)
+                // New-playlist picker is v1.x scope (#126). supportsNewPlaylistPicker
+                // gates this button off so this closure is never triggered today.
             }
         }
 

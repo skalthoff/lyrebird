@@ -255,21 +255,17 @@ struct PlaylistView: View {
             .accessibilityLabel("Shuffle playlist")
             .disabled(tracks.isEmpty)
 
-            // Favorite + add-to-playlist are non-interactive placeholders
-            // until their backing FFI lands — see `PlaylistContextMenu` for
-            // the matching TODO stubs in `AppModel`. Hidden from VoiceOver
-            // so assistive tech doesn't announce inert icons as tappable
-            // (#331).
-            Image(systemName: "heart")
-                .font(.system(size: 20))
-                .foregroundStyle(Theme.ink2)
-                .frame(width: 36, height: 36)
-                .accessibilityHidden(true)
-            Image(systemName: "plus")
-                .font(.system(size: 20))
-                .foregroundStyle(Theme.ink2)
-                .frame(width: 36, height: 36)
-                .accessibilityHidden(true)
+            if let playlist = playlist {
+                let isFav = model.isFavorite(id: playlist.id)
+                Button { model.toggleFavorite(playlist: playlist) } label: {
+                    Image(systemName: isFav ? "heart.fill" : "heart")
+                        .font(.system(size: 20))
+                        .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isFav ? "Unfavorite playlist" : "Favorite playlist")
+            }
             Spacer()
         }
         .padding(.horizontal, 32)

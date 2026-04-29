@@ -95,9 +95,7 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    // TODO: #144 / #327 — Regenerate also routes through the
-                    // Instant Mix FFI once it lands. Same stub for now.
-                    model.startInstantMix()
+                    model.regenerateInstantMix()
                 } label: {
                     Text("Generate new mix")
                         .font(Theme.font(13, weight: .semibold))

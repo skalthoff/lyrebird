@@ -41,8 +41,10 @@ extension AppModel {
     /// context menus.
     var supportsTrackInfo: Bool { true }
 
-    /// Genre actions (#144, #248, #318). Genre radio (#94) is wired;
-    /// browse landing (#318), genre shuffle (#318), and pin-to-home
-    /// (#248/#249) remain stubs but are surfaced so the radio entry is reachable.
-    var supportsGenreActions: Bool { true }
+    /// Genre actions (#144, #248, #318). Disabled until #318 lands — the
+    /// stub actions pass a genre name (e.g. "Jazz") as an item id to
+    /// `core.instantMix(itemId:)` which expects a UUID, producing garbage.
+    /// Flip to `true` once `browseGenre`, `shuffleGenre`, and
+    /// `pinGenreToHome` are wired to real core FFIs.
+    var supportsGenreActions: Bool { false }
 }

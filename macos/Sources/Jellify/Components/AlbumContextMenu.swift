@@ -43,7 +43,8 @@ struct AlbumContextMenu: View {
             AddToPlaylistSubmenu { playlist in
                 model.addAlbumToPlaylist(album: album, playlist: playlist)
             } onNewPlaylist: {
-                model.requestAddToPlaylist(album: album)
+                // New-playlist picker is v1.x scope (#72/#126). supportsNewPlaylistPicker
+                // gates this button off so this closure is never triggered today.
             }
         }
 
@@ -59,7 +60,11 @@ struct AlbumContextMenu: View {
 
         Divider()
 
-        Button("Favorite Album", systemImage: "heart") { model.toggleFavorite(album: album) }
+        let isFav = model.isFavorite(id: album.id)
+        Button(isFav ? "Unfavorite Album" : "Favorite Album",
+               systemImage: isFav ? "heart.fill" : "heart") {
+            model.toggleFavorite(album: album)
+        }
         if model.supportsMarkPlayed {
             Button("Mark All as Played", systemImage: "checkmark.circle") {
                 model.markAllAsPlayed(album: album)
