@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import MediaPlayer
 import Observation
+import os
 import SwiftUI
 @preconcurrency import JellifyCore
 import JellifyAudio
@@ -1993,11 +1994,18 @@ final class AppModel {
     }
 
     func loadTracks(forAlbum albumID: String) async -> [Track] {
-        if let cached = albumTracks[albumID] { return cached }
+        if let cached = albumTracks[albumID] {
+            Log.albums.debug("loadTracks(forAlbum:) cache hit album=\(albumID, privacy: .public) count=\(cached.count, privacy: .public)")
+            return cached
+        }
+        let start = Date()
+        Log.albums.info("loadTracks(forAlbum:) start album=\(albumID, privacy: .public)")
         do {
             let tracks = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.albumTracks(albumId: albumID)
             }.value
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            Log.albums.info("loadTracks(forAlbum:) ok album=\(albumID, privacy: .public) count=\(tracks.count, privacy: .public) ms=\(Int(elapsed), privacy: .public)")
             albumTracks[albumID] = tracks
             // Seed favoriteById from the server-authoritative `userData`
             // projection so heart UIs on other surfaces (search, queue,
@@ -2014,6 +2022,8 @@ final class AppModel {
             serverReachability.noteSuccess()
             return tracks
         } catch {
+            let elapsed = Date().timeIntervalSince(start) * 1000
+            Log.albums.error("loadTracks(forAlbum:) failed album=\(albumID, privacy: .public) ms=\(Int(elapsed), privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             if handleAuthError(error) { return [] }
             if ServerReachability.shouldCount(error: error) {
                 serverReachability.noteFailure()
@@ -3102,6 +3112,7 @@ final class AppModel {
     /// the public API stays `toggleFavorite(...)` and the desired-state
     /// boolean is always computed at the call site.
     private func setFavorite(itemId: String, enabled: Bool) async {
+        Log.tracks.info("setFavorite item=\(itemId, privacy: .public) target=\(enabled, privacy: .public)")
         do {
             let state = try await Task.detached(priority: .userInitiated) { [core] in
                 if enabled {
@@ -3110,10 +3121,12 @@ final class AppModel {
                     return try core.unsetFavorite(itemId: itemId)
                 }
             }.value
+            Log.tracks.info("setFavorite ok item=\(itemId, privacy: .public) server=\(state.isFavorite, privacy: .public)")
             favoriteById[itemId] = state.isFavorite
             favoriteChangeToken &+= 1
             serverReachability.noteSuccess()
         } catch {
+            Log.tracks.error("setFavorite failed item=\(itemId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             if handleAuthError(error) { return }
             if ServerReachability.shouldCount(error: error) {
                 serverReachability.noteFailure()

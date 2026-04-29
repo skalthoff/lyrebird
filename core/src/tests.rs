@@ -212,10 +212,13 @@ async fn album_tracks_parses() {
     assert!((t.duration_seconds() - 222.0).abs() < 0.001);
 }
 
-/// Asserts the query parameters sent by `album_tracks` (#570, #571):
-/// - `Recursive=true` so multi-disc child items are returned
+/// Asserts the query parameters sent by `album_tracks` (#570, #571, rc7):
+/// - `Recursive` is NOT sent — Jellyfin's library walk dominates query
+///   time on large libraries; omitting it is a 53× speedup with zero
+///   content change because music albums are flat (multi-disc albums
+///   carry the disc number on `ParentIndexNumber`, not in nested folders).
 /// - `SortBy` and `SortOrder` are parallel comma-separated arrays (3 fields
-///   each) so track ordering is well-defined on Jellyfin
+///   each) so track ordering is well-defined on Jellyfin.
 #[tokio::test]
 async fn album_tracks_query_params() {
     let server = MockServer::start().await;
@@ -247,10 +250,18 @@ async fn album_tracks_query_params() {
         .expect("expected a GET request");
     let q = get.url.query().expect("expected a query string");
 
-    // #570 — must traverse child items for multi-disc albums
+    // rc7 — `Recursive=true` is intentionally NOT sent. The original
+    // assumption (#570) was that Recursive was needed for multi-disc
+    // albums, but Jellyfin models multi-disc albums as a flat track list
+    // with `ParentIndexNumber` carrying the disc number — verified live
+    // against music.skalthoff.com on a 17-track multi-disc album, which
+    // returns the same 17 tracks with or without Recursive. Recursive=true
+    // forces the server to walk the entire library tree under the album
+    // (3.6s/request on a 157k-track library); omitting it drops the same
+    // query to ~70ms.
     assert!(
-        q.contains("Recursive=true"),
-        "missing Recursive=true, got: {q}"
+        !q.contains("Recursive"),
+        "Recursive must not be in album_tracks query (53× perf hit), got: {q}"
     );
 
     // #571 — SortBy and SortOrder must be parallel arrays of equal length.
