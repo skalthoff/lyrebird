@@ -1,3 +1,5 @@
+# THIS IS A VIBE CODED PROJECT, WHILE I AM PUTTING REAL THOUGHT AND EFFORT INTO SOME ELEMENTS, it really shouldn't be used by people
+
 # Jellify Desktop
 
 Native desktop apps for [Jellyfin](https://jellyfin.org) — macOS first, Windows and Linux to follow. Not Electron, not a web wrapper. Each platform is rendered by its own native UI toolkit, sharing a Rust core for API, audio coordination, and storage.
