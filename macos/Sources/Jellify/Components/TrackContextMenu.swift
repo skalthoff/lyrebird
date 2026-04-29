@@ -19,7 +19,7 @@ import SwiftUI
 ///     ─
 ///     Favorite / Unfavorite, Download / Remove Download, Mark as Played / Unplayed
 ///     ─
-///     Copy Link, Share
+///     Copy Link
 ///
 /// For multi-selection: the "Go to …" actions are omitted (they can't
 /// disambiguate across a selection); a "Remove from Playlist" action
@@ -28,7 +28,7 @@ import SwiftUI
 ///
 /// Backing actions call through to `AppModel`. Several are TODO stubs
 /// pending FFI work (song radio, track info, download engine,
-/// mark-played, share). Disabled states follow suit per spec.
+/// mark-played). Disabled states follow suit per spec.
 struct TrackContextMenu: View {
     @Environment(AppModel.self) private var model
     /// The selection this menu acts on. Single-track call sites pass
@@ -126,12 +126,6 @@ struct TrackContextMenu: View {
             if let track = first { model.copyShareLink(track: track) }
         }
         .disabled(isMulti || first.flatMap { model.webURL(for: $0) } == nil)
-        // Share is not yet wired — disabled per spec. NSSharingServicePicker
-        // support lands with #318.
-        Button("Share", systemImage: "square.and.arrow.up") {
-            // TODO(#318): present NSSharingServicePicker.
-        }
-        .disabled(true)
     }
 
     /// True when every track in the selection is already favorited, so the

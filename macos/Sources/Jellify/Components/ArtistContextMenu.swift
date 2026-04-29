@@ -12,7 +12,7 @@ import SwiftUI
 ///     ─
 ///     Follow / Unfollow, Go to Artist Page
 ///     ─
-///     Copy Link, Share
+///     Copy Link
 ///
 /// `showGoToArtist` is omitted when the menu is invoked from the artist's
 /// own detail screen — mirrors the spec's "if invoked elsewhere" qualifier.
@@ -57,11 +57,5 @@ struct ArtistContextMenu: View {
 
         Button("Copy Link", systemImage: "link") { model.copyShareLink(artist: artist) }
             .disabled(model.webURL(for: artist) == nil)
-        // Share is not yet wired — disabled per spec. NSSharingServicePicker
-        // support lands with #318.
-        Button("Share", systemImage: "square.and.arrow.up") {
-            // TODO(#318): present NSSharingServicePicker.
-        }
-        .disabled(true)
     }
 }
