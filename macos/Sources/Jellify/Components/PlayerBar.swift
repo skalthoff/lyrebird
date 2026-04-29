@@ -56,40 +56,53 @@ struct PlayerBar: View {
     @ViewBuilder
     private var leftMeta: some View {
         if let track = model.status.currentTrack {
-            // Tapping the track meta pushes Route.nowPlaying onto navPath,
-            // opening the full Now Playing view (Queue / Lyrics / About /
-            // Credits tabs). Guard prevents double-push if the view is
-            // already on the stack. The button is styled flush so it reads
-            // as a regular bar region, not a chrome control.
-            Button(action: {
-                if !model.isShowingNowPlaying {
-                    model.navPath.append(AppModel.Route.nowPlaying)
-                }
-            }) {
-                HStack(spacing: 12) {
-                    Artwork(
-                        url: model.imageURL(for: track.albumId ?? track.id, tag: track.imageTag, maxWidth: 120),
-                        seed: track.name,
-                        size: 54,
-                        radius: 6
-                    )
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(track.name)
-                            .font(Theme.font(13, weight: .bold))
-                            .foregroundStyle(Theme.ink)
-                            .lineLimit(1)
-                        Text("\(track.artistName) · \(track.albumName ?? "")")
-                            .font(Theme.font(11, weight: .medium))
-                            .foregroundStyle(Theme.ink2)
-                            .lineLimit(1)
+            HStack(spacing: 8) {
+                // Tapping the track meta pushes Route.nowPlaying onto navPath,
+                // opening the full Now Playing view (Queue / Lyrics / About /
+                // Credits tabs). Guard prevents double-push if the view is
+                // already on the stack. The button is styled flush so it reads
+                // as a regular bar region, not a chrome control.
+                Button(action: {
+                    if !model.isShowingNowPlaying {
+                        model.navPath.append(AppModel.Route.nowPlaying)
                     }
-                    Spacer(minLength: 0)
+                }) {
+                    HStack(spacing: 12) {
+                        Artwork(
+                            url: model.imageURL(for: track.albumId ?? track.id, tag: track.imageTag, maxWidth: 120),
+                            seed: track.name,
+                            size: 54,
+                            radius: 6
+                        )
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(track.name)
+                                .font(Theme.font(13, weight: .bold))
+                                .foregroundStyle(Theme.ink)
+                                .lineLimit(1)
+                            Text("\(track.artistName) · \(track.albumName ?? "")")
+                                .font(Theme.font(11, weight: .medium))
+                                .foregroundStyle(Theme.ink2)
+                                .lineLimit(1)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel("Now Playing: \(track.name) by \(track.artistName)")
+                .accessibilityHint("Opens Now Playing")
+
+                // Heart button — favorite the currently playing track without
+                // navigating away. Mirrors the treatment in NowPlayingView and
+                // in Apple Music's persistent transport bar. v1.0 audit #7.
+                let isFav = model.isFavorite(id: track.id)
+                iconBtn(
+                    isFav ? "heart.fill" : "heart",
+                    label: isFav ? "Unfavorite" : "Favorite",
+                    tint: isFav ? Theme.accent : Theme.ink2
+                ) { model.toggleFavorite(track: track) }
+                    .help(isFav ? "Unfavorite" : "Favorite")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Now Playing: \(track.name) by \(track.artistName)")
-            .accessibilityHint("Opens Now Playing")
         } else {
             Text("player.nothing_playing")
                 .font(Theme.font(12, weight: .medium))
