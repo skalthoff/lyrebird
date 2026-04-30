@@ -437,9 +437,22 @@ public final class AudioEngine: NSObject {
     // MARK: - Observers
 
     private func attachPlayerObservers(to player: AVQueuePlayer, item: AVPlayerItem) {
-        let interval = CMTime(seconds: 0.5, preferredTimescale: 1000)
+        // 1s interval (was 0.5s in rc<=10). The observer fires every interval
+        // regardless of play state — when paused the time stays put but the
+        // closure still fires and crosses an FFI boundary into Rust to take
+        // the core's `parking_lot` mutex. Halving the cadence directly halves
+        // that idle CPU + main-queue traffic, and the elapsed-time widget
+        // interpolates between ticks (issue #48) so 1s granularity is
+        // visually identical to 0.5s for the progress bar.
+        let interval = CMTime(seconds: 1.0, preferredTimescale: 1000)
         timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self else { return }
+            // Skip the FFI write entirely when the player isn't advancing.
+            // `rate == 0` covers paused, stalled, and "buffering past EOF"
+            // states; in all of them `time.seconds` would just write back
+            // the same value and burn the lock. Reading `rate` is a cheap
+            // KVO-backed property access on AVPlayer, no async needed.
+            guard player.rate != 0 else { return }
             let seconds = time.seconds.isFinite ? time.seconds : 0
             self.core.markPosition(seconds: seconds)
         }
