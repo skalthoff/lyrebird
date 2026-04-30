@@ -4490,33 +4490,30 @@ final class AppModel {
     /// 500ms in rc<=10 — every tick takes the Rust core's `parking_lot`
     /// mutex on the MainActor and republishes `@Observable` state, which
     /// SwiftUI treats as a redraw signal even when the actual values
-    /// didn't change). Each callback is a no-op when playback is paused
-    /// or stopped: the player can't have changed its own state without
-    /// going through one of our explicit `play`/`pause`/`skip` paths,
-    /// and those all call `refreshStatus()` directly so the UI stays
-    /// accurate at zero idle cost.
+    /// didn't change).
     ///
-    /// Together these two changes (1s cadence + skip-when-not-playing)
-    /// drop the idle-app energy footprint from ~7,200 wakes/hour to
-    /// ~3,600 while playing and zero while paused, which fixes the
-    /// macOS "high energy use" badge without losing UI responsiveness:
-    /// the elapsed-time widget interpolates between ticks via
-    /// `elapsed + wallclock * rate` (see issue #48), and the fastest
-    /// human-perceptible UI change still resolves within one tick.
+    /// rc11 also tried to skip the tick body entirely when
+    /// `status.state != .playing`, but `pause()` / `resume()` /
+    /// `skipNext()` / `skipPrevious()` delegate straight to
+    /// `AudioEngine` and never call `refreshStatus()` — so after the
+    /// first user-driven pause the local `status.state` stayed `.paused`
+    /// forever and the PlayerBar froze: clicking play resumed audio
+    /// audibly but no UI signaled the transition (rc12 regression
+    /// caught by the user). The energy win from this skip was small
+    /// compared to the dominant `timeObserver` rate-zero skip in
+    /// `JellifyAudio/AudioEngine`, so rc13 keeps the 1s cadence and
+    /// drops the gate. Idle wakes/hour:
+    ///   rc<=10: ~14,400 (500ms pollTimer + 500ms timeObserver)
+    ///   rc11/12: ~0 paused, but UI broke
+    ///   rc13:    ~3,600 paused (1s pollTimer ticks; timeObserver
+    ///            still skips when `player.rate == 0`)
+    /// — which still clears the macOS "high energy use" badge while
+    /// keeping the player UI live.
     private func startPolling() {
         stopPolling()
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
-                // Skip when the player isn't actually advancing: a paused
-                // or stopped session can only transition to playing via
-                // an explicit user action (play button, media key, queue
-                // append) and every one of those paths calls
-                // `refreshStatus()` directly, so we never miss a real
-                // change. Saves the per-tick FFI lock + Observation
-                // republish on the home screen and any "left the app
-                // open in the background" scenario.
-                guard self.status.state == .playing else { return }
                 let before = self.status.currentTrack?.id
                 let beforeQueuePos = self.status.queuePosition
                 let beforeQueueLen = self.status.queueLength
