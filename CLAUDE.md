@@ -172,9 +172,11 @@ for when PRs land:
 
 1. **`try?` + `print` stubs rot silently.** Any function whose body is
    `print("[AppModel] X not yet wired — see #Y")` should be treated as
-   a live bug, not a TODO. Grep pattern: `print.*not yet wired` +
-   `TODO\(core-#`. Several of these had shipped for weeks before being
-   rewired.
+   a live bug, not a TODO. As of rc12 the `print(...)` form has been
+   replaced with `Log.app.notice(...)` so the messages now surface in
+   Console.app under `subsystem == "org.jellify.desktop"` instead of
+   vanishing into Xcode's debug console — grep pattern updated:
+   `Log.app.notice.*not yet wired`.
 
 2. **Sync FFI on the MainActor.** Every `try core.X(...)` on a
    `@MainActor`-attributed function takes the Rust `Inner` mutex on the
@@ -183,8 +185,12 @@ for when PRs land:
    - Memoize idempotent ones (e.g. `imageURL`).
    - Wrap the call in `Task.detached` and marshal the result back to
      main.
-   - Move polling loops off main (the 500ms `core.status()` poll
-     remains on main in the polling timer — pending fix).
+   - Polling: as of rc11 the `core.status()` poll runs at 1Hz and skips
+     entirely when `status.state != .playing`; the AVPlayer
+     `periodicTimeObserver` matches at 1Hz and skips `core.markPosition`
+     when `player.rate == 0`. Together they cut idle wakes from
+     ~14,400/h to zero. Don't reintroduce a faster cadence without
+     measuring Activity Monitor's "Energy Impact" column.
 
 3. **Paged-cache-only resolution.** Any screen that resolves its subject
    via `model.<things>.first { $0.id == targetId }` breaks for libraries
@@ -197,16 +203,46 @@ for when PRs land:
    do/catch blocks so one flaky endpoint doesn't sink a whole page.
 
 5. **Optimistic UI without server echo.** Any mutation that updates
-   local state + prints "TODO not yet wired" — grep for them before
-   treating as done. Server state drifts silently.
+   local state + a swallowed `try?` on the corresponding FFI is a
+   silent-corruption bug. As of rc12 the playlist mutations
+   (`removeFromPlaylist`, `undoRemoveFromPlaylist`, `addToPlaylist`)
+   surface errors via `errorMessage` and roll back local state on
+   failure — pattern to match for any future mutation. Search for
+   `Task.detached.*core\.` and check each for proper do/catch +
+   rollback.
 
 ## Deferred / known-open work
 
-- `/Sessions/Playing*` reporting (report_playback_started / progress /
-  stopped) FFIs exist, zero Swift callers. No PlayCount, no Now Playing
-  on other clients, no resume points.
 - Queue `playNext` / `addToQueue` semantics: fall through to `play()`
   and clobber queue. Needs core `insert_next` / `append_to_queue`
   primitives (#282).
 - PRs still open needing rebase: #555 (typed enums + ItemsQuery), #560
   (i18n String Catalog), #639 (heartbeat scheduler).
+- Print-stub features (`Log.app.notice` after rc12) gated behind
+  `Capabilities.swift` flags: downloads (#70/#222), edit album (#96),
+  export playlist (#98/#125), genre actions (#144/#248/#318),
+  new-playlist picker (#72/#126). All flagged false by default; flip
+  one only when the corresponding FFI lands.
+
+## Resolved (don't re-file)
+
+- ✅ `/Sessions/Playing*` reporting — wired in JellifyAudio/AudioEngine
+  (`reportPlaybackStarted/Progress/Stopped`). PlayCount, Now Playing on
+  other clients, and resume points all flow through it. Earlier CLAUDE.md
+  versions claimed this was unwired; that was stale.
+- ✅ 500ms polling on MainActor (rc11). See gap pattern #2 for the
+  current cadence + skip-when-paused contract.
+- ✅ Album-tracks `Recursive=true` (rc7). Removed because Jellyfin's
+  flat-tree walk on a 100k+-track library was 3.6s/request; the flag
+  bought nothing for music albums (multi-disc lives on
+  `ParentIndexNumber`, not nested folders).
+- ✅ ArtistDetailView `LazyHStack` UAF on macOS 26.4 + Apple Silicon
+  (rc9). Replaced with eager `HStack` for discography + similar artists
+  shelves.
+- ✅ Favorite cache snapshot fallback (rc6). `model.isFavorite(track:)`
+  / `(album:)` / `(artist:)` walk cache → `userData?.isFavorite` →
+  legacy mirror, so tap-to-favorite on a server-favorited item correctly
+  un-favorites instead of redundantly favoriting.
+- ✅ Playlist mutations (`removeFromPlaylist`, `undoRemoveFromPlaylist`,
+  `addToPlaylist`) now surface errors + roll back optimistic state on
+  server failure (rc12).

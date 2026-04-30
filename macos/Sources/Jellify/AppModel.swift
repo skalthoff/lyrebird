@@ -666,7 +666,7 @@ final class AppModel {
                 run: { [weak self] in
                     guard self?.status.currentTrack != nil else { return }
                     // TODO(#70): wire to the download engine once it lands.
-                    print("[AppModel] Download Current — not yet wired (see #70)")
+                    Log.app.notice("Download Current — not yet wired (see #70)")
                 }
             ))
         }
@@ -784,7 +784,7 @@ final class AppModel {
             // No banner — the user sees the login form, which is already the
             // recovery path, and the library refetch after a manual sign-in
             // will noisily surface any persistent server problem.
-            print("[AppModel] attemptRestoreSession failed: \(error.localizedDescription)")
+            Log.auth.error("attemptRestoreSession failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1163,7 +1163,7 @@ final class AppModel {
                 try core.playlistLibraryId()
             }.value
         } catch {
-            print("[AppModel] ensurePlaylistLibraryId: core.playlistLibraryId() failed (\(error.localizedDescription)); falling back to empty ParentId.")
+            Log.net.error("ensurePlaylistLibraryId: core.playlistLibraryId() failed (\(error.localizedDescription, privacy: .public)); falling back to empty ParentId.")
             resolved = ""
         }
         playlistLibraryId = resolved
@@ -1200,7 +1200,7 @@ final class AppModel {
             // both fail in the same refresh. The Playlists tab empty state
             // already explains "nothing to see here" when `playlists` is
             // empty.
-            print("[AppModel] refreshPlaylists failed: \(error.localizedDescription)")
+            Log.net.error("refreshPlaylists failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1494,7 +1494,7 @@ final class AppModel {
             }
             return Self.parseAlbumsFromItems(data: data)
         } catch {
-            print("[AppModel] fetchAlbumsViaItemsQuery failed: \(error.localizedDescription)")
+            Log.net.error("fetchAlbumsViaItemsQuery failed: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -1526,7 +1526,7 @@ final class AppModel {
             }
             return Self.parseAlbumsWithPlayCounts(data: data)
         } catch {
-            print("[AppModel] fetchAlbumsWithPlayCounts failed: \(error.localizedDescription)")
+            Log.net.error("fetchAlbumsWithPlayCounts failed: \(error.localizedDescription, privacy: .public)")
             return ([], [:])
         }
     }
@@ -1567,7 +1567,7 @@ final class AppModel {
             // `{Items, TotalRecordCount}` wrapper — parse accordingly.
             return Self.parseLatestAlbumsWithDates(data: data)
         } catch {
-            print("[AppModel] fetchLatestAlbumsWithDates failed: \(error.localizedDescription)")
+            Log.net.error("fetchLatestAlbumsWithDates failed: \(error.localizedDescription, privacy: .public)")
             return ([], [:])
         }
     }
@@ -1593,7 +1593,7 @@ final class AppModel {
             }
             return Self.parseTracksFromItems(data: data)
         } catch {
-            print("[AppModel] fetchFavoriteTracks failed: \(error.localizedDescription)")
+            Log.net.error("fetchFavoriteTracks failed: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -1630,7 +1630,7 @@ final class AppModel {
             for track in tracks { favoriteById[track.id] = true }
             return tracks
         } catch {
-            print("[AppModel] loadFavoriteTracks failed: \(error.localizedDescription)")
+            Log.tracks.error("loadFavoriteTracks failed: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -1674,7 +1674,7 @@ final class AppModel {
             for artist in artists { favoriteById[artist.id] = true }
             return artists
         } catch {
-            print("[AppModel] loadFavoriteArtists failed: \(error.localizedDescription)")
+            Log.app.error("loadFavoriteArtists failed: \(error.localizedDescription, privacy: .public)")
             return []
         }
     }
@@ -2395,11 +2395,47 @@ final class AppModel {
                 imageTag: p.imageTag
             )
         }
-        Task.detached(priority: .userInitiated) { [core] in
-            try? core.removeFromPlaylist(
-                playlistId: playlistId,
-                entryIds: playlistItemIds
-            )
+        // Capture the optimistic state so we can roll back on server failure.
+        // Without this rollback the local list and server diverge silently —
+        // user sees the row vanish, refreshes the playlist, row reappears,
+        // and the action looks like a phantom event. Same bug class as the
+        // rc4-rc5 favorite-not-pushed report.
+        let removedSnapshot = removed
+        let playlistRef = playlistId
+        Task { [weak self] in
+            do {
+                try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.removeFromPlaylist(
+                        playlistId: playlistRef,
+                        entryIds: playlistItemIds
+                    )
+                }.value
+                self?.serverReachability.noteSuccess()
+            } catch {
+                guard let self else { return }
+                if self.handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    self.serverReachability.noteFailure()
+                }
+                // Rollback: restore the rows + the trackCount we just decremented.
+                self.currentPlaylistTracks.append(contentsOf: removedSnapshot)
+                self.playlistTracks[playlistRef] = self.currentPlaylistTracks
+                if let idx = self.playlists.firstIndex(where: { $0.id == playlistRef }) {
+                    let p = self.playlists[idx]
+                    self.playlists[idx] = Playlist(
+                        id: p.id,
+                        name: p.name,
+                        trackCount: p.trackCount + UInt32(removedSnapshot.count),
+                        runtimeTicks: p.runtimeTicks,
+                        imageTag: p.imageTag
+                    )
+                }
+                self.pendingPlaylistRemoval = nil
+                self.errorMessage = JellifyErrorPresenter.message(
+                    for: error,
+                    context: .playlistTracks
+                )
+            }
         }
     }
 
@@ -2428,8 +2464,44 @@ final class AppModel {
                 imageTag: p.imageTag
             )
         }
-        Task.detached(priority: .userInitiated) { [core] in
-            try? core.addToPlaylist(playlistId: playlistId, itemIds: ids, position: nil)
+        // Capture the count of optimistically-reinserted tracks so we can
+        // roll back on server failure. Without this the playlist's count is
+        // inflated locally vs. server.
+        let reinsertedCount = reinserted.count
+        let playlistRef = playlistId
+        let reinsertedIds = Set(reinserted.map(\.id))
+        Task { [weak self] in
+            do {
+                try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.addToPlaylist(playlistId: playlistRef, itemIds: ids, position: nil)
+                }.value
+                self?.serverReachability.noteSuccess()
+            } catch {
+                guard let self else { return }
+                if self.handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    self.serverReachability.noteFailure()
+                }
+                // Roll back the optimistic re-insert: drop the rows we
+                // just added and decrement the playlist count.
+                self.currentPlaylistTracks.removeAll { reinsertedIds.contains($0.id) }
+                self.playlistTracks[playlistRef] = self.currentPlaylistTracks
+                if let idx = self.playlists.firstIndex(where: { $0.id == playlistRef }) {
+                    let p = self.playlists[idx]
+                    let newCount = max(0, Int(p.trackCount) - reinsertedCount)
+                    self.playlists[idx] = Playlist(
+                        id: p.id,
+                        name: p.name,
+                        trackCount: UInt32(newCount),
+                        runtimeTicks: p.runtimeTicks,
+                        imageTag: p.imageTag
+                    )
+                }
+                self.errorMessage = JellifyErrorPresenter.message(
+                    for: error,
+                    context: .playlistTracks
+                )
+            }
         }
     }
 
@@ -2440,10 +2512,7 @@ final class AppModel {
     func addToPlaylist(playlistId: String, trackIds: [String]) {
         guard !trackIds.isEmpty else { return }
         let ids = trackIds
-        Task.detached(priority: .userInitiated) { [core] in
-            try? core.addToPlaylist(playlistId: playlistId, itemIds: ids, position: nil)
-        }
-        // Optimistically refresh the currently-loaded list so the drop
+        // Optimistically bump the count BEFORE the FFI call so the drop
         // visually lands without waiting for the round-trip. We don't know
         // the full `Track` records for ids that aren't already resident, so
         // we only bump the count on the in-memory `Playlist` and leave the
@@ -2458,6 +2527,39 @@ final class AppModel {
                 runtimeTicks: p.runtimeTicks,
                 imageTag: p.imageTag
             )
+        }
+        let bumpedCount = trackIds.count
+        let playlistRef = playlistId
+        Task { [weak self] in
+            do {
+                try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.addToPlaylist(playlistId: playlistRef, itemIds: ids, position: nil)
+                }.value
+                self?.serverReachability.noteSuccess()
+            } catch {
+                guard let self else { return }
+                if self.handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    self.serverReachability.noteFailure()
+                }
+                // Roll back the optimistic count bump so the in-memory
+                // Playlist record stays in sync with the server.
+                if let idx = self.playlists.firstIndex(where: { $0.id == playlistRef }) {
+                    let p = self.playlists[idx]
+                    let newCount = max(0, Int(p.trackCount) - bumpedCount)
+                    self.playlists[idx] = Playlist(
+                        id: p.id,
+                        name: p.name,
+                        trackCount: UInt32(newCount),
+                        runtimeTicks: p.runtimeTicks,
+                        imageTag: p.imageTag
+                    )
+                }
+                self.errorMessage = JellifyErrorPresenter.message(
+                    for: error,
+                    context: .playlistTracks
+                )
+            }
         }
     }
 
@@ -3188,7 +3290,7 @@ final class AppModel {
     /// stub so the UI action has a landing pad.
     func enqueueDownload(album: Album) {
         // TODO: #70 / #222 — download engine not yet wired.
-        print("[AppModel] enqueueDownload(album:) not yet wired — see #70 / #222")
+        Log.app.notice("enqueueDownload(album:) not yet wired — see #70 / #222")
     }
 
     /// Append a batch of tracks to an existing playlist via `add_to_playlist`
@@ -3331,7 +3433,7 @@ final class AppModel {
     /// TODO: #96 / #222 — metadata editor sheet not yet implemented.
     func requestEditAlbum(album: Album) {
         // TODO(#96): metadata editor sheet not yet implemented.
-        print("[AppModel] requestEditAlbum(album:) not yet wired — see #96 / #222")
+        Log.app.notice("requestEditAlbum(album:) not yet wired — see #96 / #222")
     }
 
     /// Append every track on the album to a user-picked playlist. Loads
@@ -3604,7 +3706,7 @@ final class AppModel {
     /// stub so the UI action has a landing pad.
     func enqueueDownload(playlist: Playlist) {
         // TODO: #70 / #222 — download engine not yet wired.
-        print("[AppModel] enqueueDownload(playlist:) not yet wired — see #70 / #222")
+        Log.app.notice("enqueueDownload(playlist:) not yet wired — see #70 / #222")
     }
 
     /// Flip the sidebar's inline TextField onto an existing playlist row so
@@ -3723,7 +3825,7 @@ final class AppModel {
     func updatePlaylistDescription(_ playlist: Playlist, newDescription: String) {
         let trimmed = newDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         // TODO: #130 — persist via `core.updatePlaylist` once available.
-        print("[AppModel] updatePlaylistDescription(\(playlist.id)) not yet persisted — see #130")
+        Log.app.notice("updatePlaylistDescription(\(playlist.id, privacy: .public)) not yet persisted — see #130")
         if trimmed.isEmpty {
             playlistDescriptions.removeValue(forKey: playlist.id)
         } else {
@@ -3961,7 +4063,7 @@ final class AppModel {
         }
         // Persist the reorder to the server if the track carries a PlaylistItemId.
         guard let playlistItemId = movedTrack.playlistItemId else {
-            print("[AppModel] moveTrackInPlaylist(\(playlistId)) — track missing PlaylistItemId, local-only")
+            Log.app.notice("moveTrackInPlaylist(\(playlistId, privacy: .public)) — track missing PlaylistItemId, local-only")
             return
         }
         Task {
@@ -4123,7 +4225,7 @@ final class AppModel {
     func toggleDownload(tracks: [Track]) {
         guard !tracks.isEmpty else { return }
         // TODO(#70): download engine not yet wired.
-        print("[AppModel] toggleDownload(tracks: \(tracks.count)) not yet wired — see #70")
+        Log.app.notice("toggleDownload(tracks: \(tracks.count, privacy: .public)) not yet wired — see #70")
     }
 
     /// Toggle the played flag across a multi-select of tracks. Target
@@ -4182,7 +4284,7 @@ final class AppModel {
     /// TODO(#318): genre detail screen not yet implemented.
     func browseGenre(genre: String) {
         // TODO(#318): genre detail screen not yet implemented.
-        print("[AppModel] browseGenre(\(genre)) not yet wired — see #318")
+        Log.app.notice("browseGenre(\(genre, privacy: .public)) not yet wired — see #318")
     }
 
     /// Kick off an Instant Mix seeded by a genre.
@@ -4194,14 +4296,14 @@ final class AppModel {
     /// TODO(#318): genre-scoped track list FFI not yet wired.
     func shuffleGenre(genre: String) {
         // TODO(#318): genre-scoped track list FFI not yet wired.
-        print("[AppModel] shuffleGenre(\(genre)) not yet wired — see #318")
+        Log.app.notice("shuffleGenre(\(genre, privacy: .public)) not yet wired — see #318")
     }
 
     /// Pin a genre tile to the Home screen so the user can one-click-browse.
     /// TODO(#248 / #249): Home personalization (pinned tiles) not yet wired.
     func pinGenreToHome(genre: String) {
         // TODO(#248): pinned tiles not yet wired.
-        print("[AppModel] pinGenreToHome(\(genre)) not yet wired — see #248 / #249")
+        Log.app.notice("pinGenreToHome(\(genre, privacy: .public)) not yet wired — see #248 / #249")
     }
 
     func pause() { audio.pause() }
