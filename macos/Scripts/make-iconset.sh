@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Render the Jellify app icon out of an SVG source, build the standard
-# macOS .iconset directory, and compile it into Resources/Jellify.icns.
+# macOS .iconset directory, and compile it into Resources/AppIcon.icns.
 #
 # The .icns is what Finder, the Dock, Cmd-Tab, and Launchpad display, and
 # what Sparkle shows in the "Install Update" dialog. Signed DMGs carry it
@@ -12,7 +12,9 @@
 #   2. design/project/assets/teal-icon.svg  (current placeholder in-tree)
 #
 # Output:
-#   macos/Resources/Jellify.icns
+#   macos/Resources/AppIcon.icns
+#   (filename matches CFBundleIconFile in Info.plist and the `cp` in
+#   make-bundle.sh, so the produced .app actually picks up the icon.)
 #
 # Dependencies: macOS-native `sips` (renderer) and `iconutil` (compiler).
 # No Homebrew packages required — both ship with Command Line Tools, so
@@ -27,7 +29,7 @@ MACOS="$ROOT/macos"
 RESOURCES="$MACOS/Resources"
 BUILD="$MACOS/build/icon"
 ICONSET="$BUILD/Jellify.iconset"
-OUT="$RESOURCES/Jellify.icns"
+OUT="$RESOURCES/AppIcon.icns"
 
 # Prefer the canonical icon, fall back to the teal placeholder in design/.
 CANDIDATES=(
