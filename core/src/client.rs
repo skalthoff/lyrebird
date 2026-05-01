@@ -51,6 +51,35 @@ const RETRY_AFTER_CAP: Duration = Duration::from_secs(5);
 /// the same as a failure and surface [`JellifyError::AuthExpired`].
 pub type RefreshTokenFn = dyn Fn() -> Result<Option<String>> + Send + Sync;
 
+/// Optional Cloudflare Access service-token headers, sourced from the
+/// `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET` env vars.
+///
+/// When both are set, every outbound HTTP request the client makes carries
+/// `CF-Access-Client-Id` and `CF-Access-Client-Secret`, which lets a Jellyfin
+/// instance fronted by Cloudflare Access (or behind a Cloudflare WAF that
+/// blocks unauthenticated traffic) authenticate the request before it even
+/// reaches the origin. Otherwise the header map is empty and the client
+/// behaves exactly as before — no production user gets these headers unless
+/// they explicitly opt in via env.
+///
+/// Used in CI to let the e2e workflow reach `music.skalthoff.com`, which
+/// returns 403 to anonymous traffic from GitHub Actions runner IPs.
+fn cf_access_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let (Ok(id), Ok(secret)) = (
+        std::env::var("CF_ACCESS_CLIENT_ID"),
+        std::env::var("CF_ACCESS_CLIENT_SECRET"),
+    ) {
+        if let (Ok(id_h), Ok(secret_h)) =
+            (HeaderValue::from_str(&id), HeaderValue::from_str(&secret))
+        {
+            headers.insert("CF-Access-Client-Id", id_h);
+            headers.insert("CF-Access-Client-Secret", secret_h);
+        }
+    }
+    headers
+}
+
 /// Per-client memoization of the library-resolution lookups behind
 /// [`JellyfinClient::music_library_id`] and
 /// [`JellyfinClient::playlist_library_id`]. Both endpoints are hit once at
@@ -97,6 +126,7 @@ impl JellyfinClient {
         let http = HttpClient::builder()
             .user_agent(format!("{CLIENT_NAME}/{CLIENT_VERSION}"))
             .timeout(std::time::Duration::from_secs(30))
+            .default_headers(cf_access_headers())
             .build()
             .map_err(|e| JellifyError::Network(e.to_string()))?;
         Ok(Self {

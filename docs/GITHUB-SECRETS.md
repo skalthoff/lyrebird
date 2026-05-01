@@ -11,7 +11,21 @@ See `.env.example` for the local-dev counterpart of these values.
 
 Target: [`.github/workflows/e2e.yml`](../.github/workflows/e2e.yml). Runs on every push to `main` / nightly cron against the **live `music.skalthoff.com` test instance** using the read-only `test` account.
 
-**No secret needed.** The test server URL and credentials (`test` / `test`) are baked into the workflow env block. The account is read-isolated — favorites and played-flags it writes are scoped to the user and don't pollute production data. If the server is unreachable, the workflow fails fast (<20s) at the healthcheck step.
+The test server URL and `test` / `test` credentials are baked into the workflow env block. The account is read-isolated — favorites and played-flags it writes are scoped to the user and don't pollute production data. If the server is unreachable, the workflow fails fast (<20s) at the healthcheck step.
+
+The server is fronted by Cloudflare Access, which 403s anonymous traffic from GitHub Actions runner IPs. The CI workflow attaches a Cloudflare Access service-token pair on every outbound request:
+
+| Secret | What it is | How to get it |
+|---|---|---|
+| `CF_ACCESS_CLIENT_ID` | Cloudflare Access service-token client ID. | Cloudflare Zero Trust → Access → Service Auth → Service Tokens → "Create Service Token". |
+| `CF_ACCESS_CLIENT_SECRET` | Matching service-token secret. | Same dialog; only shown once on creation, copy immediately. |
+
+```bash
+gh secret set CF_ACCESS_CLIENT_ID
+gh secret set CF_ACCESS_CLIENT_SECRET
+```
+
+`core/src/client.rs::cf_access_headers` auto-attaches the pair to every outbound request when both env vars are set, so no test code changes are needed.
 
 ---
 
