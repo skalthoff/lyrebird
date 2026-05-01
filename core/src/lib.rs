@@ -158,7 +158,11 @@ impl JellifyCore {
     ) -> std::result::Result<models::Session, JellifyError> {
         let username = username.trim().to_string();
         let password = password.trim().to_string();
-        if username.is_empty() || password.is_empty() {
+        // Jellyfin allows accounts with no password — the server is the
+        // authority on whether a given (user, password) pair is valid, so
+        // we only short-circuit on missing username. Empty password is
+        // forwarded as `Pw: ""` to /Users/AuthenticateByName.
+        if username.is_empty() {
             return Err(JellifyError::InvalidCredentials);
         }
 
