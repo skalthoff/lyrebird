@@ -364,9 +364,10 @@ struct LoginView: View {
     // MARK: - Derived state
 
     private var canSubmit: Bool {
+        // Empty password is allowed — Jellyfin supports passwordless accounts
+        // and the server is the authority on whether the password is valid.
         !url.trimmingCharacters(in: .whitespaces).isEmpty
             && !username.trimmingCharacters(in: .whitespaces).isEmpty
-            && !password.isEmpty
     }
 
     private var loginErrorMessage: String? {

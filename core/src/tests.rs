@@ -5380,10 +5380,12 @@ async fn non_cert_transport_error_stays_network() {
 // #577 — username / password whitespace trimming
 // ============================================================================
 
-/// `login` must reject blank (whitespace-only) usernames and passwords before
-/// any network call is made.
+/// `login` must reject blank (whitespace-only) usernames before any network
+/// call is made. Empty / whitespace-only passwords are *allowed* — Jellyfin
+/// supports passwordless accounts and the server is the authority on whether
+/// the password is valid.
 #[test]
-fn login_rejects_whitespace_only_credentials() {
+fn login_rejects_whitespace_only_username() {
     // Error fires before any HTTP call — no server needed.
     let config = CoreConfig {
         data_dir: String::new(),
@@ -5397,14 +5399,6 @@ fn login_rejects_whitespace_only_credentials() {
     assert!(
         matches!(err, JellifyError::InvalidCredentials),
         "whitespace-only username should return InvalidCredentials, got {err:?}"
-    );
-
-    let err = core
-        .login("http://localhost:1".into(), "user".into(), "\t\n".into())
-        .unwrap_err();
-    assert!(
-        matches!(err, JellifyError::InvalidCredentials),
-        "whitespace-only password should return InvalidCredentials, got {err:?}"
     );
 }
 
@@ -7357,4 +7351,108 @@ async fn tracks_by_artist_without_session_returns_not_authenticated() {
         server.received_requests().await.unwrap().is_empty(),
         "guard must short-circuit before any HTTP call"
     );
+}
+
+// ============================================================================
+// passwordless Jellyfin accounts
+// ============================================================================
+
+/// Jellyfin allows user accounts with no password. The client must forward
+/// an empty `Pw` to `/Users/AuthenticateByName` rather than rejecting it
+/// client-side — the server is the authority on whether a given (user, "")
+/// pair is valid.
+#[tokio::test]
+async fn login_forwards_empty_password_to_server() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "passwordless-token",
+            "ServerId": "passwordless-server",
+            "ServerName": "Passwordless Test",
+            "User": {
+                "Id": "passwordless-user-id",
+                "Name": "guest",
+                "ServerId": "passwordless-server",
+                "PrimaryImageTag": null
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    tokio::task::spawn_blocking(move || {
+        install_mock_keyring();
+        let core = JellifyCore::new(CoreConfig {
+            data_dir: String::new(),
+            device_name: "Test".into(),
+        })
+        .unwrap();
+        let session = core
+            .login(server_url, "guest".into(), "".into())
+            .expect("login with empty password should succeed");
+        assert_eq!(session.access_token, "passwordless-token");
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    let requests = server.received_requests().await.unwrap();
+    let post = requests
+        .iter()
+        .find(|r| r.method.as_str() == "POST" && r.url.path() == "/Users/AuthenticateByName")
+        .expect("expected an AuthenticateByName POST");
+    let body: serde_json::Value =
+        serde_json::from_slice(&post.body).expect("auth body must be JSON");
+    assert_eq!(
+        body["Pw"],
+        json!(""),
+        "empty Pw must be forwarded as the empty string"
+    );
+    assert_eq!(body["Username"], json!("guest"));
+}
+
+/// Whitespace-only password is trimmed to empty and forwarded as `Pw: ""`,
+/// matching the passwordless contract — the server decides whether to accept
+/// or reject.
+#[tokio::test]
+async fn login_forwards_whitespace_only_password_as_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "ws-token",
+            "ServerId": "ws-server",
+            "ServerName": "WS Test",
+            "User": {
+                "Id": "ws-user-id",
+                "Name": "guest",
+                "ServerId": "ws-server",
+                "PrimaryImageTag": null
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    tokio::task::spawn_blocking(move || {
+        install_mock_keyring();
+        let core = JellifyCore::new(CoreConfig {
+            data_dir: String::new(),
+            device_name: "Test".into(),
+        })
+        .unwrap();
+        core.login(server_url, "guest".into(), "\t\n  ".into())
+            .expect("login with whitespace-only password should succeed (trimmed to empty)");
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    let requests = server.received_requests().await.unwrap();
+    let post = requests
+        .iter()
+        .find(|r| r.method.as_str() == "POST" && r.url.path() == "/Users/AuthenticateByName")
+        .expect("expected an AuthenticateByName POST");
+    let body: serde_json::Value =
+        serde_json::from_slice(&post.body).expect("auth body must be JSON");
+    assert_eq!(body["Pw"], json!(""), "whitespace-only Pw must be trimmed to empty");
 }
