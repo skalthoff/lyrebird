@@ -109,12 +109,22 @@ struct SmokeTest {
         print("[play] state=.playing reached")
 
         // Position must advance — catches "queue stuck on track 0 / paused
-        // immediately after play" regressions.
+        // immediately after play" regressions. Polled rather than a fixed
+        // sleep because headless macOS runners need more time than a dev's
+        // Mac for AVPlayer to buffer the stream off a remote server (the
+        // origin is across an open internet hop from `macos-15` runners).
+        // Local runs still complete in ~1s; CI now has up to 15s to
+        // converge. The correctness signal is unchanged: if position is
+        // stuck, the FAIL line still fires.
         let posBeforeWait = core.status().positionSeconds
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
-        let posAfterWait = core.status().positionSeconds
+        let posAfterWait = await waitFor(
+            positionAdvanceFrom: posBeforeWait,
+            on: core,
+            byAtLeast: 0.5,
+            timeout: 15.0
+        )
         guard posAfterWait > posBeforeWait + 0.5 else {
-            fputs("FAIL[11]: position didn't advance: \(posBeforeWait) → \(posAfterWait)\n", stderr)
+            fputs("FAIL[11]: position didn't advance after 15s: \(posBeforeWait) → \(posAfterWait)\n", stderr)
             exit(11)
         }
         print("[play] position advanced \(String(format: "%.2fs", posBeforeWait)) → \(String(format: "%.2fs", posAfterWait))")
@@ -138,11 +148,18 @@ struct SmokeTest {
         guard await waitFor(state: .playing, on: core, timeout: 2.0) else {
             fputs("FAIL[14]: resume didn't transition to .playing within 2s\n", stderr); exit(14)
         }
+        // After resume, AVPlayer is already buffered, so this should be
+        // quick — but the same poll-and-break helper keeps the timeout
+        // headroom for CI. Local converges in <1s.
         let posAtResume = core.status().positionSeconds
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
-        let posAfterResume = core.status().positionSeconds
+        let posAfterResume = await waitFor(
+            positionAdvanceFrom: posAtResume,
+            on: core,
+            byAtLeast: 0.5,
+            timeout: 5.0
+        )
         guard posAfterResume > posAtResume + 0.5 else {
-            fputs("FAIL[15]: resume didn't advance position: \(posAtResume) → \(posAfterResume)\n", stderr)
+            fputs("FAIL[15]: resume didn't advance position after 5s: \(posAtResume) → \(posAfterResume)\n", stderr)
             exit(15)
         }
         print("[resume] position advanced \(String(format: "%.2fs", posAtResume)) → \(String(format: "%.2fs", posAfterResume))")
@@ -152,10 +169,16 @@ struct SmokeTest {
             let beforeId = core.status().currentTrack?.id
             if let next = core.skipNext() {
                 try? engine.play(track: next)
-                try? await Task.sleep(nanoseconds: 1_500_000_000)
-                let afterId = core.status().currentTrack?.id
+                // Poll instead of sleeping — AudioEngine.play() schedules
+                // the AVPlayer item replacement asynchronously, which on a
+                // headless runner can take longer than a fixed 1.5s.
+                let afterId = await waitFor(
+                    currentTrackChangeFrom: beforeId,
+                    on: core,
+                    timeout: 5.0
+                )
                 guard afterId != nil, afterId != beforeId else {
-                    fputs("FAIL[16]: skipNext didn't change currentTrack: \(beforeId ?? "nil") → \(afterId ?? "nil")\n", stderr)
+                    fputs("FAIL[16]: skipNext didn't change currentTrack after 5s: \(beforeId ?? "nil") → \(afterId ?? "nil")\n", stderr)
                     exit(16)
                 }
                 print("[skipNext] track changed \(beforeId ?? "nil") → \(afterId ?? "nil")")
@@ -189,6 +212,50 @@ struct SmokeTest {
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
         return false
+    }
+
+    /// Poll `core.status().positionSeconds` at 250ms intervals up to
+    /// `timeout` seconds, short-circuiting as soon as it has moved past
+    /// `start + delta`. Returns the latest sampled position whether the
+    /// threshold was met or the deadline expired — callers compare and
+    /// emit their own FAIL line so the exit code identifies which step.
+    private static func waitFor(
+        positionAdvanceFrom start: Double,
+        on core: JellifyCore,
+        byAtLeast delta: Double,
+        timeout: TimeInterval
+    ) async -> Double {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = core.status().positionSeconds
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            latest = core.status().positionSeconds
+            if latest > start + delta {
+                return latest
+            }
+        }
+        return latest
+    }
+
+    /// Poll `core.status().currentTrack?.id` at 250ms intervals up to
+    /// `timeout` seconds, short-circuiting as soon as the id differs from
+    /// `before`. Returns the latest sampled id (which may equal `before`
+    /// on timeout). Callers compare and emit their own FAIL line.
+    private static func waitFor(
+        currentTrackChangeFrom before: String?,
+        on core: JellifyCore,
+        timeout: TimeInterval
+    ) async -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        var latest = core.status().currentTrack?.id
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            latest = core.status().currentTrack?.id
+            if latest != before {
+                return latest
+            }
+        }
+        return latest
     }
 }
 
