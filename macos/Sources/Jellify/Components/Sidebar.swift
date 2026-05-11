@@ -64,8 +64,8 @@ struct Sidebar: View {
             sectionHeader("sidebar.section.your_library")
             VStack(alignment: .leading, spacing: 2) {
                 favoritesRow
-                libRow("square.stack", label: "sidebar.stats.albums", count: UInt32(model.albums.count), tab: .albums)
-                libRow("person.crop.circle", label: "sidebar.stats.artists", count: UInt32(model.artists.count), tab: .artists)
+                libRow("square.stack", label: "sidebar.stats.albums", count: model.albumsTotal, tab: .albums)
+                libRow("person.crop.circle", label: "sidebar.stats.artists", count: model.artistsTotal, tab: .artists)
                 libRow("music.note.list", label: "sidebar.stats.playlists", count: UInt32(model.playlists.count), tab: .playlists)
             }
             .padding(.horizontal, 10)
