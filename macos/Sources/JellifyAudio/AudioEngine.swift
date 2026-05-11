@@ -42,6 +42,20 @@ public protocol AudioEngineDelegate: AnyObject {
     /// owner should surface a terminal error with a tap-to-retry
     /// affordance — the engine will NOT retry again on its own.
     func audioEngineDidFail(_ message: String)
+
+    /// Called when an `AVPlayerItem` reports a transient network failure
+    /// (`NSURLErrorNetworkConnectionLost` / `Timeout` /
+    /// `NotConnectedToInternet`). The engine has already cancelled the
+    /// blind stall watchdog and triggered a queue advance via
+    /// `onTrackEnded`; the owner only needs to surface a transient toast
+    /// (e.g. "Connection lost — skipping"). See issue #806.
+    func audioEngineDidEncounterTransientError(_ message: String)
+}
+
+public extension AudioEngineDelegate {
+    /// Default no-op so existing conformers don't have to implement the
+    /// new transient-error hook to compile (#806).
+    func audioEngineDidEncounterTransientError(_ message: String) {}
 }
 
 /// `AVQueuePlayer`-backed audio engine. Reports transport state back to the
@@ -66,6 +80,14 @@ public final class AudioEngine: NSObject {
     /// `AVPlayerItemDidPlayToEndTime` notification to the new `currentItem`
     /// and update `currentStreamURL` for stall recovery.
     private var currentItemObservation: NSKeyValueObservation?
+    /// KVO observations on the live `AVPlayerItem` (#806). Re-attached
+    /// every time `AVQueuePlayer.currentItem` changes so we always watch
+    /// the item that's actually playing — not the one that was current
+    /// at `play(track:)` time. `.error` fires when the byte pump dies
+    /// (e.g. CoreMedia surfaces a -1005); `.status` fires when an item
+    /// flips to `.failed` before playback can start (early-track death).
+    private var itemErrorObservation: NSKeyValueObservation?
+    private var itemStatusObservation: NSKeyValueObservation?
 
     /// The URL + auth header of the item currently loaded into the player.
     /// Captured on `play(_:)` so we can rebuild a fresh `AVPlayerItem` when
@@ -463,6 +485,11 @@ public final class AudioEngine: NSObject {
         // onTrackEnded correctly.
         wireEndObserver(to: item)
 
+        // Watch the live item for transient network failures (#806). The
+        // observers are re-attached inside the currentItem KVO handler
+        // below so they follow gapless auto-advance.
+        attachItemFailureObservers(to: item)
+
         // currentItem KVO — fires when AVQueuePlayer advances to the next
         // pre-loaded item (the gapless transition). We use it to:
         //   1. Re-wire `endObserver` to the new currentItem.
@@ -478,6 +505,11 @@ public final class AudioEngine: NSObject {
                 // Re-register end-of-item notification for the newly-current item.
                 if let current = player.currentItem {
                     self.wireEndObserver(to: current)
+                    // Re-attach failure KVO so transient-error detection
+                    // follows gapless auto-advance instead of being pinned
+                    // to the item that was current at play(track:) time
+                    // (#806).
+                    self.attachItemFailureObservers(to: current)
                 }
                 // Reset stall URL tracking — the new item has its own URL.
                 if let urlAsset = player.currentItem?.asset as? AVURLAsset {
@@ -532,6 +564,89 @@ public final class AudioEngine: NSObject {
         }
     }
 
+    /// Attach (or re-attach) KVO on the given item's `.error` and `.status`
+    /// so we can detect transient-network failures within ~1s instead of
+    /// waiting for the 5s blind-rebuild watchdog (#806).
+    ///
+    /// `.error` covers mid-stream byte-pump deaths (the -1005 / -1001 /
+    /// -1009 path described in the issue). `.status` covers items that
+    /// flip to `.failed` before they ever reach `.readyToPlay` (early-
+    /// track death — same root causes, different surface). Both call
+    /// through to `handleItemFailure(_:)` which inspects the error and
+    /// either short-circuits to fail-fast or no-ops for unrelated codes
+    /// (which the existing stall watchdog still handles).
+    private func attachItemFailureObservers(to item: AVPlayerItem) {
+        itemErrorObservation?.invalidate()
+        itemErrorObservation = item.observe(\.error, options: [.new]) { [weak self] item, _ in
+            guard let error = item.error as NSError? else { return }
+            Task { @MainActor in
+                self?.handleItemFailure(error)
+            }
+        }
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard item.status == .failed, let error = item.error as NSError? else { return }
+            Task { @MainActor in
+                self?.handleItemFailure(error)
+            }
+        }
+    }
+
+    /// `true` if `error` is one of the transient network errors that the
+    /// fail-fast path handles (#806). `NSURLErrorDomain` surfaces from
+    /// `URLSession` directly; `CoreMediaErrorDomain` surfaces the same
+    /// codes from the AVFoundation byte pump.
+    private func isTransientNetworkError(_ error: NSError) -> Bool {
+        let transientCodes: Set<Int> = [
+            NSURLErrorNetworkConnectionLost,   // -1005
+            NSURLErrorTimedOut,                // -1001
+            NSURLErrorNotConnectedToInternet,  // -1009
+        ]
+        let transientRawCodes: Set<Int> = [-1005, -1001, -1009]
+        if error.domain == NSURLErrorDomain {
+            return transientCodes.contains(error.code)
+        }
+        // CoreMediaErrorDomain proxies the same numeric codes during HTTP
+        // byte-pump death. There's no public symbolic enum, so match by
+        // raw code value.
+        if error.domain == "CoreMediaErrorDomain" {
+            return transientRawCodes.contains(error.code)
+        }
+        // The underlying error chain occasionally carries the NSURL code
+        // even when the top-level domain is something else.
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError {
+            return isTransientNetworkError(underlying)
+        }
+        return false
+    }
+
+    /// Branch on whether the failing item carries a transient network
+    /// error code. For transient codes we fail fast: cancel the blind
+    /// 5s stall watchdog, notify the delegate so the UI can surface a
+    /// transient toast, and signal `onTrackEnded` so AppModel advances
+    /// the queue (same contract as natural end-of-item). Non-transient
+    /// errors fall through to the existing stall path. See #806.
+    private func handleItemFailure(_ error: NSError) {
+        guard isTransientNetworkError(error) else { return }
+        // Idempotent: invalidate the per-item observers so a follow-up
+        // `.status` flip on the same dead item doesn't re-fire this path
+        // before the queue advance lands.
+        itemErrorObservation?.invalidate()
+        itemErrorObservation = nil
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
+        // Short-circuit the 5s blind-rebuild path — rebuilding the same
+        // URL against the same broken connection would just refail.
+        cancelStallWatchdog()
+        // Surface the transient indicator and advance the queue. The
+        // delegate hook is best-effort; the `onTrackEnded` callback is
+        // the same path natural end-of-item takes, so AppModel's queue
+        // bookkeeping stays consistent.
+        delegate?.audioEngineDidEncounterTransientError("Connection lost — skipping")
+        core.markState(state: .ended)
+        onTrackEnded?()
+    }
+
     /// Register (or re-register) `endObserver` against `item`. Called once at
     /// player setup and again from the `currentItem` KVO handler whenever
     /// `AVQueuePlayer` gaplessly advances to the next item.
@@ -570,6 +685,10 @@ public final class AudioEngine: NSObject {
         timeControlObservation = nil
         currentItemObservation?.invalidate()
         currentItemObservation = nil
+        itemErrorObservation?.invalidate()
+        itemErrorObservation = nil
+        itemStatusObservation?.invalidate()
+        itemStatusObservation = nil
     }
 
     // MARK: - Stall recovery (issue #439)
@@ -654,6 +773,11 @@ public final class AudioEngine: NSObject {
         // in place is intentional; all three target the AVQueuePlayer, not the
         // item, so they stay valid across the swap.
         wireEndObserver(to: item)
+        // Re-attach failure KVO on the rebuilt item too (#806). If the
+        // rebuilt stream also surfaces -1005/-1001/-1009 we still fail
+        // fast on the next refailure instead of grinding through more
+        // 5s rebuild cycles.
+        attachItemFailureObservers(to: item)
 
         player.replaceCurrentItem(with: item)
         player.play()
