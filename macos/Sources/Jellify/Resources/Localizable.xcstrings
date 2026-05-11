@@ -961,6 +961,18 @@
         }
       }
     },
+    "sidebar.nav.discover" : {
+      "comment" : "Sidebar primary nav item: Discover.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discover"
+          }
+        }
+      }
+    },
     "sidebar.nav.library" : {
       "comment" : "Sidebar primary nav item: Library.",
       "extractionState" : "manual",
