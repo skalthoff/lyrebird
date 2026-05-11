@@ -295,7 +295,8 @@ struct PlaylistView: View {
                     TrackRow(
                         track: track,
                         number: idx + 1,
-                        onPlay: { model.play(tracks: tracks, startIndex: idx) }
+                        onPlay: { model.play(tracks: tracks, startIndex: idx) },
+                        playlistScope: playlist
                     )
                     // BATCH-06b (#73 / #235): drag-to-reorder. The modifier
                     // lives in `PlaylistReorderHandle.swift` and routes drops

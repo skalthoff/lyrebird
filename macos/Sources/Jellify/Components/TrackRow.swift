@@ -29,6 +29,10 @@ struct TrackRow: View {
     /// already have `idx` from a `ForEach(enumerated)` don't have to pay
     /// for a linear scan through `siblings`.
     var siblingIndex: Int = 0
+    /// When non-nil, the row is being rendered inside a playlist detail
+    /// view; forwarded to `TrackContextMenu` so the right-click menu can
+    /// surface a "Remove from Playlist" entry (#789).
+    var playlistScope: Playlist? = nil
 
     @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
     @State private var isHovering = false
@@ -131,7 +135,7 @@ struct TrackRow: View {
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) { onPlay?() }
         .onTapGesture(count: 1) { onPlay?() }
-        .contextMenu { TrackContextMenu(selection: [track]) }
+        .contextMenu { TrackContextMenu(selection: [track], playlistScope: playlistScope) }
         // VoiceOver reads the row as a single "<title> by <artist>" line
         // with the button trait + hint so the double-tap play action is
         // discoverable without sighted hover affordances. See #331.
