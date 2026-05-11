@@ -31,9 +31,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # rustsec/audit-check@v2 unconditionally installs the latest cargo-audit,
+      # and the 0.22.x line bumped transitive MSRVs (home 1.88, smol_str 1.89,
+      # time 1.88) past the workspace's pinned rustc 1.86. Pin to the last
+      # 0.21.x release and install with --locked so transitive resolution
+      # respects the published Cargo.lock instead of pulling fresh majors.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --version 0.21.2
+      - name: Run cargo audit
+        run: cargo audit
 
   deny:
     name: cargo-deny (${{ matrix.checks }})
