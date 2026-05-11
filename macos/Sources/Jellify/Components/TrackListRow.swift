@@ -10,8 +10,14 @@ import SwiftUI
 /// are treated as "needs transcoding" even if a particular machine happens
 /// to have a plugin that can decode them, because the Jellyfin server can't
 /// know that.
+///
+/// Strings are compared case-insensitively after `.lowercased()` at the
+/// call site. Jellyfin reports `Container` as `"MPEG"` for MP3 files and
+/// `"MPEG-4"` for AAC-in-MP4 / M4A, so those normalised forms must be
+/// present alongside the file-extension aliases that other Jellyfin
+/// transcoders / clients sometimes emit (`mp3`, `m4a`, etc.).
 let directPlayContainers: Set<String> = [
-    "aac", "mp3", "mp4", "m4a", "alac", "flac", "wav", "aiff", "aif",
+    "aac", "mp3", "mpeg", "mp4", "mpeg-4", "m4a", "alac", "flac", "wav", "aiff", "aif",
 ]
 
 /// Compact single-line row used by the Library Tracks tab. Mirrors the
