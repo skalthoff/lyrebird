@@ -48,6 +48,16 @@ struct HomeView: View {
             .padding(.bottom, 32)
         }
         .background(backgroundWash)
+        // Keep the Recently Played carousel fresh as tracks play (#794).
+        // `loadHomeData()` only seeds the section on initial library load,
+        // so without this hook a user who plays a few songs and returns to
+        // Home sees stale entries from a prior session. `.task(id:)` fires
+        // once when the view first appears and again on every transition
+        // of `currentTrack?.id` (start of playback, skip-next, auto-advance),
+        // which is exactly when the server's recently-played list grows.
+        .task(id: model.status.currentTrack?.id) {
+            await model.refreshRecentlyPlayed()
+        }
     }
 
     /// Time-of-day aware greeting header with two pill CTAs (#204).
