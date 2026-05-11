@@ -561,7 +561,11 @@ impl JellyfinClient {
             q.append_pair(
                 "Fields",
                 &enums::csv(
-                    &[ItemField::Genres, ItemField::PrimaryImageAspectRatio],
+                    &[
+                        ItemField::Genres,
+                        ItemField::ItemCounts,
+                        ItemField::PrimaryImageAspectRatio,
+                    ],
                     ItemField::as_str,
                 ),
             );
@@ -2532,6 +2536,10 @@ pub struct RawItem {
     pub runtime_ticks: u64,
     #[serde(rename = "ChildCount")]
     pub child_count: Option<u32>,
+    #[serde(rename = "AlbumCount", default)]
+    pub album_count: Option<u32>,
+    #[serde(rename = "SongCount", default)]
+    pub song_count: Option<u32>,
     #[serde(rename = "Genres", default)]
     pub genres: Vec<String>,
     #[serde(rename = "UserData")]
@@ -2694,8 +2702,8 @@ impl From<RawItem> for Artist {
         Artist {
             id: r.id,
             name: r.name,
-            album_count: 0,
-            song_count: 0,
+            album_count: r.album_count.unwrap_or(0),
+            song_count: r.song_count.unwrap_or(0),
             genres: r.genres,
             image_tag: r.image_tags.get("Primary").cloned(),
             user_data,
