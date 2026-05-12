@@ -8,7 +8,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jellify"
+            "value" : "Lyrebird"
           }
         }
       }
@@ -913,14 +913,14 @@
         }
       }
     },
-    "menu.help.jellify" : {
+    "menu.help.lyrebird" : {
       "comment" : "Help menu entry that opens the repo in a browser.",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jellify Help"
+            "value" : "Lyrebird Help"
           }
         }
       }

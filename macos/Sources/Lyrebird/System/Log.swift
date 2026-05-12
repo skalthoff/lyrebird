@@ -17,12 +17,12 @@ import os
 /// hairy past ~10 categories.
 ///
 /// Filter in Console.app:
-///     subsystem:org.jellify.desktop category:albums
+///     subsystem:org.lyrebird.desktop category:albums
 ///
 /// `OSLog` exposes its messages to `log stream` / `log show` even when the
 /// app isn't attached to a debugger:
-///     log stream --predicate 'subsystem == "org.jellify.desktop"' --info --debug
-///     log show  --predicate 'subsystem == "org.jellify.desktop"' --last 30m --info --debug
+///     log stream --predicate 'subsystem == "org.lyrebird.desktop"' --info --debug
+///     log show  --predicate 'subsystem == "org.lyrebird.desktop"' --last 30m --info --debug
 ///
 /// `--info` and `--debug` are required to surface `.info` / `.debug` levels;
 /// `.notice` and above are visible by default.
@@ -30,7 +30,7 @@ enum Log {
     /// CFBundleIdentifier; matches the `subsystem` field every entry carries.
     /// Hard-coded rather than read at runtime so `Logger` instances can be
     /// `static let` (read-once, no first-call cost).
-    static let subsystem = "org.jellify.desktop"
+    static let subsystem = "org.lyrebird.desktop"
 
     /// Top-level lifecycle, login/logout, library refresh — anything in
     /// `AppModel` that doesn't fit a more specific category.

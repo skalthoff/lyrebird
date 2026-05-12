@@ -31,11 +31,11 @@ struct PreferencesDownloads: View {
 
             PreferenceSection(
                 title: "Location",
-                footnote: "Offline copies live inside Jellify's cache folder so macOS can evict them under disk pressure."
+                footnote: "Offline copies live inside Lyrebird's cache folder so macOS can evict them under disk pressure."
             ) {
                 PreferenceRow(
                     label: "Download location",
-                    help: "Cache directory inside Jellify's sandbox."
+                    help: "Cache directory inside Lyrebird's sandbox."
                 ) {
                     Text(downloadLocationText)
                         .font(Theme.font(12, weight: .medium))

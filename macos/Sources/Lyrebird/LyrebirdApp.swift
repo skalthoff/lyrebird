@@ -22,7 +22,7 @@ struct LyrebirdApp: App {
         do {
             _model = State(wrappedValue: try AppModel())
         } catch {
-            fatalError("Failed to initialize Jellify core: \(error)")
+            fatalError("Failed to initialize Lyrebird core: \(error)")
         }
     }
 
@@ -31,7 +31,7 @@ struct LyrebirdApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Jellify") {
+        WindowGroup("Lyrebird") {
             RootView()
                 .environment(model)
                 .frame(minWidth: 960, minHeight: 640)
@@ -304,13 +304,13 @@ struct LyrebirdCommands: Commands {
             .disabled(NSApp.keyWindow == nil)
         }
 
-        // MARK: - Help menu (replace default "Jellify Help" placeholder)
+        // MARK: - Help menu (replace default "Lyrebird Help" placeholder)
         //
         // SwiftUI's default "Help" menu points at an empty Apple-help book.
         // We redirect it to the repo's issue tracker so the menu item
         // actually leads somewhere useful.
         CommandGroup(replacing: .help) {
-            Button("menu.help.jellify") {
+            Button("menu.help.lyrebird") {
                 if let url = URL(string: "https://github.com/skalthoff/jellify-desktop") {
                     NSWorkspace.shared.open(url)
                 }

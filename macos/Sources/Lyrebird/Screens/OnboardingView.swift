@@ -117,7 +117,7 @@ private struct WelcomeStep: View {
             JellyfishMark(size: 120)
                 .padding(.bottom, 8)
 
-            Text("Welcome to Jellify")
+            Text("Welcome to Lyrebird")
                 .font(Theme.font(48, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
                 .multilineTextAlignment(.center)

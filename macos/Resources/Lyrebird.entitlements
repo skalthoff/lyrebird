@@ -4,7 +4,7 @@
   Minimal hardened-runtime entitlements for Developer ID distribution.
 
   We deliberately avoid the App Sandbox (com.apple.security.app-sandbox) —
-  Jellify is shipped outside the Mac App Store, and sandboxing would force
+  Lyrebird is shipped outside the Mac App Store, and sandboxing would force
   the Rust core's SQLite / keyring store into a container path and require
   user-selected filesystem entitlements for downloads.
 

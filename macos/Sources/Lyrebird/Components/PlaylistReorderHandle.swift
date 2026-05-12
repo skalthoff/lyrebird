@@ -36,8 +36,8 @@ import UniformTypeIdentifiers
 
 /// Identifier used for the `NSItemProvider` payload so drops from anywhere
 /// outside the playlist-reorder affordance can be rejected cleanly.
-/// Scoped under `org.jellify` to avoid colliding with any system UTI.
-public let jellifyPlaylistTrackDragUTI = "org.jellify.playlist-track"
+/// Scoped under `org.lyrebird` to avoid colliding with any system UTI.
+public let lyrebirdPlaylistTrackDragUTI = "org.lyrebird.playlist-track"
 
 extension View {
     /// Wrap a track row in the drag-to-reorder affordance. See the file
@@ -109,7 +109,7 @@ private struct PlaylistReorderModifier: ViewModifier {
                 )
             }
             .onDrop(
-                of: [UTType.plainText, UTType(jellifyPlaylistTrackDragUTI) ?? .plainText],
+                of: [UTType.plainText, UTType(lyrebirdPlaylistTrackDragUTI) ?? .plainText],
                 delegate: PlaylistReorderDropDelegate(
                     playlistId: playlistId,
                     destinationIndex: index,

@@ -79,7 +79,7 @@ rm -f "$DMG_PATH"
 rm -f "$BUILD_DIR"/rw.*.dmg 2>/dev/null || true
 
 CREATE_DMG_ARGS=(
-    --volname          "Jellify"
+    --volname          "Lyrebird"
     --window-pos       200 120
     --window-size      660 400
     --icon-size        96

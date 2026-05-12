@@ -80,18 +80,18 @@ struct PreferencesGeneral: View {
 
             PreferenceSection(
                 title: "Startup",
-                footnote: "Auto-start launches Jellify in the background when you log in."
+                footnote: "Auto-start launches Lyrebird in the background when you log in."
             ) {
                 PreferenceRow(
                     label: "Open at login",
                     help: autoStartOnLogin
-                        ? "On — Jellify will launch in the background when you sign in."
-                        : "Off — Jellify only opens when you launch it manually."
+                        ? "On — Lyrebird will launch in the background when you sign in."
+                        : "Off — Lyrebird only opens when you launch it manually."
                 ) {
                     Toggle("", isOn: launchAtLoginBinding)
                         .labelsHidden()
                         .toggleStyle(.switch)
-                        .accessibilityLabel("Launch Jellify at login")
+                        .accessibilityLabel("Launch Lyrebird at login")
                 }
             }
 
@@ -103,7 +103,7 @@ struct PreferencesGeneral: View {
                     label: "Show in menu bar",
                     help: showInMenuBar
                         ? "On — a compact icon stays in the menu bar."
-                        : "Off — Jellify lives only in the Dock."
+                        : "Off — Lyrebird lives only in the Dock."
                 ) {
                     Toggle("", isOn: showInMenuBarBinding)
                         .labelsHidden()

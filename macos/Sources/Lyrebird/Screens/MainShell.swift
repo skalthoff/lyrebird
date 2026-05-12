@@ -287,11 +287,11 @@ struct MainShell: View {
     }
 
     /// Builds the breadcrumb trail for the current screen. The root segment is
-    /// always "Jellify"; subsequent segments describe where in the app the
+    /// always "Lyrebird"; subsequent segments describe where in the app the
     /// user has navigated. Drill destinations live on `navPath`; root tabs
     /// live on `model.screen`.
     private var breadcrumbSegments: [String] {
-        var segments: [String] = ["Jellify"]
+        var segments: [String] = ["Lyrebird"]
         // Root tab segment. Settings is exposed via the dedicated scene and
         // not breadcrumbed.
         switch model.screen {
@@ -345,11 +345,11 @@ struct MainShell: View {
     /// Handles a tap on a breadcrumb segment at `idx`. Navigation is driven
     /// by the current screen and `navPath`, so the component stays agnostic
     /// of label strings (no brittle title matching). Index 0 is the root
-    /// ("Jellify") and clears the drill stack while staying on the current
+    /// ("Lyrebird") and clears the drill stack while staying on the current
     /// tab. For nested screens, intermediate indices pop back to the current
     /// tab root; the final index is the current location and is a no-op.
     private func navigate(toBreadcrumbDepth idx: Int) {
-        // Index 0 is the root ("Jellify") — clear the drill stack and stay
+        // Index 0 is the root ("Lyrebird") — clear the drill stack and stay
         // on whichever tab the user is already on.
         guard idx > 0 else {
             model.navPath = []
@@ -357,12 +357,12 @@ struct MainShell: View {
             return
         }
 
-        // No drill on the stack: the trail is ["Jellify", <tab>] and the
+        // No drill on the stack: the trail is ["Lyrebird", <tab>] and the
         // only navigable index (0) was handled above. Higher indices are
         // the current location.
         guard !model.navPath.isEmpty else { return }
 
-        // Drill on the stack: trail is ["Jellify", "<tab>", "<section>",
+        // Drill on the stack: trail is ["Lyrebird", "<tab>", "<section>",
         // <name>]. idx 1 = tab root and idx 2 = the section both pop the
         // drill; idx 3 is the current location.
         if idx < 3 {

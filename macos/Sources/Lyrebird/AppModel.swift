@@ -457,7 +457,7 @@ final class AppModel {
     /// Sentinel used for the in-progress "new playlist" placeholder row
     /// before the user commits a name. Picked to never collide with a real
     /// Jellyfin item id (which are 32-char hex GUIDs).
-    static let sidebarNewPlaylistSentinel = "__jellify_new_playlist__"
+    static let sidebarNewPlaylistSentinel = "__lyrebird_new_playlist__"
 
     /// Id of the playlist currently in inline edit mode in the sidebar.
     /// `nil` when no row is being edited; `sidebarNewPlaylistSentinel` when
@@ -686,7 +686,7 @@ final class AppModel {
 
     init() throws {
         let core = try LyrebirdCore(
-            config: CoreConfig(dataDir: "", deviceName: "Jellify macOS")
+            config: CoreConfig(dataDir: "", deviceName: "Lyrebird macOS")
         )
         self.core = core
         self.audio = AudioEngine(core: core)

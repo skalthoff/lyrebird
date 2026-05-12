@@ -6,12 +6,12 @@ import ServiceManagement
 /// — errors are logged rather than propagated because a failure to register
 /// should not block the UI thread or crash the prefs pane.
 struct LaunchAtLogin {
-    /// Whether Jellify is currently registered as a login item.
+    /// Whether Lyrebird is currently registered as a login item.
     static var isEnabled: Bool {
         SMAppService.mainApp.status == .enabled
     }
 
-    /// Register Jellify as a login item. No-op if already registered.
+    /// Register Lyrebird as a login item. No-op if already registered.
     static func enable() {
         guard SMAppService.mainApp.status != .enabled else { return }
         do {
@@ -21,7 +21,7 @@ struct LaunchAtLogin {
         }
     }
 
-    /// Unregister Jellify as a login item. No-op if not registered.
+    /// Unregister Lyrebird as a login item. No-op if not registered.
     static func disable() {
         guard SMAppService.mainApp.status == .enabled else { return }
         do {

@@ -128,7 +128,7 @@ enum TranscodingPreference: String, CaseIterable, Identifiable {
 
 /// Segmented quality picker that shows all five explicit tiers (no Auto).
 /// Matches the #117 spec exactly — the Playback pane's `QualityPicker` also
-/// shows `automatic` because historically that pane's copy read "Let Jellify
+/// shows `automatic` because historically that pane's copy read "Let Lyrebird
 /// pick." A separate picker here avoids touching that surface.
 private struct ExplicitQualityPicker: View {
     @Binding var selection: PlaybackQuality

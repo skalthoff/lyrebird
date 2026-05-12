@@ -24,7 +24,7 @@ struct ThemedFocusRing: ViewModifier {
 }
 
 extension View {
-    /// Apply the Jellify-themed focus indicator. See issue #335.
+    /// Apply the Lyrebird-themed focus indicator. See issue #335.
     /// Use on focusable interactive views (buttons, rows, cards) instead of
     /// the default system focus ring.
     func themedFocusRing() -> some View {

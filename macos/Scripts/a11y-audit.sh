@@ -23,7 +23,7 @@
 #   ./macos/Scripts/a11y-audit.sh --fresh   # also clear per-user state first
 set -euo pipefail
 
-BUNDLE_ID="org.jellify.desktop"
+BUNDLE_ID="org.lyrebird.desktop"
 FRESH=0
 for arg in "$@"; do
   case "$arg" in

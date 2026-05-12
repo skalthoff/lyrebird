@@ -133,7 +133,7 @@ final class ServerDiscovery {
     private(set) var servers: [DiscoveredServer] = []
 
     private var browser: NWBrowser?
-    private let queue = DispatchQueue(label: "com.jellify.server-discovery")
+    private let queue = DispatchQueue(label: "com.lyrebird.server-discovery")
 
     /// Start browsing for `_jellyfin._tcp` advertisements. Idempotent — a
     /// second call is a no-op when a browse is already in flight. Safe to

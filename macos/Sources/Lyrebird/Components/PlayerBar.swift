@@ -37,7 +37,7 @@ struct PlayerBar: View {
         .frame(height: model.currentContext == nil ? 78 : 96)
         // HUD-style translucent material for the unified transport bar so
         // the chrome matches Music.app's bottom panel and reads as "system
-        // chrome" rather than app content. Brand wash on top keeps Jellify's
+        // chrome" rather than app content. Brand wash on top keeps Lyrebird's
         // palette dominant. See issues #9 / #10 / #28.
         .background(
             VisualEffectView(material: .hudWindow)

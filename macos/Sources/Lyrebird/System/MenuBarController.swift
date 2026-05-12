@@ -1,6 +1,6 @@
 import AppKit
 
-/// Manages the optional menu-bar `NSStatusItem` for Jellify.
+/// Manages the optional menu-bar `NSStatusItem` for Lyrebird.
 ///
 /// The controller is a singleton owned for the lifetime of the process.
 /// Callers drive visibility through `setVisible(_:)`. When the status item
@@ -29,10 +29,10 @@ final class MenuBarController {
                 // dark menu bars automatically.
                 button.image = NSImage(
                     systemSymbolName: "music.note",
-                    accessibilityDescription: "Jellify"
+                    accessibilityDescription: "Lyrebird"
                 )
                 button.image?.isTemplate = true
-                button.toolTip = "Jellify"
+                button.toolTip = "Lyrebird"
             }
             statusItem = item
         } else {

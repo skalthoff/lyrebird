@@ -72,7 +72,7 @@ struct PreferencesLibrary: View {
 
             PreferenceSection(
                 title: "Cache",
-                footnote: "Jellify keeps album art and artist images on disk so grids render instantly. Clearing the cache frees the space immediately; images re-download on first render."
+                footnote: "Lyrebird keeps album art and artist images on disk so grids render instantly. Clearing the cache frees the space immediately; images re-download on first render."
             ) {
                 PreferenceRow(
                     label: "Artwork cache size",
@@ -155,7 +155,7 @@ struct PreferencesLibrary: View {
     ///
     /// The pipeline's `dataCache` is typed as the `DataCaching` protocol so
     /// callers can swap implementations; `totalSize` lives on the concrete
-    /// `Nuke.DataCache` Jellify actually uses (wired in
+    /// `Nuke.DataCache` Lyrebird actually uses (wired in
     /// `Artwork.pipeline`). A failed downcast means someone swapped the
     /// cache implementation, so we fall back to a dash rather than a zero.
     ///

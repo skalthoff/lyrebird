@@ -86,7 +86,7 @@ if [[ -z "$TAGS" ]]; then
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
   <channel>
-    <title>Jellify</title>
+    <title>Lyrebird</title>
     <link>https://skalthoff.github.io/jellify-desktop/appcast.xml</link>
     <description>Most recent changes</description>
     <language>en</language>

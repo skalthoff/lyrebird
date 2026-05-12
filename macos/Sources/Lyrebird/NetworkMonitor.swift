@@ -17,7 +17,7 @@ final class NetworkMonitor {
     var isOnline: Bool = true
 
     private var monitor: NWPathMonitor
-    private let queue = DispatchQueue(label: "com.jellify.network-monitor")
+    private let queue = DispatchQueue(label: "com.lyrebird.network-monitor")
     private var stableOnlineTask: Task<Void, Never>?
 
     init() {

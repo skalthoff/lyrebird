@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 import CoreText
 
-/// Jellify brand tokens. Mirrors `core/src/configs/tamagui.config.ts` and the
-/// design's `jellify.css`. For M2 we ship the `purple` preset in `dark` mode.
+/// Lyrebird brand tokens. Mirrors `core/src/configs/tamagui.config.ts` and the
+/// design's `lyrebird.css`. For M2 we ship the `purple` preset in `dark` mode.
 enum Theme {
     // Surfaces
     static let bg = Color(hex: 0x0C0622)        // Figma deep purple
@@ -117,9 +117,9 @@ enum FontRegistration {
         guard !registered else { return }
         registered = true
         // Fonts live in Contents/Resources/ of the .app rather than an
-        // SPM-generated sub-bundle (see Package.swift on the `Jellify`
+        // SPM-generated sub-bundle (see Package.swift on the `Lyrebird`
         // target). Bundle.main IS the .app, and `make-bundle.sh` copies
-        // Sources/Jellify/Resources/Fonts/*.otf straight into
+        // Sources/Lyrebird/Resources/Fonts/*.otf straight into
         // Contents/Resources/.
         let bundle = Bundle.main
         for name in [

@@ -8,7 +8,7 @@ import SwiftUI
 /// the values come from the app bundle so they stay accurate release-to-
 /// release without anyone having to remember to bump a string constant.
 ///
-/// This is distinct from the system "About Jellify" sheet (the one that
+/// This is distinct from the system "About Lyrebird" sheet (the one that
 /// opens from the app-menu item); that sheet is owned by AppKit and shows
 /// the same version info in Apple's standard layout. The Preferences About
 /// pane exists so users who expect the info inside Settings (macOS System
@@ -24,7 +24,7 @@ struct PreferencesAbout: View {
             HStack(alignment: .top, spacing: 20) {
                 appIcon
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Jellify")
+                    Text("Lyrebird")
                         .font(Theme.font(24, weight: .black, italic: true))
                         .foregroundStyle(Theme.ink)
 
@@ -120,7 +120,7 @@ struct PreferencesAbout: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("View on GitHub")
-            .accessibilityHint("Opens the Jellify repository in your browser.")
+            .accessibilityHint("Opens the Lyrebird repository in your browser.")
 
             Button { openIssues() } label: {
                 HStack(spacing: 8) {
@@ -140,7 +140,7 @@ struct PreferencesAbout: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Report an issue")
-            .accessibilityHint("Opens the Jellify issue tracker in your browser.")
+            .accessibilityHint("Opens the Lyrebird issue tracker in your browser.")
         }
     }
 
@@ -159,11 +159,11 @@ struct PreferencesAbout: View {
     }
 
     /// Copyright string (`NSHumanReadableCopyright`). When missing, render a
-    /// generic attribution for Skyler Althoff + Jellify contributors rather
+    /// generic attribution for Skyler Althoff + Lyrebird contributors rather
     /// than an empty row.
     private var copyrightText: String {
         bundleString(for: "NSHumanReadableCopyright")
-            ?? "Copyright © Skyler Althoff and Jellify contributors."
+            ?? "Copyright © Skyler Althoff and Lyrebird contributors."
     }
 
     private func bundleString(for key: String) -> String? {

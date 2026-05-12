@@ -15,7 +15,7 @@ import SwiftUI
 /// now means the eventual implementation can read the current choice on day
 /// one without a migration.
 ///
-/// Design: matches the native Preferences aesthetic inside the Jellify shell.
+/// Design: matches the native Preferences aesthetic inside the Lyrebird shell.
 /// Sections sit on `Theme.surface` with `Theme.border` outlines; labels use
 /// 13pt `ink` weight 600, helper copy uses 11pt `ink3`. Option values are
 /// stored as stable string raw values so the on-disk keys survive renames of
@@ -60,7 +60,7 @@ struct PreferencesPlayback: View {
 
             PreferenceSection(
                 title: "Streaming",
-                footnote: "Applies when playing over the network. \"Automatic\" lets Jellify pick based on your connection."
+                footnote: "Applies when playing over the network. \"Automatic\" lets Lyrebird pick based on your connection."
             ) {
                 PreferenceRow(
                     label: "Quality",
@@ -241,7 +241,7 @@ enum PlaybackQuality: String, CaseIterable, Identifiable {
     /// `research/03-ux-patterns.md` Issue 69 (GitHub #117).
     var subtitle: String {
         switch self {
-        case .automatic: return "Picked by Jellify"
+        case .automatic: return "Picked by Lyrebird"
         case .low: return "96 kbps"
         case .normal: return "192 kbps"
         case .high: return "320 kbps"

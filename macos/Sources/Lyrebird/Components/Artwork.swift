@@ -44,7 +44,7 @@ struct Artwork: View {
     /// thread when `Image` commits to the layer.
     static let pipeline: ImagePipeline = {
         var config = ImagePipeline.Configuration.withDataCache(
-            name: "com.jellify.macos.artwork",
+            name: "com.lyrebird.macos.artwork",
             sizeLimit: 256 * 1024 * 1024 // 256 MB on-disk, larger than 150MB
                                          // default so a full library grid
                                          // stays warm across relaunches.

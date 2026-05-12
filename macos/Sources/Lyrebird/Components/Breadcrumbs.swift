@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Breadcrumb trail for the top bar. Renders a path like
-/// `Jellify › Library › Albums › The Deep End` where each non-final segment is
+/// `Lyrebird › Library › Albums › The Deep End` where each non-final segment is
 /// a tappable control that jumps up to that depth via `onTap(index)`. The
 /// final segment is non-interactive (you are already there) and styled as the
 /// current location in `Theme.ink`; preceding segments use `Theme.ink2`.
@@ -51,10 +51,10 @@ struct Breadcrumbs: View {
 
 #Preview("Breadcrumbs") {
     VStack(alignment: .leading, spacing: 20) {
-        Breadcrumbs(segments: ["Jellify"])
-        Breadcrumbs(segments: ["Jellify", "Library"])
-        Breadcrumbs(segments: ["Jellify", "Library", "Albums"])
-        Breadcrumbs(segments: ["Jellify", "Library", "Albums", "The Deep End"])
+        Breadcrumbs(segments: ["Lyrebird"])
+        Breadcrumbs(segments: ["Lyrebird", "Library"])
+        Breadcrumbs(segments: ["Lyrebird", "Library", "Albums"])
+        Breadcrumbs(segments: ["Lyrebird", "Library", "Albums", "The Deep End"])
     }
     .padding(24)
     .background(Theme.bg)

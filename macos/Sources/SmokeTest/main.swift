@@ -48,11 +48,11 @@ struct SmokeTest {
             exit(2)
         }
 
-        let tmpDir = NSTemporaryDirectory() + "jellify-smoke-\(UUID().uuidString)"
+        let tmpDir = NSTemporaryDirectory() + "lyrebird-smoke-\(UUID().uuidString)"
         let core: LyrebirdCore
         do {
             core = try LyrebirdCore(
-                config: CoreConfig(dataDir: tmpDir, deviceName: "Jellify SmokeTest")
+                config: CoreConfig(dataDir: tmpDir, deviceName: "Lyrebird SmokeTest")
             )
         } catch {
             fputs("core init: \(error)\n", stderr); exit(1)

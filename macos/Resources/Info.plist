@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Info.plist template for Jellify.app.
+  Info.plist template for Lyrebird.app.
 
   Do NOT edit $VERSION / $BUILD in place. `macos/Scripts/make-bundle.sh`
   copies this file into the bundle and then uses `plutil -replace` to fill
@@ -11,7 +11,7 @@
   the right keys if anything else ever needs similar substitution.
 
   Keys intentionally omitted:
-    - LSUIElement: Jellify is a Dock-visible app.
+    - LSUIElement: Lyrebird is a Dock-visible app.
     - NSMicrophoneUsageDescription / NSCameraUsageDescription / similar
       TCC usage strings: we do not touch those APIs yet. Apple's notary
       rejects unused purpose strings on newer tool versions.
@@ -21,13 +21,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>Jellify</string>
+    <string>Lyrebird</string>
     <key>CFBundleIdentifier</key>
-    <string>org.jellify.desktop</string>
+    <string>org.lyrebird.desktop</string>
     <key>CFBundleName</key>
-    <string>Jellify</string>
+    <string>Lyrebird</string>
     <key>CFBundleDisplayName</key>
-    <string>Jellify</string>
+    <string>Lyrebird</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -63,13 +63,13 @@
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026 Jellify. GPL-3.0-only.</string>
+    <string>© 2026 Lyrebird. GPL-3.0-only.</string>
     <key>NSSupportsAutomaticTermination</key>
     <true/>
     <key>NSSupportsSuddenTermination</key>
     <true/>
 
-    <!-- Custom URL scheme for Jellyfin OAuth / quick-connect callbacks.
+    <!-- Custom URL scheme (lyrebird://) for Jellyfin OAuth / quick-connect callbacks (org.lyrebird.desktop / lyrebird://).
          The Rust core receives these via the AppDelegate URL handler. -->
     <key>CFBundleURLTypes</key>
     <array>
@@ -77,10 +77,10 @@
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
             <key>CFBundleURLName</key>
-            <string>org.jellify.desktop</string>
+            <string>org.lyrebird.desktop</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>jellify</string>
+                <string>lyrebird</string>
             </array>
         </dict>
     </array>
@@ -100,7 +100,7 @@
         check-in history is what matters for key rotation hygiene.
     -->
     <key>SUFeedURL</key>
-    <string>https://skalthoff.github.io/jellify-desktop/appcast.xml</string>
+    <string>https://skalthoff.github.io/lyrebird-desktop/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>@@SPARKLE_PUBLIC_ED_KEY@@</string>
     <!--
