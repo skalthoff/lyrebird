@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Build and launch the current Jellify.app for Accessibility Inspector
+# Build and launch the current Lyrebird.app for Accessibility Inspector
 # audits. Accessibility Inspector itself cannot be driven from the command
 # line, so the manual steps are:
 #
 #   1. Run this script.
 #   2. Open Xcode -> Open Developer Tool -> Accessibility Inspector.
 #   3. In Accessibility Inspector, use the target chooser at the top-left to
-#      select the running "Jellify" process.
+#      select the running "Lyrebird" process.
 #   4. Switch to the Audit panel, click Run Audit, and walk the app through
 #      each screen listed in ../docs/a11y/README.md.
 #   5. Save each report as plain text to
@@ -14,7 +14,7 @@
 #   6. Ctrl-C this script (or `kill $PID`) when done.
 #
 # By default this script only rebuilds the app and launches it; it does not
-# touch any per-user state. Pass --fresh to wipe Jellify's saved preferences
+# touch any per-user state. Pass --fresh to wipe Lyrebird's saved preferences
 # and Application Support data before launch so repeated audits run against
 # a comparable empty state.
 #
@@ -50,7 +50,7 @@ cd "$MACOS"
 if [[ "$FRESH" -eq 1 ]]; then
   echo "==> Clearing per-user state for $BUNDLE_ID"
   PREFS="$HOME/Library/Preferences/${BUNDLE_ID}.plist"
-  APP_SUPPORT="$HOME/Library/Application Support/Jellify"
+  APP_SUPPORT="$HOME/Library/Application Support/lyrebird-desktop"
   if [[ -e "$PREFS" ]]; then
     rm -f "$PREFS"
     echo "   removed $PREFS"
@@ -64,20 +64,20 @@ if [[ "$FRESH" -eq 1 ]]; then
   defaults delete "$BUNDLE_ID" 2>/dev/null || true
 fi
 
-echo "==> Building jellify_core (xcframework)"
+echo "==> Building lyrebird_core (xcframework)"
 ./Scripts/build-core.sh
 
 echo "==> swift build"
 swift build
 
-echo "==> Wrapping as Jellify.app"
+echo "==> Wrapping as Lyrebird.app"
 ./Scripts/make-bundle.sh
 
-APP="$MACOS/build/Jellify.app"
-EXE="$APP/Contents/MacOS/Jellify"
+APP="$MACOS/build/Lyrebird.app"
+EXE="$APP/Contents/MacOS/Lyrebird"
 
 if [[ ! -x "$EXE" ]]; then
-  echo "error: Jellify executable not found at $EXE" >&2
+  echo "error: Lyrebird executable not found at $EXE" >&2
   exit 1
 fi
 
@@ -88,7 +88,7 @@ PID=$!
 cleanup() {
   if kill -0 "$PID" 2>/dev/null; then
     echo
-    echo "==> Stopping Jellify (PID $PID)"
+    echo "==> Stopping Lyrebird (PID $PID)"
     kill "$PID" 2>/dev/null || true
     wait "$PID" 2>/dev/null || true
   fi
@@ -101,7 +101,7 @@ App is running (PID $PID).
 
 Next steps:
   1. Xcode -> Open Developer Tool -> Accessibility Inspector.
-  2. In Accessibility Inspector, select "Jellify" in the target chooser
+  2. In Accessibility Inspector, select "Lyrebird" in the target chooser
      (top-left of the Inspector window).
   3. Open the Audit panel and run it against each screen listed in
      macos/docs/a11y/README.md (Login, Library, Search, Album Detail,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Code-sign a Jellify.app bundle inside-out with the hardened runtime.
+# Code-sign a Lyrebird.app bundle inside-out with the hardened runtime.
 #
 # Uses the Developer ID Application identity named in $DEVELOPER_ID
 # (falls back to the literal "Developer ID Application" which lets
@@ -13,12 +13,12 @@
 #
 # Usage:
 #   DEVELOPER_ID="Developer ID Application: Jane Doe (TEAMID123)" \
-#     ./macos/Scripts/sign.sh path/to/Jellify.app
+#     ./macos/Scripts/sign.sh path/to/Lyrebird.app
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENTITLEMENTS="$MACOS_DIR/Resources/Jellify.entitlements"
+ENTITLEMENTS="$MACOS_DIR/Resources/Lyrebird.entitlements"
 
 usage() {
     sed -n '2,16p' "${BASH_SOURCE[0]}"
@@ -183,7 +183,7 @@ fi
 
 # 4. Auxiliary helper executables under Contents/MacOS that aren't the
 #    main binary. There usually aren't any, but guard for the future.
-MAIN_EXE="$APP/Contents/MacOS/Jellify"
+MAIN_EXE="$APP/Contents/MacOS/Lyrebird"
 if [[ -d "$APP/Contents/MacOS" ]]; then
     while IFS= read -r -d '' helper; do
         if [[ "$helper" == "$MAIN_EXE" ]]; then

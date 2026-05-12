@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the jellify_core Rust library for macOS and wrap it as an XCFramework
+# Build the lyrebird_core Rust library for macOS and wrap it as an XCFramework
 # that the Swift package can consume.
 #
 # Apple Silicon only. The Intel slice was dropped after the audit (the
@@ -40,13 +40,13 @@ for arg in "$@"; do
 done
 
 ARM64_TARGET="aarch64-apple-darwin"
-ARM64_STATIC="$ROOT/target/$ARM64_TARGET/$PROFILE/libjellify_core.a"
+ARM64_STATIC="$ROOT/target/$ARM64_TARGET/$PROFILE/liblyrebird_core.a"
 
 # Scratch dirs we might touch; cleaned up on failure so a re-run isn't
 # bitten by a half-written xcframework.
 GEN="$MACOS/build/generated"
 HEADERS="$MACOS/build/Headers"
-XCF="$MACOS/Jellify.xcframework"
+XCF="$MACOS/Lyrebird.xcframework"
 
 cleanup_on_failure() {
     local code=$?
@@ -63,20 +63,20 @@ cleanup_on_failure() {
 }
 trap cleanup_on_failure EXIT
 
-echo "==> Building jellify_core ($PROFILE)"
-(cd "$ROOT" && cargo build $CARGO_FLAGS --target "$ARM64_TARGET" -p jellify_core)
+echo "==> Building lyrebird_core ($PROFILE)"
+(cd "$ROOT" && cargo build $CARGO_FLAGS --target "$ARM64_TARGET" -p lyrebird_core)
 if [[ ! -f "$ARM64_STATIC" ]]; then
     echo "error: arm64 static lib not found at $ARM64_STATIC" >&2
     exit 1
 fi
 
 echo "==> Building uniffi-bindgen"
-(cd "$ROOT" && cargo build $CARGO_FLAGS --bin uniffi-bindgen -p jellify_core)
+(cd "$ROOT" && cargo build $CARGO_FLAGS --bin uniffi-bindgen -p lyrebird_core)
 
 # The library was built for arm64 above; that's where the dylib lives.
 # (When building only the uniffi-bindgen bin, cargo doesn't materialize the
 # cdylib for the host target, so we can't rely on target/$PROFILE/ for it.)
-DYLIB="$ROOT/target/$ARM64_TARGET/$PROFILE/libjellify_core.dylib"
+DYLIB="$ROOT/target/$ARM64_TARGET/$PROFILE/liblyrebird_core.dylib"
 BINDGEN="$ROOT/target/$PROFILE/uniffi-bindgen"
 
 if [[ ! -f "$DYLIB" ]]; then
@@ -97,11 +97,11 @@ rm -rf "$HEADERS"
 mkdir -p "$HEADERS"
 cp "$GEN"/*.h "$HEADERS/"
 
-# The generated Swift file looks for `import jellify_coreFFI` (see the
-# `#if canImport(jellify_coreFFI)` block). The C module name must match.
+# The generated Swift file looks for `import lyrebird_coreFFI` (see the
+# `#if canImport(lyrebird_coreFFI)` block). The C module name must match.
 cat > "$HEADERS/module.modulemap" <<'EOF'
-module jellify_coreFFI {
-    header "jellify_coreFFI.h"
+module lyrebird_coreFFI {
+    header "lyrebird_coreFFI.h"
     export *
 }
 EOF
@@ -116,10 +116,10 @@ xcodebuild -create-xcframework \
 XCF_IN_PROGRESS=
 
 # Place the generated Swift source where the SPM target picks it up.
-DEST="$MACOS/Sources/JellifyCore/Generated"
+DEST="$MACOS/Sources/LyrebirdCore/Generated"
 mkdir -p "$DEST"
-cp "$GEN/jellify_core.swift" "$DEST/jellify_core.swift"
+cp "$GEN/lyrebird_core.swift" "$DEST/lyrebird_core.swift"
 
 echo "==> Done."
 echo "    xcframework : $XCF"
-echo "    swift source: $DEST/jellify_core.swift"
+echo "    swift source: $DEST/lyrebird_core.swift"

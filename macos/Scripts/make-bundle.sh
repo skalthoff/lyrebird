@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Wrap the swift-build executable as a Jellify.app bundle.
+# Wrap the swift-build executable as a Lyrebird.app bundle.
 #
 # Info.plist is copied from `macos/Resources/Info.plist` (a real, checked-in
 # template). This script injects `$VERSION` and `$BUILD` via `plutil -replace`
@@ -22,7 +22,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MACOS="$ROOT/macos"
 RESOURCES="$MACOS/Resources"
 INFO_TEMPLATE="$RESOURCES/Info.plist"
-APP="$MACOS/build/Jellify.app"
+APP="$MACOS/build/Lyrebird.app"
 
 PROFILE="debug"
 for arg in "$@"; do
@@ -48,10 +48,10 @@ fi
 
 # swift-build single-arch output directory.
 BUILD_DIR="$MACOS/.build/arm64-apple-macosx/$PROFILE"
-EXE="$BUILD_DIR/Jellify"
+EXE="$BUILD_DIR/Lyrebird"
 
 if [[ ! -x "$EXE" ]]; then
-    echo "error: Jellify executable not found at $EXE" >&2
+    echo "error: Lyrebird executable not found at $EXE" >&2
     echo "       run './macos/Scripts/build-core.sh --release' + 'swift build -c release' first" >&2
     exit 1
 fi
@@ -92,7 +92,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-cp "$EXE" "$APP/Contents/MacOS/Jellify"
+cp "$EXE" "$APP/Contents/MacOS/Lyrebird"
 
 # Copy our resources straight into Contents/Resources/. We deliberately
 # do NOT use SPM's resource processing (`resources: [.process(...)]` in
@@ -102,13 +102,13 @@ cp "$EXE" "$APP/Contents/MacOS/Jellify"
 #   codesign refuses with "unsealed contents present in the bundle root"
 #   when anything other than Contents/ sits at the .app root.
 #
-# So `Sources/Jellify/Resources/{Fonts,Localizable.xcstrings,...}` ends
+# So `Sources/Lyrebird/Resources/{Fonts,Localizable.xcstrings,...}` ends
 # up under `Contents/Resources/` directly. Code that needs them reads
 # via `Bundle.main.url(forResource:withExtension:)` — see
 # `FontRegistration.register()` in Theme.swift. SwiftUI's
 # `LocalizedStringKey` auto-discovers Localizable.xcstrings in
 # Bundle.main, so no Swift-side change for the i18n path.
-RES_SRC="$MACOS/Sources/Jellify/Resources"
+RES_SRC="$MACOS/Sources/Lyrebird/Resources"
 if [[ -d "$RES_SRC" ]]; then
     # Localizable.xcstrings is the source format. SwiftUI's
     # LocalizedStringKey can't read xcstrings directly — it looks for
@@ -148,7 +148,7 @@ if [[ -d "$SPARKLE_SRC" ]]; then
     # at Contents/MacOS/). Add @executable_path/../Frameworks so dyld can find
     # Sparkle.framework after we drop it under Contents/Frameworks.
     install_name_tool -add_rpath "@executable_path/../Frameworks" \
-        "$APP/Contents/MacOS/Jellify" 2>/dev/null || true
+        "$APP/Contents/MacOS/Lyrebird" 2>/dev/null || true
 
     # install_name_tool rewrote load commands in page 0 of __TEXT, invalidating
     # the ad-hoc signature swift-build stamped on the executable. macOS 26's
@@ -157,7 +157,7 @@ if [[ -d "$SPARKLE_SRC" ]]; then
     # main runs. Re-seal ad-hoc here so dev builds launch; sign.sh supersedes
     # this with a real Developer ID signature for distribution.
     #
-    codesign --force --sign - "$APP/Contents/MacOS/Jellify"
+    codesign --force --sign - "$APP/Contents/MacOS/Lyrebird"
 fi
 
 # Drop the template into the bundle, then patch $VERSION / $BUILD in place.

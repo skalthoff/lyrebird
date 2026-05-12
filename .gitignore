@@ -8,14 +8,14 @@ target/
 Package.resolved
 
 # Generated (produced by Scripts/build-core.sh)
-macos/Jellify.xcframework/
-macos/Sources/JellifyCore/Generated/
+macos/Lyrebird.xcframework/
+macos/Sources/LyrebirdCore/Generated/
 macos/build/
 
 # Generated Windows artifacts (produced by windows/tools/*.ps1)
-windows/Jellify.Core/Generated/*.cs
-windows/Jellify.Core/native/win-x64/jellify_core.*
-windows/Jellify.Core/native/win-arm64/jellify_core.*
+windows/Lyrebird.Core/Generated/*.cs
+windows/Lyrebird.Core/native/win-x64/lyrebird_core.*
+windows/Lyrebird.Core/native/win-arm64/lyrebird_core.*
 
 # Visual Studio / .NET build output
 windows/**/bin/

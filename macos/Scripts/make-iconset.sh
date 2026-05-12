@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render the Jellify app icon out of an SVG source, build the standard
+# Render the Lyrebird app icon out of an SVG source, build the standard
 # macOS .iconset directory, and compile it into Resources/AppIcon.icns.
 #
 # The .icns is what Finder, the Dock, Cmd-Tab, and Launchpad display, and
@@ -28,7 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MACOS="$ROOT/macos"
 RESOURCES="$MACOS/Resources"
 BUILD="$MACOS/build/icon"
-ICONSET="$BUILD/Jellify.iconset"
+ICONSET="$BUILD/Lyrebird.iconset"
 OUT="$RESOURCES/AppIcon.icns"
 
 # Prefer the canonical icon, fall back to the teal placeholder in design/.

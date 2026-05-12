@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a distribution DMG from a signed Jellify.app.
+# Build a distribution DMG from a signed Lyrebird.app.
 #
 # Uses `create-dmg` (`brew install create-dmg`). We sign the DMG with the
 # same identity the app was signed with, but deliberately do NOT pass
@@ -9,16 +9,16 @@
 # failure modes.
 #
 # Layout assumptions:
-#   - App bundle is at build/Jellify.app (or passed as $1).
-#   - Output DMG goes to build/Jellify-$VERSION.dmg.
+#   - App bundle is at build/Lyrebird.app (or passed as $1).
+#   - Output DMG goes to build/Lyrebird-$VERSION.dmg.
 #   - Optional cosmetic assets (volume icon + background image) live in
 #     macos/Resources/. They're soft-optional; a missing background just
 #     drops the arguments.
 #
 # Usage:
 #   VERSION=0.2.0 DEVELOPER_ID="Developer ID Application: Jane (TEAMID)" \
-#     ./macos/Scripts/make-dmg.sh                      # uses build/Jellify.app
-#   ./macos/Scripts/make-dmg.sh path/to/Jellify.app
+#     ./macos/Scripts/make-dmg.sh                      # uses build/Lyrebird.app
+#   ./macos/Scripts/make-dmg.sh path/to/Lyrebird.app
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,10 +27,10 @@ ROOT_DIR="$(cd "$MACOS_DIR/.." && pwd)"
 RESOURCES="$MACOS_DIR/Resources"
 BUILD_DIR="$MACOS_DIR/build"
 
-APP="${1:-$BUILD_DIR/Jellify.app}"
+APP="${1:-$BUILD_DIR/Lyrebird.app}"
 
 if [[ ! -d "$APP" ]]; then
-    echo "error: Jellify.app not found at $APP" >&2
+    echo "error: Lyrebird.app not found at $APP" >&2
     echo "       pass an explicit path or run make-bundle.sh first" >&2
     exit 1
 fi
@@ -51,13 +51,13 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 IDENTITY="${DEVELOPER_ID:-}"
-DMG_NAME="Jellify-$VERSION.dmg"
+DMG_NAME="Lyrebird-$VERSION.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"
 
 # create-dmg expects to be pointed at a staging directory containing
 # exactly the files that should appear in the mounted volume. Anything
 # else in build/ would otherwise get swept in.
-STAGE="$(mktemp -d -t jellify-dmg.XXXXXX)"
+STAGE="$(mktemp -d -t lyrebird-dmg.XXXXXX)"
 
 cleanup() {
     local code=$?
@@ -83,8 +83,8 @@ CREATE_DMG_ARGS=(
     --window-pos       200 120
     --window-size      660 400
     --icon-size        96
-    --icon             "Jellify.app" 180 170
-    --hide-extension   "Jellify.app"
+    --icon             "Lyrebird.app" 180 170
+    --hide-extension   "Lyrebird.app"
     --app-drop-link    480 170
 )
 

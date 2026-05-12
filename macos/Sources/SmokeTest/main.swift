@@ -1,8 +1,8 @@
 import Foundation
 import AppKit
 import AVFoundation
-@preconcurrency import JellifyCore
-import JellifyAudio
+@preconcurrency import LyrebirdCore
+import LyrebirdAudio
 
 // Headless E2E smoke test against a live Jellyfin server.
 //
@@ -49,9 +49,9 @@ struct SmokeTest {
         }
 
         let tmpDir = NSTemporaryDirectory() + "jellify-smoke-\(UUID().uuidString)"
-        let core: JellifyCore
+        let core: LyrebirdCore
         do {
-            core = try JellifyCore(
+            core = try LyrebirdCore(
                 config: CoreConfig(dataDir: tmpDir, deviceName: "Jellify SmokeTest")
             )
         } catch {
@@ -201,7 +201,7 @@ struct SmokeTest {
     /// code identifies which step regressed.
     private static func waitFor(
         state expected: PlaybackState,
-        on core: JellifyCore,
+        on core: LyrebirdCore,
         timeout: TimeInterval
     ) async -> Bool {
         let start = Date()
@@ -221,7 +221,7 @@ struct SmokeTest {
     /// emit their own FAIL line so the exit code identifies which step.
     private static func waitFor(
         positionAdvanceFrom start: Double,
-        on core: JellifyCore,
+        on core: LyrebirdCore,
         byAtLeast delta: Double,
         timeout: TimeInterval
     ) async -> Double {
@@ -243,7 +243,7 @@ struct SmokeTest {
     /// on timeout). Callers compare and emit their own FAIL line.
     private static func waitFor(
         currentTrackChangeFrom before: String?,
-        on core: JellifyCore,
+        on core: LyrebirdCore,
         timeout: TimeInterval
     ) async -> String? {
         let deadline = Date().addingTimeInterval(timeout)

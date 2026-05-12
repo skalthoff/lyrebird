@@ -151,7 +151,7 @@ echo "==> Running generate_appcast"
 # so the filename → tag mapping is unambiguous: query each tag for its
 # uploaded asset names and rewrite ${PREFIX}/<filename> →
 # ${PREFIX}/<tag>/<filename>. Files Sparkle generates as deltas
-# (Jellify<build>-<deltaFrom>.delta) are uploaded to the most recent tag,
+# (Lyrebird<build>-<deltaFrom>.delta) are uploaded to the most recent tag,
 # so we rewrite delta enclosures using the latest tag. Fixes #742.
 echo "==> Injecting tag segments into enclosure URLs"
 for tag in "${TAG_ARRAY[@]}"; do
@@ -173,7 +173,7 @@ rm -f "$DOCS/appcast.xml.bak"
 # (the #742 bug), every Sparkle client would 404 silently. This grep
 # fails the build before publish so a broken appcast never hits gh-pages.
 if grep -qE 'enclosure url="[^"]*/releases/download/[^/"]+\.(dmg|delta)"' "$DOCS/appcast.xml"; then
-  echo "error: appcast contains tag-less enclosure URL. Each <enclosure url> must include the tag segment (e.g. .../releases/download/v1.0.0/Jellify-1.0.0.dmg). See #742." >&2
+  echo "error: appcast contains tag-less enclosure URL. Each <enclosure url> must include the tag segment (e.g. .../releases/download/v1.0.0/Lyrebird-1.0.0.dmg). See #742." >&2
   grep -nE 'enclosure url="[^"]*/releases/download/[^/"]+\.(dmg|delta)"' "$DOCS/appcast.xml" >&2 | head -5
   exit 1
 fi

@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "Jellify",
+    name: "Lyrebird",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "Jellify", targets: ["Jellify"]),
+        .executable(name: "Lyrebird", targets: ["Lyrebird"]),
         .executable(name: "SmokeTest", targets: ["SmokeTest"]),
-        .library(name: "JellifyCore", targets: ["JellifyCore"]),
-        .library(name: "JellifyAudio", targets: ["JellifyAudio"]),
+        .library(name: "LyrebirdCore", targets: ["LyrebirdCore"]),
+        .library(name: "LyrebirdAudio", targets: ["LyrebirdAudio"]),
     ],
     dependencies: [
         // Nuke powers artwork loading (disk cache, request coalescing, background
@@ -25,29 +25,29 @@ let package = Package(
     ],
     targets: [
         .binaryTarget(
-            name: "JellifyCoreFFI",
-            path: "Jellify.xcframework"
+            name: "LyrebirdCoreFFI",
+            path: "Lyrebird.xcframework"
         ),
         .target(
-            name: "JellifyCore",
-            dependencies: ["JellifyCoreFFI"],
-            path: "Sources/JellifyCore"
+            name: "LyrebirdCore",
+            dependencies: ["LyrebirdCoreFFI"],
+            path: "Sources/LyrebirdCore"
         ),
         .target(
-            name: "JellifyAudio",
-            dependencies: ["JellifyCore"],
-            path: "Sources/JellifyAudio"
+            name: "LyrebirdAudio",
+            dependencies: ["LyrebirdCore"],
+            path: "Sources/LyrebirdAudio"
         ),
         .executableTarget(
-            name: "Jellify",
+            name: "Lyrebird",
             dependencies: [
-                "JellifyCore",
-                "JellifyAudio",
+                "LyrebirdCore",
+                "LyrebirdAudio",
                 .product(name: "Nuke", package: "Nuke"),
                 .product(name: "NukeUI", package: "Nuke"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
-            path: "Sources/Jellify",
+            path: "Sources/Lyrebird",
             // Resources are NOT processed by SwiftPM. SwiftPM's generated
             // `resource_bundle_accessor.swift` resolves the bundle via
             // `Bundle.main.bundleURL.appendingPathComponent("<Pkg>_<Target>.bundle")`,
@@ -55,7 +55,7 @@ let package = Package(
             // macOS .app structure forbids any top-level entry other
             // than `Contents/` (`codesign` rejects with "unsealed contents
             // present in the bundle root"). Instead, `make-bundle.sh`
-            // copies `Sources/Jellify/Resources/` contents straight into
+            // copies `Sources/Lyrebird/Resources/` contents straight into
             // `Contents/Resources/`, and code that needs them reads via
             // `Bundle.main.url(forResource:withExtension:)` (the
             // standard macOS .app pattern).
@@ -72,7 +72,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "SmokeTest",
-            dependencies: ["JellifyCore", "JellifyAudio"],
+            dependencies: ["LyrebirdCore", "LyrebirdAudio"],
             path: "Sources/SmokeTest",
             linkerSettings: [
                 .linkedFramework("AudioToolbox"),

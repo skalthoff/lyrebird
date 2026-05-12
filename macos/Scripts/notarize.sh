@@ -17,7 +17,7 @@
 # page in the developer portal.
 #
 # Usage:
-#   ./macos/Scripts/notarize.sh path/to/Jellify-0.2.0.dmg
+#   ./macos/Scripts/notarize.sh path/to/Lyrebird-0.2.0.dmg
 #   NOTARY_PROFILE=other-profile ./macos/Scripts/notarize.sh some.dmg
 set -euo pipefail
 
@@ -48,7 +48,7 @@ fi
 
 # Work inside a temp dir so a failed / cancelled run doesn't litter logs
 # alongside the target artifact.
-SCRATCH="$(mktemp -d -t jellify-notarize.XXXXXX)"
+SCRATCH="$(mktemp -d -t lyrebird-notarize.XXXXXX)"
 LOG="$SCRATCH/submit.json"
 LOG_DETAIL="$SCRATCH/detail.json"
 
