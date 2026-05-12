@@ -43,7 +43,7 @@ fn make_core() -> Arc<LyrebirdCore> {
     std::mem::forget(tmp);
     LyrebirdCore::new(CoreConfig {
         data_dir: path,
-        device_name: "Jellify E2E".to_string(),
+        device_name: "Lyrebird E2E".to_string(),
     })
     .expect("core init")
 }

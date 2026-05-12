@@ -22,7 +22,7 @@ pub struct PaginatedItems<T> {
     pub total_count: u32,
 }
 
-const CLIENT_NAME: &str = "Jellify Desktop";
+const CLIENT_NAME: &str = "Lyrebird Desktop";
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Maximum number of HTTP attempts per logical request, inclusive of the

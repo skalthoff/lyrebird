@@ -17,7 +17,7 @@ fn main() -> Result<()> {
 
     let core = LyrebirdCore::new(CoreConfig {
         data_dir: String::new(),
-        device_name: "Jellify CLI".to_string(),
+        device_name: "Lyrebird CLI".to_string(),
     })
     .map_err(|e| anyhow!("core init: {e}"))?;
 

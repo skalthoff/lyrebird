@@ -438,7 +438,7 @@ impl DeviceProfile {
             kind: AUDIO.to_string(),
         };
         DeviceProfile {
-            name: "Jellify Desktop (macOS)".to_string(),
+            name: "Lyrebird Desktop (macOS)".to_string(),
             // 320 kbps ceiling for transcoded music; headroom for direct
             // plays to stream the original file at full fidelity.
             max_streaming_bitrate: 320_000,
