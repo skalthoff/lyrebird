@@ -311,7 +311,7 @@ struct LyrebirdCommands: Commands {
         // actually leads somewhere useful.
         CommandGroup(replacing: .help) {
             Button("menu.help.lyrebird") {
-                if let url = URL(string: "https://github.com/skalthoff/jellify-desktop") {
+                if let url = URL(string: "https://github.com/skalthoff/lyrebird-desktop") {
                     NSWorkspace.shared.open(url)
                 }
             }

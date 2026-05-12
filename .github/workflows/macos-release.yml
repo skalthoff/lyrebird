@@ -134,7 +134,7 @@ jobs:
         run: |
           # Keychain lives for the life of the runner; the runner is
           # ephemeral so we don't bother deleting it at the end.
-          KEYCHAIN="$RUNNER_TEMP/jellify.keychain-db"
+          KEYCHAIN="$RUNNER_TEMP/lyrebird.keychain-db"
           KEYCHAIN_PASSWORD="$(uuidgen)"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
@@ -163,7 +163,7 @@ jobs:
         env:
           # sign.sh reads $DEVELOPER_ID (the cert's common name).
           DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
-        run: ./Scripts/sign.sh build/Jellify.app
+        run: ./Scripts/sign.sh build/Lyrebird.app
 
       - name: Make DMG
         working-directory: macos
@@ -196,7 +196,7 @@ jobs:
         env:
           # notarize.sh reads $NOTARY_PROFILE and takes the DMG path as $1.
           NOTARY_PROFILE: ${{ secrets.APPLE_NOTARY_PROFILE }}
-        run: ./Scripts/notarize.sh "build/Jellify-${{ steps.version.outputs.version }}.dmg"
+        run: ./Scripts/notarize.sh "build/Lyrebird-${{ steps.version.outputs.version }}.dmg"
 
       # ------------------------------------------------------------------
       # Publish the release.
@@ -215,7 +215,7 @@ jobs:
           else
             gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Jellify $TAG" \
+              --title "Lyrebird $TAG" \
               --generate-notes \
               --verify-tag \
               macos/build/*.dmg

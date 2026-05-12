@@ -45,13 +45,13 @@ gh secret set APPLE_TEAM_ID
 | Secret | What it is | How to get it |
 |---|---|---|
 | `APPLE_ID` | Your Apple ID email. | The account you used to enroll in the Developer Program. |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for `notarytool`. | [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords → generate one labeled `jellify-notary`. |
-| `APPLE_NOTARY_PROFILE` | Name of the keychain profile `notarize.sh` looks up. | Default: `jellify-notary`. Only override if you want a different profile name on CI. |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for `notarytool`. | [appleid.apple.com](https://appleid.apple.com) → Sign-In and Security → App-Specific Passwords → generate one labeled `lyrebird-notary`. |
+| `APPLE_NOTARY_PROFILE` | Name of the keychain profile `notarize.sh` looks up. | Default: `lyrebird-notary`. Only override if you want a different profile name on CI. |
 
 ```bash
 gh secret set APPLE_ID
 gh secret set APPLE_APP_SPECIFIC_PASSWORD
-gh secret set APPLE_NOTARY_PROFILE   # optional; value = "jellify-notary" unless you want something else
+gh secret set APPLE_NOTARY_PROFILE   # optional; value = "lyrebird-notary" unless you want something else
 ```
 
 ### Sparkle auto-update signing

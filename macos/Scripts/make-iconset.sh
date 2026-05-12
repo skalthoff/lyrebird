@@ -7,7 +7,7 @@
 # too, so every release needs a fresh rebuild if the source SVG changed.
 #
 # Source resolution order:
-#   1. design/icons/jellify-app.svg  (canonical — add here when the final
+#   1. design/icons/lyrebird-app.svg  (canonical — add here when the final
 #      icon lands; doesn't exist yet as of this script's introduction)
 #   2. design/project/assets/teal-icon.svg  (current placeholder in-tree)
 #
@@ -33,7 +33,7 @@ OUT="$RESOURCES/AppIcon.icns"
 
 # Prefer the canonical icon, fall back to the teal placeholder in design/.
 CANDIDATES=(
-  "$ROOT/design/icons/jellify-app.svg"
+  "$ROOT/design/icons/lyrebird-app.svg"
   "$ROOT/design/project/assets/teal-icon.svg"
 )
 SRC=""

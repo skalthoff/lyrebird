@@ -3,11 +3,11 @@
 # wait for the verdict, and staple the ticket on success.
 #
 # Uses a keychain profile (see the one-time bootstrap below). The profile
-# name defaults to `jellify-notary` but can be overridden via $NOTARY_PROFILE.
+# name defaults to `lyrebird-notary` but can be overridden via $NOTARY_PROFILE.
 #
 # One-time local bootstrap (do this once per machine):
 #
-#   xcrun notarytool store-credentials jellify-notary \
+#   xcrun notarytool store-credentials lyrebird-notary \
 #     --apple-id       "$APPLE_ID" \
 #     --team-id        "$APPLE_TEAM_ID" \
 #     --password       "$APPLE_NOTARY_APP_PASSWORD"
@@ -31,7 +31,7 @@ if [[ $# -lt 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
 fi
 
 TARGET="$1"
-PROFILE="${NOTARY_PROFILE:-jellify-notary}"
+PROFILE="${NOTARY_PROFILE:-lyrebird-notary}"
 
 if [[ ! -e "$TARGET" ]]; then
     echo "error: target not found: $TARGET" >&2

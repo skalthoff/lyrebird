@@ -79,13 +79,13 @@ jobs:
         run: cargo test --workspace --all-features --no-fail-fast
       - name: cargo test (macOS / Windows — exclude linux crate)
         if: runner.os != 'Linux'
-        run: cargo test --workspace --exclude jellify-desktop --all-features --no-fail-fast
+        run: cargo test --workspace --exclude lyrebird-desktop --all-features --no-fail-fast
       - name: cargo build (examples, same exclusion rule)
         run: |
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             cargo build --workspace --all-targets --all-features
           else
-            cargo build --workspace --exclude jellify-desktop --all-targets --all-features
+            cargo build --workspace --exclude lyrebird-desktop --all-targets --all-features
           fi
         shell: bash
 
@@ -163,8 +163,8 @@ jobs:
             core/src/models.rs
             core/src/player.rs
             core/src/error.rs
-            macos/Jellify.xcframework/**
-            macos/Sources/JellifyCore/Generated/jellify_core.swift
+            macos/Lyrebird.xcframework/**
+            macos/Sources/LyrebirdCore/Generated/lyrebird_core.swift
       - name: Build xcframework
         working-directory: macos
         # Apple Silicon only (#660). build-core.sh defaults to arm64 — the
@@ -186,27 +186,27 @@ jobs:
         # Launch the bundled app, confirm it stays up for a few seconds,
         # terminate. No real server, just confirms the build boots.
         run: |
-          ./build/Jellify.app/Contents/MacOS/Jellify > /tmp/jellify.log 2>&1 &
+          ./build/Lyrebird.app/Contents/MacOS/Lyrebird > /tmp/lyrebird.log 2>&1 &
           PID=$!
           sleep 5
           if ! kill -0 $PID 2>/dev/null; then
-            echo "Jellify exited early; log:"
-            cat /tmp/jellify.log
+            echo "Lyrebird exited early; log:"
+            cat /tmp/lyrebird.log
             exit 1
           fi
           kill $PID
-      # upload-artifact strips the common ancestor (so passing Jellify.app
+      # upload-artifact strips the common ancestor (so passing Lyrebird.app
       # uploads its *contents*), and GitHub's zip layer drops symlinks —
       # which silently breaks Sparkle.framework. ditto produces a proper
       # macOS zip that preserves the bundle; we upload that.
       - name: Archive .app bundle
         working-directory: macos/build
-        run: ditto -c -k --sequesterRsrc --keepParent Jellify.app Jellify-macos-arm64.zip
+        run: ditto -c -k --sequesterRsrc --keepParent Lyrebird.app Lyrebird-macos-arm64.zip
       - name: Upload macOS app bundle
         uses: actions/upload-artifact@v7
         with:
-          name: Jellify-macos-arm64
-          path: macos/build/Jellify-macos-arm64.zip
+          name: Lyrebird-macos-arm64
+          path: macos/build/Lyrebird-macos-arm64.zip
           if-no-files-found: error
           retention-days: 7
 
@@ -245,7 +245,7 @@ jobs:
         shell: pwsh
         run: pwsh windows/tools/gen-bindings.ps1 -Configuration Release
       - name: dotnet build (x64)
-        run: dotnet build windows/Jellify.sln -c Release -p:Platform=x64
+        run: dotnet build windows/Lyrebird.sln -c Release -p:Platform=x64
 
   # Aggregate required status — branch protection should require just this one
   # instead of each parallel job individually.

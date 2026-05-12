@@ -177,12 +177,12 @@ struct PreferencesAbout: View {
     // MARK: - Actions
 
     private func openGitHub() {
-        guard let url = URL(string: "https://github.com/skalthoff/jellify-desktop") else { return }
+        guard let url = URL(string: "https://github.com/skalthoff/lyrebird-desktop") else { return }
         NSWorkspace.shared.open(url)
     }
 
     private func openIssues() {
-        guard let url = URL(string: "https://github.com/skalthoff/jellify-desktop/issues") else { return }
+        guard let url = URL(string: "https://github.com/skalthoff/lyrebird-desktop/issues") else { return }
         NSWorkspace.shared.open(url)
     }
 }

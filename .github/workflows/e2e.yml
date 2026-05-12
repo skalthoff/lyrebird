@@ -20,9 +20,9 @@ env:
   # are scoped to the user and don't pollute production data. If
   # music.skalthoff.com is unreachable, E2E fails fast at the healthcheck
   # step.
-  JELLIFY_E2E_URL: https://music.skalthoff.com
-  JELLIFY_E2E_USER: test
-  JELLIFY_E2E_PASS: test
+  LYREBIRD_E2E_URL: https://music.skalthoff.com
+  LYREBIRD_E2E_USER: test
+  LYREBIRD_E2E_PASS: test
 
 jobs:
   rust-core:
@@ -36,18 +36,18 @@ jobs:
           key: e2e-rust-core
       - name: Verify test server reachable
         run: |
-          curl -fsS --max-time 20 "$JELLIFY_E2E_URL/System/Info/Public" >/dev/null \
-            || { echo "::error::test server $JELLIFY_E2E_URL unreachable"; exit 1; }
+          curl -fsS --max-time 20 "$LYREBIRD_E2E_URL/System/Info/Public" >/dev/null \
+            || { echo "::error::test server $LYREBIRD_E2E_URL unreachable"; exit 1; }
       - name: cargo test --test e2e_live
-        run: cargo test --package jellify_core --test e2e_live -- --nocapture --test-threads=1
-      - name: jellify-cli smoke (login + list)
+        run: cargo test --package lyrebird_core --test e2e_live -- --nocapture --test-threads=1
+      - name: lyrebird-cli smoke (login + list)
         env:
-          JELLYFIN_URL: ${{ env.JELLIFY_E2E_URL }}
-          JELLYFIN_USER: ${{ env.JELLIFY_E2E_USER }}
-          JELLYFIN_PASS: ${{ env.JELLIFY_E2E_PASS }}
+          JELLYFIN_URL: ${{ env.LYREBIRD_E2E_URL }}
+          JELLYFIN_USER: ${{ env.LYREBIRD_E2E_USER }}
+          JELLYFIN_PASS: ${{ env.LYREBIRD_E2E_PASS }}
         # Pipe an empty line so the "Album index" prompt falls through to [0].
         # Live library is non-empty, so the CLI exercises the populated path.
-        run: echo "" | cargo run --package jellify-cli --bin jellify-cli
+        run: echo "" | cargo run --package lyrebird-cli --bin lyrebird-cli
 
   macos-app:
     name: macOS app (live Jellyfin)
@@ -78,8 +78,8 @@ jobs:
             spm-macos-15-
       - name: Verify test server reachable
         run: |
-          curl -fsS --max-time 20 "$JELLIFY_E2E_URL/System/Info/Public" >/dev/null \
-            || { echo "::error::test server $JELLIFY_E2E_URL unreachable"; exit 1; }
+          curl -fsS --max-time 20 "$LYREBIRD_E2E_URL/System/Info/Public" >/dev/null \
+            || { echo "::error::test server $LYREBIRD_E2E_URL unreachable"; exit 1; }
       - name: Build xcframework
         working-directory: macos
         run: ./Scripts/build-core.sh
@@ -89,9 +89,9 @@ jobs:
       - name: SmokeTest against live Jellyfin
         working-directory: macos
         env:
-          JELLYFIN_URL: ${{ env.JELLIFY_E2E_URL }}
-          JELLYFIN_USER: ${{ env.JELLIFY_E2E_USER }}
-          JELLYFIN_PASS: ${{ env.JELLIFY_E2E_PASS }}
+          JELLYFIN_URL: ${{ env.LYREBIRD_E2E_URL }}
+          JELLYFIN_USER: ${{ env.LYREBIRD_E2E_USER }}
+          JELLYFIN_PASS: ${{ env.LYREBIRD_E2E_PASS }}
         run: |
           set +e
           ./.build/arm64-apple-macosx/debug/SmokeTest > /tmp/smoke.log 2>&1
