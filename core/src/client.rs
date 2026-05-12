@@ -1541,7 +1541,9 @@ impl JellyfinClient {
                 LyrebirdError::Decode("fetch_item: response missing Items array".into())
             })?;
         if items.is_empty() {
-            return Err(LyrebirdError::NotFound(format!("item not found: {item_id}")));
+            return Err(LyrebirdError::NotFound(format!(
+                "item not found: {item_id}"
+            )));
         }
         Ok(items.swap_remove(0))
     }
@@ -2128,7 +2130,9 @@ impl JellyfinClient {
             .into_iter()
             .find(|v| v.collection_type.as_deref() == Some("music"))
             .map(|v| v.id)
-            .ok_or_else(|| LyrebirdError::NotFound("no music library found in user views".into()))?;
+            .ok_or_else(|| {
+                LyrebirdError::NotFound("no music library found in user views".into())
+            })?;
         self.library_cache.lock().music = Some(id.clone());
         Ok(id)
     }
