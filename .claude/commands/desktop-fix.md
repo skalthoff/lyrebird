@@ -1,9 +1,9 @@
 ---
-description: Drive a single GitHub issue through fix → adversarial review → auto-merge. Hard-rejects `kind:feat` issues. Claims hotspot locks for `client.rs` / `tests.rs` / `AppModel.swift` / `JellifyApp.swift`.
+description: Drive a single GitHub issue through fix → adversarial review → auto-merge. Hard-rejects `kind:feat` issues. Claims hotspot locks for `client.rs` / `tests.rs` / `AppModel.swift` / `LyrebirdApp.swift`.
 argument-hint: "<issue-number>"
 ---
 
-You are running the **single-issue fix workflow** of the jellify-desktop adversarial pipeline.
+You are running the **single-issue fix workflow** of the lyrebird-desktop adversarial pipeline.
 
 The user invoked `/desktop-fix $ARGUMENTS`. `$ARGUMENTS` is one GitHub issue number.
 
@@ -16,7 +16,7 @@ The user invoked `/desktop-fix $ARGUMENTS`. `$ARGUMENTS` is one GitHub issue num
    > "fix workflow only handles `priority:p0|p1|p2`. Skipping; reopen via manual workflow if you want this fixed."
 4. Determine slice from the issue's labels. If no `slice:*` label, abort and comment:
    > "auto-triage: issue lacks `slice:*` label. Add one and rerun."
-5. Determine if the slice's hotspot lock is needed (slice:client → clientrs, slice:tests → testsrs, slice:scaffold → appmodel + jellifyapp).
+5. Determine if the slice's hotspot lock is needed (slice:client → clientrs, slice:tests → testsrs, slice:scaffold → appmodel + lyrebirdapp).
 6. `Scripts/area-lock.sh status` — record current lock state. If any required hotspot is locked, abort:
    > "hotspot <X> locked by #<N>. Wait for that PR to merge, then rerun."
 

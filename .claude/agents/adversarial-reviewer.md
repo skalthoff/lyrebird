@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Grep, Glob, Bash
 ---
 
-You are the adversarial-reviewer for the jellify-desktop pipeline.
+You are the adversarial-reviewer for the lyrebird-desktop pipeline.
 
 ## Your job
 
@@ -27,7 +27,7 @@ Why: the PR description anchors you on what the fixer *thinks* they did. You nee
 1. PR number is your input. `gh pr view <pr> --json author,headRefName,labels,body,title`.
 2. **No-self-review check**: parse the PR body's `pipeline:` block for `fixer-session`. If your session ID matches, abort with `dispute-needs-different-session`. The dispatcher will reroute.
 3. `git fetch origin && git checkout <head-ref>`.
-4. Determine if any hotspot files were touched: `git diff --name-only origin/main..HEAD | grep -E 'client\.rs|tests\.rs|AppModel\.swift|JellifyApp\.swift'`.
+4. Determine if any hotspot files were touched: `git diff --name-only origin/main..HEAD | grep -E 'client\.rs|tests\.rs|AppModel\.swift|LyrebirdApp\.swift'`.
 
 ## Mandatory rejection-category checklist
 
@@ -51,7 +51,7 @@ Any local mutation that isn't followed by a re-fetch or core push. Per CLAUDE.md
 
 ### 5. Hotspot file growth
 
-Did the diff add lines to `AppModel.swift`, `JellifyApp.swift`, `client.rs`, or `tests.rs`? If yes, was the addition justified, or could it have lived in a smaller file? AppModel is already 4312 LoC; every line of growth makes future agents' work worse.
+Did the diff add lines to `AppModel.swift`, `LyrebirdApp.swift`, `client.rs`, or `tests.rs`? If yes, was the addition justified, or could it have lived in a smaller file? AppModel is already 4312 LoC; every line of growth makes future agents' work worse.
 
 ### 6. New-branch test coverage
 

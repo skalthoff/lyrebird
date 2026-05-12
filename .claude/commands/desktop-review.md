@@ -3,7 +3,7 @@ description: Run the adversarial reviewer against a specific PR (Sonnet first pa
 argument-hint: "<pr-number>"
 ---
 
-You are running a **standalone adversarial review** for the jellify-desktop pipeline.
+You are running a **standalone adversarial review** for the lyrebird-desktop pipeline.
 
 The user invoked `/desktop-review $ARGUMENTS`. `$ARGUMENTS` is one GitHub PR number.
 

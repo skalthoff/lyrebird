@@ -1,4 +1,4 @@
-# CLAUDE.md — jellify-desktop
+# CLAUDE.md — lyrebird-desktop
 
 Guidance for Claude Code sessions working in this repo. Complements the
 workspace-level CLAUDE.md one directory up.
@@ -8,17 +8,17 @@ workspace-level CLAUDE.md one directory up.
 - `core/` — Rust library (UniFFI-exposed). All network + state lives here.
   Synchronous API, `parking_lot::Mutex` guards `Inner`. Every FFI call
   serializes through that mutex.
-- `macos/` — SwiftUI app. Consumes `JellifyCore` via the committed
-  `macos/Jellify.xcframework` + generated `macos/Sources/JellifyCore/Generated/jellify_core.swift`.
+- `macos/` — SwiftUI app. Consumes `LyrebirdCore` via the committed
+  `macos/Lyrebird.xcframework` + generated `macos/Sources/LyrebirdCore/Generated/lyrebird_core.swift`.
   AudioEngine wraps AVQueuePlayer; Nuke handles artwork.
 - `core/src/client.rs` (92KB) — Jellyfin REST client. Heavy rebase-conflict
   hotspot; see "Merge hygiene".
 - `core/src/tests.rs` (4000+ lines) — tests always append at EOF, so every
   concurrent PR collides on rebase. See "Merge hygiene".
-- `macos/Sources/Jellify/AppModel.swift` (~4000 lines) — the single
+- `macos/Sources/Lyrebird/AppModel.swift` (~4000 lines) — the single
   `@MainActor` view model. Every screen reads from it. Conflict hotspot
   #1. Never parallelize two agents against this file.
-- `macos/Sources/Jellify/JellifyApp.swift` — app scaffold. Conflict hotspot #2.
+- `macos/Sources/Lyrebird/LyrebirdApp.swift` — app scaffold. Conflict hotspot #2.
 
 ## Build gates
 
@@ -31,7 +31,7 @@ rm -rf macos/.build && swift build --package-path macos
 
 If a PR modifies `core/src/lib.rs` or anything in `core/src/models.rs` that
 carries `uniffi::Record` / `uniffi::Enum`, the xcframework and
-`jellify_core.swift` bindings need regeneration:
+`lyrebird_core.swift` bindings need regeneration:
 
 ```bash
 ./macos/Scripts/build-core.sh                      # dev (debug)
@@ -86,7 +86,7 @@ git worktree list                  # confirm which worktree is on which branch
 ```
 
 Multiple worktrees in this repo can be on different branches at once.
-`/Users/skalthoff/Code/active/openSourceWork/workspaces/jellify-desktop`
+`/Users/skalthoff/Code/active/openSourceWork/workspaces/lyrebird-desktop`
 and `.claude/worktrees/cool-fermat-316d1d/` have pointed to different
 branches inside the same session. If you `cd` between them and forget,
 you'll spend real time chasing phantom "main is broken" reports.
@@ -99,8 +99,8 @@ of their own `fix/<name>` branch. Every agent prompt should include:
 
 ### Hotspot files — never parallelize
 
-- `macos/Sources/Jellify/AppModel.swift`
-- `macos/Sources/Jellify/JellifyApp.swift`
+- `macos/Sources/Lyrebird/AppModel.swift`
+- `macos/Sources/Lyrebird/LyrebirdApp.swift`
 - `core/src/client.rs`
 - `core/src/tests.rs` (see merge hygiene)
 
@@ -174,7 +174,7 @@ for when PRs land:
    `print("[AppModel] X not yet wired — see #Y")` should be treated as
    a live bug, not a TODO. As of rc12 the `print(...)` form has been
    replaced with `Log.app.notice(...)` so the messages now surface in
-   Console.app under `subsystem == "org.jellify.desktop"` instead of
+   Console.app under `subsystem == "org.lyrebird.desktop"` instead of
    vanishing into Xcode's debug console — grep pattern updated:
    `Log.app.notice.*not yet wired`.
 
@@ -226,7 +226,7 @@ for when PRs land:
 
 ## Resolved (don't re-file)
 
-- ✅ `/Sessions/Playing*` reporting — wired in JellifyAudio/AudioEngine
+- ✅ `/Sessions/Playing*` reporting — wired in LyrebirdAudio/AudioEngine
   (`reportPlaybackStarted/Progress/Stopped`). PlayCount, Now Playing on
   other clients, and resume points all flow through it. Earlier CLAUDE.md
   versions claimed this was unwired; that was stale.

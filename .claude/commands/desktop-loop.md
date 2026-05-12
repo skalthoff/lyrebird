@@ -3,7 +3,7 @@ description: Run one full agentic wave (audit → triage → fix → review → 
 argument-hint: "[budget-seconds]"
 ---
 
-You are running ONE full wave of the jellify-desktop adversarial pipeline.
+You are running ONE full wave of the lyrebird-desktop adversarial pipeline.
 
 The user invoked `/desktop-loop $ARGUMENTS`. If `$ARGUMENTS` is provided, treat it as a budget-seconds override (default 14400 = 4h).
 

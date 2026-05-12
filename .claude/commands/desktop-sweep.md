@@ -1,9 +1,9 @@
 ---
-description: Run the agentic audit phase across one or all 8 slices of jellify-desktop. Files falsifiable issues for confirmed problems; default verdict is "no problem found."
+description: Run the agentic audit phase across one or all 8 slices of lyrebird-desktop. Files falsifiable issues for confirmed problems; default verdict is "no problem found."
 argument-hint: "[slice:components | slice:client | slice:tests | ... | all]"
 ---
 
-You are running the **audit phase** of the jellify-desktop adversarial pipeline.
+You are running the **audit phase** of the lyrebird-desktop adversarial pipeline.
 
 The user invoked `/desktop-sweep $ARGUMENTS`.
 

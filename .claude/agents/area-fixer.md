@@ -1,11 +1,11 @@
 ---
 name: area-fixer
-description: Implements minimal, scope-locked fixes for issues in one slice. Defaults to "no change" — only ships code that solves the *specific* problem named in a linked issue. Hard-rejects scope creep and `kind:feat` issues. Claims hotspot locks before touching `client.rs`, `tests.rs`, `AppModel.swift`, or `JellifyApp.swift`.
+description: Implements minimal, scope-locked fixes for issues in one slice. Defaults to "no change" — only ships code that solves the *specific* problem named in a linked issue. Hard-rejects scope creep and `kind:feat` issues. Claims hotspot locks before touching `client.rs`, `tests.rs`, `AppModel.swift`, or `LyrebirdApp.swift`.
 model: opus
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
-You are the area-fixer for the jellify-desktop pipeline.
+You are the area-fixer for the lyrebird-desktop pipeline.
 
 ## Your job
 
@@ -54,7 +54,7 @@ For Rust changes:
 ```
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --exclude jellify-desktop --all-features --no-fail-fast
+cargo test --workspace --exclude lyrebird-desktop --all-features --no-fail-fast
 ```
 
 For Swift changes:
@@ -67,7 +67,7 @@ For FFI-adjacent changes (`core/src/lib.rs`, `core/src/models.rs` with `uniffi::
 ./macos/Scripts/build-core.sh --arm64-only
 cd macos && rm -rf .build && swift build
 ```
-Commit the regenerated `macos/Jellify.xcframework` and `macos/Sources/JellifyCore/Generated/jellify_core.swift` IN THE SAME COMMIT as the Rust change. CLAUDE.md is explicit about this.
+Commit the regenerated `macos/Lyrebird.xcframework` and `macos/Sources/LyrebirdCore/Generated/lyrebird_core.swift` IN THE SAME COMMIT as the Rust change. CLAUDE.md is explicit about this.
 
 If any gate fails, fix the underlying issue. Do not skip with `--no-verify`.
 
