@@ -9,9 +9,11 @@ import Foundation
 /// FFI work that enables it can flip a single flag rather than re-wiring
 /// every surface.
 extension AppModel {
-    /// Download engine (#70, #222). Gates "Download Current" in the
-    /// command palette plus per-album / per-playlist / per-track Download
-    /// affordances.
+    /// Download engine (#819). Gates "Download Current" in the command
+    /// palette plus per-album / per-playlist / per-track Download
+    /// affordances. The four AppModel stubs (Download Current,
+    /// enqueueDownload(album:), enqueueDownload(playlist:),
+    /// toggleDownload(tracks:)) flip live once the core engine lands.
     var supportsDownloads: Bool { false }
 
     /// `mark_played` / `mark_unplayed` FFIs (#133, #222). Gates

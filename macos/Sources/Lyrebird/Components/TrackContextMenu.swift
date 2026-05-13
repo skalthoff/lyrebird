@@ -140,7 +140,7 @@ struct TrackContextMenu: View {
     }
 
     private var downloadLabel: String {
-        // Download state isn't tracked per-track yet (#70 downloads engine),
+        // Download state isn't tracked per-track yet (#819 downloads engine),
         // so the label always reads as "Download" for now. Once state lands
         // this mirrors favorite's all-on / any-off logic.
         "Download\(countSuffix)"
