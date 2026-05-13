@@ -41,8 +41,9 @@ extension AppModel {
     /// context menus.
     var supportsTrackInfo: Bool { true }
 
-    /// Genre actions (#144, #248, #318). Disabled until #318 lands — the
-    /// stub actions pass a genre name (e.g. "Jazz") as an item id to
+    /// Genre actions (#823). Disabled until the genre-id resolver +
+    /// `tracksForGenre` / `albumsForGenre` FFIs land — the stub actions
+    /// today pass a genre name (e.g. "Jazz") as an item id to
     /// `core.instantMix(itemId:)` which expects a UUID, producing garbage.
     /// Flip to `true` once `browseGenre`, `shuffleGenre`, and
     /// `pinGenreToHome` are wired to real core FFIs.

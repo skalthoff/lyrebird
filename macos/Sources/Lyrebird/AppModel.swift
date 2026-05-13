@@ -4277,14 +4277,14 @@ final class AppModel {
     //
     // Backing calls for `GenreContextMenu`. The core doesn't yet expose a
     // Genre type (genres are surfaced as bare strings on `Album`/`Artist`
-    // today). All four actions are TODO stubs pending follow-up work
-    // (#144 radio, #318 genre detail screen, #248 / #249 Home pinning).
+    // today). All four actions are TODO stubs pending follow-up work in
+    // #823 (genre-id resolver + tracksForGenre/albumsForGenre FFIs).
 
     /// Navigate to the genre's browse view.
-    /// TODO(#318): genre detail screen not yet implemented.
+    /// TODO(#823): genre detail screen not yet implemented.
     func browseGenre(genre: String) {
-        // TODO(#318): genre detail screen not yet implemented.
-        Log.app.notice("browseGenre(\(genre, privacy: .public)) not yet wired — see #318")
+        // TODO(#823): genre detail screen not yet implemented.
+        Log.app.notice("browseGenre(\(genre, privacy: .public)) not yet wired — see #823")
     }
 
     /// Kick off an Instant Mix seeded by a genre.
@@ -4293,17 +4293,17 @@ final class AppModel {
     }
 
     /// Shuffle every track tagged with the given genre.
-    /// TODO(#318): genre-scoped track list FFI not yet wired.
+    /// TODO(#823): genre-scoped track list FFI not yet wired.
     func shuffleGenre(genre: String) {
-        // TODO(#318): genre-scoped track list FFI not yet wired.
-        Log.app.notice("shuffleGenre(\(genre, privacy: .public)) not yet wired — see #318")
+        // TODO(#823): genre-scoped track list FFI not yet wired.
+        Log.app.notice("shuffleGenre(\(genre, privacy: .public)) not yet wired — see #823")
     }
 
     /// Pin a genre tile to the Home screen so the user can one-click-browse.
-    /// TODO(#248 / #249): Home personalization (pinned tiles) not yet wired.
+    /// TODO(#823): Home personalization (pinned tiles) not yet wired.
     func pinGenreToHome(genre: String) {
-        // TODO(#248): pinned tiles not yet wired.
-        Log.app.notice("pinGenreToHome(\(genre, privacy: .public)) not yet wired — see #248 / #249")
+        // TODO(#823): pinned tiles not yet wired.
+        Log.app.notice("pinGenreToHome(\(genre, privacy: .public)) not yet wired — see #823")
     }
 
     func pause() { audio.pause() }
@@ -4827,7 +4827,7 @@ extension Array {
 /// dropdown's genre row. Jellyfin returns genres as bare strings on
 /// `Album`/`Artist` today, so an `id` is derived from the name until a
 /// proper `MusicGenre` item shape lands in core (see `GenreContextMenu`'s
-/// TODO for #318).
+/// TODO for #823).
 struct Genre: Hashable, Identifiable, Sendable {
     let id: String
     let name: String

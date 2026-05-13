@@ -11,21 +11,19 @@ import SwiftUI
 ///
 /// The core does not yet expose a Genre type (genres are surfaced as
 /// bare strings on `Album`/`Artist` today), so this menu accepts the
-/// genre name directly. When #318 introduces a proper `Genre` struct this
+/// genre name directly. When #823 introduces a proper `Genre` struct this
 /// view can grow an overload without touching call sites.
 ///
-/// All actions call through to `AppModel`. Several are TODO stubs pending
-/// follow-up FFI work (genre browse is #318, genre radio is part of
-/// #144, and pin-to-home lives alongside the Home personalization work
-/// in #248 / #249).
+/// All actions call through to `AppModel`. Every entry here is a TODO
+/// stub pending the genre-id resolver + tracksForGenre/albumsForGenre
+/// FFIs tracked in #823.
 struct GenreContextMenu: View {
     @Environment(AppModel.self) private var model
     let genre: String
 
     var body: some View {
         // Every entry in this menu is gated on FFIs that don't ship in 0.2
-        // (#144 / #248 / #318). When `supportsGenreActions` flips on per
-        // feature these will come back individually.
+        // (#823). When `supportsGenreActions` flips on these will come back.
         if model.supportsGenreActions {
             Button("Browse genre", systemImage: "square.grid.2x2") {
                 model.browseGenre(genre: genre)
