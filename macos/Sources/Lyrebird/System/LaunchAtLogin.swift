@@ -17,7 +17,7 @@ struct LaunchAtLogin {
         do {
             try SMAppService.mainApp.register()
         } catch {
-            debugPrint("[LaunchAtLogin] register() failed: \(error)")
+            Log.app.error("LaunchAtLogin register() failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -27,7 +27,7 @@ struct LaunchAtLogin {
         do {
             try SMAppService.mainApp.unregister()
         } catch {
-            debugPrint("[LaunchAtLogin] unregister() failed: \(error)")
+            Log.app.error("LaunchAtLogin unregister() failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
