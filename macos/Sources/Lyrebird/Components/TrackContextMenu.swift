@@ -129,7 +129,7 @@ struct TrackContextMenu: View {
     /// True when every track in the selection is already favorited, so the
     /// toggle reads as "Unfavorite" rather than "Favorite".
     private var allFavorited: Bool {
-        !selection.isEmpty && selection.allSatisfy { $0.isFavorite }
+        !selection.isEmpty && selection.allSatisfy { model.isFavorite(track: $0) }
     }
 
     private var favoriteLabel: String {
