@@ -70,9 +70,6 @@ struct TrackContextMenu: View {
         Menu("Add to Playlist", systemImage: "text.badge.plus") {
             AddToPlaylistSubmenu { playlist in
                 model.addTracksToPlaylist(tracks: selection, playlist: playlist)
-            } onNewPlaylist: {
-                // New-playlist picker is v1.x scope (#126). supportsNewPlaylistPicker
-                // gates this button off so this closure is never triggered today.
             }
         }
 

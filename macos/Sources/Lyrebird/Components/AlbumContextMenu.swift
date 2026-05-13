@@ -42,9 +42,6 @@ struct AlbumContextMenu: View {
         Menu("Add to Playlist", systemImage: "text.badge.plus") {
             AddToPlaylistSubmenu { playlist in
                 model.addAlbumToPlaylist(album: album, playlist: playlist)
-            } onNewPlaylist: {
-                // New-playlist picker is v1.x scope (#72/#126). supportsNewPlaylistPicker
-                // gates this button off so this closure is never triggered today.
             }
         }
 

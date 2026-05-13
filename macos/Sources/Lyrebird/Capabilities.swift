@@ -24,13 +24,6 @@ extension AppModel {
     /// they route through wired FFIs.
     var supportsArtistPlayShuffle: Bool { true }
 
-    /// New-playlist picker (#72, #126). Gates the "New Playlist…" entry
-    /// at the bottom of Add to Playlist submenus on album and track
-    /// surfaces. The route-through helpers `addAlbumToPlaylist` /
-    /// `addTracksToPlaylist` remain available — only the picker sheet
-    /// is the missing piece.
-    var supportsNewPlaylistPicker: Bool { false }
-
     /// Album metadata editor (#96, #222). Gates "Edit Album…".
     var supportsEditAlbum: Bool { false }
 
