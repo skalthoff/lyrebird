@@ -1251,7 +1251,12 @@ impl JellyfinClient {
             .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
             .await?;
         let raw: RawItems<RawItem> = resp.json().await?;
-        Ok(raw.items.into_iter().map(Track::from).collect())
+        Ok(raw
+            .items
+            .into_iter()
+            .filter(|i| i.kind.as_deref() == Some("Audio"))
+            .map(Track::from)
+            .collect())
     }
 
     /// Artists similar to `artist_id` — Jellyfin's `GET /Artists/{id}/Similar`.

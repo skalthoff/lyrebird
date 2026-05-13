@@ -7483,3 +7483,62 @@ async fn login_forwards_whitespace_only_password_as_empty() {
         "whitespace-only Pw must be trimmed to empty"
     );
 }
+
+// ============================================================================
+// suggestions defensive Type filter — #815 / auto-audit
+// ============================================================================
+
+/// Regression for the Home "You might like" shelf. Jellyfin's
+/// `/Items/Suggestions` endpoint ignores `IncludeItemTypes=Audio,MusicAlbum`
+/// and returns a mix of Audio, MusicAlbum, and MusicArtist items
+/// (verified live against music.skalthoff.com on 2026-05-12). Non-Audio
+/// items mapped through `Track::from` produce structurally broken tracks
+/// with no container / no album_id, which then fail to stream. The client
+/// now post-filters by `Type == "Audio"` so the downstream UI never sees
+/// non-audio rows regardless of what the server returns.
+#[tokio::test]
+async fn suggestions_rejects_non_audio_items() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    // Simulate the live server behaviour: return a mix of Audio, MusicAlbum,
+    // and MusicArtist items even though the request asks for Audio,MusicAlbum.
+    Mock::given(method("GET"))
+        .and(path("/Items/Suggestions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                {
+                    "Id": "t1", "Name": "Real Track", "Type": "Audio",
+                    "AlbumId": "a1", "Album": "Discover",
+                    "AlbumArtist": "Artist", "Artists": ["Artist"],
+                    "RunTimeTicks": 1800000000u64
+                },
+                {
+                    "Id": "al1", "Name": "Quite A Shame", "Type": "MusicAlbum",
+                    "AlbumArtist": "Some Artist"
+                },
+                {
+                    "Id": "ar1", "Name": "Boston", "Type": "MusicArtist"
+                }
+            ],
+            "TotalRecordCount": 3
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let tracks = client.suggestions(20).await.unwrap();
+
+    // Only the Audio entry survives; the MusicAlbum / MusicArtist items
+    // would otherwise produce unplayable Track objects in the Home shelf.
+    assert_eq!(tracks.len(), 1, "non-Audio rows must be dropped");
+    assert_eq!(tracks[0].id, "t1");
+    assert_eq!(tracks[0].name, "Real Track");
+}
