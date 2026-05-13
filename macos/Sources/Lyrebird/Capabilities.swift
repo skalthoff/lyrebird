@@ -33,11 +33,13 @@ extension AppModel {
     /// context menus.
     var supportsTrackInfo: Bool { true }
 
-    /// Genre actions (#823). Disabled until the genre-id resolver +
-    /// `tracksForGenre` / `albumsForGenre` FFIs land — the stub actions
-    /// today pass a genre name (e.g. "Jazz") as an item id to
-    /// `core.instantMix(itemId:)` which expects a UUID, producing garbage.
-    /// Flip to `true` once `browseGenre`, `shuffleGenre`, and
-    /// `pinGenreToHome` are wired to real core FFIs.
-    var supportsGenreActions: Bool { false }
+    /// Genre actions (#823). Gates the genre context menu (Browse /
+    /// Radio / Shuffle / Pin), the `GenreResultRow` row in search, and
+    /// the genre detail screen reachable via `Route.genre`. Wired
+    /// end-to-end on top of `core.genres`, `core.itemsByGenre`,
+    /// `core.tracksByGenre`, and `core.instantMix`; the flag stays as a
+    /// kill-switch / regression fallback. See
+    /// `supportsMarkPlayed` / `supportsArtistPlayShuffle` for the same
+    /// pattern.
+    var supportsGenreActions: Bool { true }
 }

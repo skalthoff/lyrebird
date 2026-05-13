@@ -46,6 +46,7 @@ final class AppModel {
         case album(String)
         case artist(String)
         case playlist(String)
+        case genre(Genre)
         case nowPlaying
     }
 
@@ -4268,28 +4269,135 @@ final class AppModel {
 
     // MARK: - Genre actions
     //
-    // Backing calls for `GenreContextMenu`. The core doesn't yet expose a
-    // Genre type (genres are surfaced as bare strings on `Album`/`Artist`
-    // today). All four actions are TODO stubs pending follow-up work in
-    // #823 (genre-id resolver + tracksForGenre/albumsForGenre FFIs).
+    // Backing calls for `GenreContextMenu` + `GenreDetailView`. Genres
+    // surface as bare strings on `Album` / `Artist` records, but the
+    // genre-scoped FFIs (`tracksByGenre`, `itemsByGenre`, `instantMix`)
+    // require a real Jellyfin UUID. `resolvedGenreId(forName:)` lazily
+    // loads `/MusicGenres` once and caches the name→UUID map so the
+    // three actions below can dispatch on the real id without each call
+    // site re-fetching. See #823 Wave 2.
 
-    /// Navigate to the genre's browse view.
-    /// TODO(#823): genre detail screen not yet implemented.
-    func browseGenre(genre: String) {
-        // TODO(#823): genre detail screen not yet implemented.
-        Log.app.notice("browseGenre(\(genre, privacy: .public)) not yet wired — see #823")
+    /// Cache of /MusicGenres results keyed by display name → Jellyfin UUID.
+    /// Populated lazily on the first genre-action call. ~291 entries on a
+    /// real library — one page of 500 covers it. The Swift `Genre` carries
+    /// `id == name` because Album/Artist records only ship the bare name,
+    /// so this map is the only path to the real UUID. Stored as a flat
+    /// `[String: String]` rather than `[String: LyrebirdCore.Genre]` to
+    /// avoid the module/class name collision — `LyrebirdCore.Genre` parses
+    /// as a member of the `LyrebirdCore` *class* (which doesn't have one)
+    /// rather than the `LyrebirdCore` *module*. The UUID is the only field
+    /// we need anyway.
+    private var _genreIdsByName: [String: String] = [:]
+    private var _genresLoaded: Bool = false
+
+    /// Resolve a Swift-side display name to the real Jellyfin UUID via
+    /// the lazy `/MusicGenres` cache. Returns `nil` when the name has no
+    /// match (genre exists in Album/Artist metadata but not as its own
+    /// `MusicGenre` item — possible for empty / freshly-tagged genres).
+    /// The FFI call runs off the MainActor per CLAUDE.md gap pattern #2.
+    private func resolvedGenreId(forName name: String) async -> String? {
+        if !_genresLoaded {
+            let pairs: [(String, String)]? = await Task.detached(priority: .userInitiated) { [core] in
+                (try? core.genres(offset: 0, limit: 500))?.items.map { ($0.name, $0.id) }
+            }.value
+            guard let pairs else { return nil }
+            _genreIdsByName = Dictionary(uniqueKeysWithValues: pairs)
+            _genresLoaded = true
+        }
+        return _genreIdsByName[name]
     }
 
-    /// Kick off an Instant Mix seeded by a genre.
-    func startGenreRadio(genre: String) {
-        playInstantMix(seedId: genre)
+    /// Open the genre detail screen. Resolves the display name to a real
+    /// Jellyfin UUID first so downstream FFIs in `GenreDetailView` get a
+    /// UUID instead of the name string.
+    func browseGenre(genre: Genre) {
+        Task { @MainActor in
+            guard let realId = await resolvedGenreId(forName: genre.name) else {
+                errorMessage = "Genre '\(genre.name)' not found on server"
+                return
+            }
+            // Push a Genre carrying the resolved UUID so downstream FFI
+            // calls in GenreDetailView don't have to re-resolve.
+            navigate(to: .genre(Genre(id: realId, name: genre.name)))
+        }
     }
 
-    /// Shuffle every track tagged with the given genre.
-    /// TODO(#823): genre-scoped track list FFI not yet wired.
-    func shuffleGenre(genre: String) {
-        // TODO(#823): genre-scoped track list FFI not yet wired.
-        Log.app.notice("shuffleGenre(\(genre, privacy: .public)) not yet wired — see #823")
+    /// Kick off an Instant Mix seeded by this genre. Fixes the prior
+    /// UUID-mismatch bug where the genre *name* was passed to
+    /// `core.instantMix(itemId:)` which expects a UUID.
+    func startGenreRadio(genre: Genre) {
+        Task { @MainActor in
+            guard let realId = await resolvedGenreId(forName: genre.name) else {
+                errorMessage = "Genre '\(genre.name)' not found on server"
+                return
+            }
+            playInstantMix(seedId: realId)
+        }
+    }
+
+    /// Shuffle every track in this genre. Loads the first 500-track page
+    /// via `core.tracksByGenre`, shuffles client-side, then plays.
+    func shuffleGenre(genre: Genre) {
+        Task { @MainActor in
+            guard let realId = await resolvedGenreId(forName: genre.name) else {
+                errorMessage = "Genre '\(genre.name)' not found on server"
+                return
+            }
+            do {
+                let page = try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.tracksByGenre(genreId: realId, offset: 0, limit: 500)
+                }.value
+                let tracks = page.items
+                guard !tracks.isEmpty else { return }
+                play(tracks: tracks.shuffled(), startIndex: 0)
+            } catch {
+                if handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = "Couldn't load tracks for \(genre.name): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Internal: load a page of albums tagged with the given resolved
+    /// genre UUID. Used by `GenreDetailView` for the albums shelf. The
+    /// FFI call runs off the MainActor per CLAUDE.md gap pattern #2.
+    func loadAlbums(forGenreId genreId: String, limit: UInt32 = 50) async -> [Album] {
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.itemsByGenre(genreId: genreId, offset: 0, limit: limit)
+            }.value
+            return page.items
+        } catch {
+            if !handleAuthError(error) {
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = LyrebirdErrorPresenter.message(for: error, context: .libraryLoad)
+            }
+            return []
+        }
+    }
+
+    /// Internal: load a page of tracks tagged with the given resolved
+    /// genre UUID. Used by `GenreDetailView` for the tracks shelf. The
+    /// FFI call runs off the MainActor per CLAUDE.md gap pattern #2.
+    func loadTracks(forGenreId genreId: String, limit: UInt32 = 50) async -> [Track] {
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.tracksByGenre(genreId: genreId, offset: 0, limit: limit)
+            }.value
+            return page.items
+        } catch {
+            if !handleAuthError(error) {
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = LyrebirdErrorPresenter.message(for: error, context: .libraryLoad)
+            }
+            return []
+        }
     }
 
     /// Pin a genre tile to the Home screen so the user can one-click-browse.
@@ -4837,6 +4945,17 @@ struct Genre: Hashable, Identifiable, Sendable {
         // Name doubles as id — genres are unique by label in Jellyfin's
         // surface and we don't have the real collection ids yet.
         self.id = name
+    }
+
+    /// Memberwise init used by the Wave 2 name→UUID resolver
+    /// (`AppModel.resolvedGenreId(forName:)`): once the real Jellyfin id has
+    /// been fetched from `/MusicGenres`, we rebuild the Swift `Genre` with
+    /// the real UUID in `id` so downstream FFI calls (`tracksByGenre`,
+    /// `itemsByGenre`, `instantMix`) get a UUID instead of the display
+    /// name. See #823 Wave 2.
+    init(id: String, name: String) {
+        self.id = id
+        self.name = name
     }
 }
 
