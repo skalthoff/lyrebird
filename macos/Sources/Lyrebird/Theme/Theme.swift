@@ -125,7 +125,7 @@ enum FontRegistration {
         for name in [
             "Figtree-Regular", "Figtree-Italic", "Figtree-Medium",
             "Figtree-SemiBold", "Figtree-Bold", "Figtree-ExtraBold",
-            "Figtree-Black", "Figtree-Light",
+            "Figtree-Black", "Figtree-BlackItalic", "Figtree-Light",
         ] {
             guard let url = bundle.url(forResource: name, withExtension: "otf") else { continue }
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
