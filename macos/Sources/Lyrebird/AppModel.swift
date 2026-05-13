@@ -665,8 +665,8 @@ final class AppModel {
                 symbol: "arrow.down.circle",
                 run: { [weak self] in
                     guard self?.status.currentTrack != nil else { return }
-                    // TODO(#70): wire to the download engine once it lands.
-                    Log.app.notice("Download Current — not yet wired (see #70)")
+                    // TODO(#819): wire to the download engine once it lands.
+                    Log.app.notice("Download Current — not yet wired (see #819)")
                 }
             ))
         }
@@ -3286,11 +3286,11 @@ final class AppModel {
     }
 
     /// Enqueue a download of every track on the album.
-    /// TODO: #70, #222 — there is no download engine yet; this is a logging
+    /// TODO: #819 — there is no download engine yet; this is a logging
     /// stub so the UI action has a landing pad.
     func enqueueDownload(album: Album) {
-        // TODO: #70 / #222 — download engine not yet wired.
-        Log.app.notice("enqueueDownload(album:) not yet wired — see #70 / #222")
+        // TODO(#819): download engine not yet wired.
+        Log.app.notice("enqueueDownload(album:) not yet wired — see #819")
     }
 
     /// Append a batch of tracks to an existing playlist via `add_to_playlist`
@@ -3631,7 +3631,7 @@ final class AppModel {
     // Playback actions are live now that `playlist_tracks` has landed (#125;
     // see `loadPlaylistTracks`). Mutation actions (favorite, download,
     // rename, delete) remain TODO stubs pending follow-up FFI work:
-    // favorites (#133), download engine (#70), `update_playlist` (#130),
+    // favorites (#133), download engine (#819), `update_playlist` (#130),
     // `delete_playlist` (#131). The UI is wired up now so that when each
     // backing endpoint lands the action just needs its stub swapped for a
     // real call.
@@ -3702,11 +3702,11 @@ final class AppModel {
     }
 
     /// Enqueue a download of every track in the playlist.
-    /// TODO: #70, #222 — there is no download engine yet; this is a logging
+    /// TODO: #819 — there is no download engine yet; this is a logging
     /// stub so the UI action has a landing pad.
     func enqueueDownload(playlist: Playlist) {
-        // TODO: #70 / #222 — download engine not yet wired.
-        Log.app.notice("enqueueDownload(playlist:) not yet wired — see #70 / #222")
+        // TODO(#819): download engine not yet wired.
+        Log.app.notice("enqueueDownload(playlist:) not yet wired — see #819")
     }
 
     /// Flip the sidebar's inline TextField onto an existing playlist row so
@@ -4117,7 +4117,7 @@ final class AppModel {
     // single `Track` so the same surface handles single-row and multi-select
     // invocations — spec in #95 / #310 / #315. Most of these are TODO stubs
     // pending follow-up FFI work (queue primitives #282, favorites #133,
-    // download engine #70, mark-played #133, song radio #144, metadata
+    // download engine #819, mark-played #133, song radio #144, metadata
     // editor #96).
 
     /// Insert a selection of tracks immediately after the currently-playing
@@ -4221,11 +4221,11 @@ final class AppModel {
     }
 
     /// Toggle the download state of every track in the selection.
-    /// TODO(#70): download engine not yet wired.
+    /// TODO(#819): download engine not yet wired.
     func toggleDownload(tracks: [Track]) {
         guard !tracks.isEmpty else { return }
-        // TODO(#70): download engine not yet wired.
-        Log.app.notice("toggleDownload(tracks: \(tracks.count, privacy: .public)) not yet wired — see #70")
+        // TODO(#819): download engine not yet wired.
+        Log.app.notice("toggleDownload(tracks: \(tracks.count, privacy: .public)) not yet wired — see #819")
     }
 
     /// Toggle the played flag across a multi-select of tracks. Target
