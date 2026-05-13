@@ -209,6 +209,8 @@ struct MainShell: View {
             ArtistDetailView(artistID: id)
         case .playlist(let id):
             PlaylistView(playlistID: id)
+        case .genre(let g):
+            GenreDetailView(genre: g)
         case .nowPlaying:
             NowPlayingView()
         }
@@ -334,6 +336,10 @@ struct MainShell: View {
             } else {
                 segments.append("…")
             }
+        case .genre(let g)?:
+            if model.screen != .library { segments.append("Library") }
+            segments.append("Genres")
+            segments.append(g.name)
         case .nowPlaying?:
             segments.append("Now Playing")
         case .home?, .discover?, .library?, .favorites?, .search?, .settings?, nil:

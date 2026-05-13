@@ -344,17 +344,17 @@ struct HomeView: View {
     }
 
     /// Handler for a tapped pinned station. Dispatches on `station.type`.
-    /// Genre routing is logged for now — the full browse wiring lands in
-    /// Wave 2 of #823 alongside the `browseGenre(genre:)` signature change.
+    /// Genre routing browses the genre detail screen (#823 Wave 2).
     /// Artist / playlist / mood / mix routing still waits on the Instant
     /// Mix FFI (#144) and the typed pin model.
     private func handleStationTap(_ station: PinnedStation) {
         switch station.type {
         case .genre:
-            // TODO(#823 Wave 2): replace with `model.browseGenre(genre:)` once
-            // that method's signature accepts a `Genre`. Logging-only for now
-            // so we don't create a rebase landmine against the Wave 2 PR.
-            Log.app.notice("PinnedStation tap (.genre id=\(station.id, privacy: .public)) — routing lands in Wave 2 of #823")
+            // The pinned station's id IS the genre display name (Wave 1
+            // stored it that way because the Swift Genre struct's id == name).
+            // Construct a name-only Genre and let browseGenre resolve the
+            // real Jellyfin UUID via the /MusicGenres cache before pushing.
+            model.browseGenre(genre: Genre(name: station.title))
         case .artist, .playlist, .mood, .mix:
             // TODO: #144 / #253 — route to start the corresponding station
             // once the typed pin model + Instant Mix FFI land.

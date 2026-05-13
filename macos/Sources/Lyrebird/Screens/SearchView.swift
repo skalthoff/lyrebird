@@ -695,7 +695,7 @@ private struct GenreResultRow: View {
 
     var body: some View {
         if model.supportsGenreActions {
-            Button(action: { model.browseGenre(genre: name) }) {
+            Button(action: { model.browseGenre(genre: Genre(name: name)) }) {
                 HStack(spacing: 12) {
                     Image(systemName: "guitars")
                         .font(.system(size: 14, weight: .medium))
