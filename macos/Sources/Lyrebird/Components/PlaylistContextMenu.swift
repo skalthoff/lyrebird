@@ -60,10 +60,8 @@ struct PlaylistContextMenu: View {
 
         Divider()
 
-        if model.supportsExportPlaylist {
-            Button("Export as .m3u8…", systemImage: "square.and.arrow.up.on.square") {
-                model.exportPlaylist(playlist: playlist)
-            }
+        Button("Export as .m3u8…", systemImage: "square.and.arrow.up.on.square") {
+            model.exportPlaylist(playlist: playlist)
         }
         Button("Copy Link", systemImage: "link") { model.copyShareLink(playlist: playlist) }
             .disabled(model.webURL(for: playlist) == nil)

@@ -34,9 +34,6 @@ extension AppModel {
     /// Album metadata editor (#96, #222). Gates "Edit Album…".
     var supportsEditAlbum: Bool { false }
 
-    /// Playlist M3U8 export (#98, #125). Gates "Export as .m3u8…".
-    var supportsExportPlaylist: Bool { false }
-
     /// Track-info sheet (#95). Gates "Show Track Info" on track
     /// context menus.
     var supportsTrackInfo: Bool { true }
