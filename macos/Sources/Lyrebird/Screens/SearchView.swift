@@ -720,7 +720,7 @@ private struct GenreResultRow: View {
             }
             .buttonStyle(.plain)
             .onHover { isHovering = $0 }
-            .contextMenu { GenreContextMenu(genre: name) }
+            .contextMenu { GenreContextMenu(genre: Genre(name: name)) }
             .accessibilityLabel("Browse genre \(name)")
         }
     }

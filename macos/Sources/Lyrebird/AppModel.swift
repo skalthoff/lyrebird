@@ -4293,10 +4293,17 @@ final class AppModel {
     }
 
     /// Pin a genre tile to the Home screen so the user can one-click-browse.
-    /// TODO(#823): Home personalization (pinned tiles) not yet wired.
-    func pinGenreToHome(genre: String) {
-        // TODO(#823): pinned tiles not yet wired.
-        Log.app.notice("pinGenreToHome(\(genre, privacy: .public)) not yet wired — see #823")
+    /// Persists into `PinnedStationsStore` — the placeholder JSON-in-UserDefaults
+    /// bridge that backs the Home pinned-stations row (#253). When a real pin
+    /// FFI lands this body becomes a thin adapter; the signature stays.
+    func pinGenreToHome(genre: Genre) {
+        var stations = PinnedStationsStore.load()
+        // Dedup: drop any existing entry with the same id so we don't double-pin.
+        stations.removeAll { $0.id == genre.id }
+        stations.insert(PinnedStation(type: .genre, id: genre.id, title: genre.name), at: 0)
+        // Cap at 6 — matches the Home shelf layout in PinnedStationTile.
+        if stations.count > 6 { stations = Array(stations.prefix(6)) }
+        PinnedStationsStore.save(stations)
     }
 
     func pause() { audio.pause() }

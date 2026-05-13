@@ -343,13 +343,23 @@ struct HomeView: View {
         print("[HomeView] Pin a station tapped — pin picker UI not yet built (#253).")
     }
 
-    /// Inert handler for a tapped pinned station. Logs the triple so we can
-    /// see it in the console. Real routing (start this radio / open this
-    /// playlist) waits on the Instant Mix FFI (#144) and the pin model.
+    /// Handler for a tapped pinned station. Dispatches on `station.type`.
+    /// Genre routing is logged for now — the full browse wiring lands in
+    /// Wave 2 of #823 alongside the `browseGenre(genre:)` signature change.
+    /// Artist / playlist / mood / mix routing still waits on the Instant
+    /// Mix FFI (#144) and the typed pin model.
     private func handleStationTap(_ station: PinnedStation) {
-        // TODO: #144 / #253 — route to start the corresponding station once
-        // the typed pin model + Instant Mix FFI land.
-        print("[HomeView] Pinned station tapped: type=\(station.type.rawValue) id=\(station.id) title=\"\(station.title)\"")
+        switch station.type {
+        case .genre:
+            // TODO(#823 Wave 2): replace with `model.browseGenre(genre:)` once
+            // that method's signature accepts a `Genre`. Logging-only for now
+            // so we don't create a rebase landmine against the Wave 2 PR.
+            Log.app.notice("PinnedStation tap (.genre id=\(station.id, privacy: .public)) — routing lands in Wave 2 of #823")
+        case .artist, .playlist, .mood, .mix:
+            // TODO: #144 / #253 — route to start the corresponding station
+            // once the typed pin model + Instant Mix FFI land.
+            Log.app.notice("PinnedStation tap (type=\(station.type.rawValue, privacy: .public) id=\(station.id, privacy: .public)) — routing not yet wired")
+        }
     }
 
     /// The albums surfaced as quick tiles — capped at 3. Pulled from the
