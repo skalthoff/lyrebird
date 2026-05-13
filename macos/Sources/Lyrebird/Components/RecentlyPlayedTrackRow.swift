@@ -57,21 +57,7 @@ struct RecentlyPlayedTrackRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .contextMenu {
-            Button("Play", systemImage: "play.fill") {
-                model.play(tracks: [track], startIndex: 0)
-            }
-            if let albumId = track.albumId, !albumId.isEmpty {
-                Button("Go to Album", systemImage: "square.stack") {
-                    model.navPath.append(AppModel.Route.album(albumId))
-                }
-            }
-            if let artistId = track.artistId, !artistId.isEmpty {
-                Button("Go to Artist", systemImage: "person") {
-                    model.navPath.append(AppModel.Route.artist(artistId))
-                }
-            }
-        }
+        .contextMenu { TrackContextMenu(selection: [track]) }
         // `.focusable` lets the VoiceOver rotor Tab through the Home
         // Recently Played list; `.combine` presents thumbnail + title +
         // duration as a single playable element. See #588.
