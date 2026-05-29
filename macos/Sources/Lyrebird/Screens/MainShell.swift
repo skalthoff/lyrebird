@@ -121,6 +121,16 @@ struct MainShell: View {
                 .accessibilitySortPriority(50)
         }
         .background(Theme.bg)
+        // Announce track changes to VoiceOver (#342). Keyed on the track id
+        // so it fires for user skips and autoplay alike but not for
+        // non-identity status churn (position / volume polls). The stop
+        // transition (id -> nil) is intentionally ignored — there is no new
+        // track to announce. Debounce + non-interrupting posting live in
+        // `AppModel.announceTrackChange`.
+        .onChange(of: model.status.currentTrack?.id) { _, newId in
+            guard newId != nil, let track = model.status.currentTrack else { return }
+            model.announceTrackChange(to: track)
+        }
         // Cmd+Opt+Q toggles the queue inspector (#79). Hung off a zero-sized
         // hidden button so the shortcut is global to `MainShell` without
         // requiring a visible chrome affordance — the visible toggle will

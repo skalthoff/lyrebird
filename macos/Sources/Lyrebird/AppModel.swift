@@ -397,6 +397,13 @@ final class AppModel {
     /// `currentTrackPeopleForId`.
     private var currentLyricsForId: String?
 
+    /// In-flight debounced VoiceOver track-change announcement (#342).
+    /// Stored so a rapid next / next / next collapses to a single
+    /// announcement: each call cancels the previous pending task before the
+    /// 300ms window elapses, so only the final track is spoken. Mirrors the
+    /// cancel-previous idiom used by `searchTask`.
+    private var trackAnnounceTask: Task<Void, Never>?
+
     // MARK: - Loading / errors
     var isLoggingIn = false
     var isLoadingLibrary = false
@@ -4489,6 +4496,33 @@ final class AppModel {
     }
 
     // MARK: - Now Playing details
+
+    /// Post a VoiceOver announcement when the playing track changes so VO
+    /// users hear the new track without navigating back to the player bar
+    /// (#342). Hooked from `MainShell` on changes to
+    /// `status.currentTrack?.id`.
+    ///
+    /// Debounced by 300ms via the `searchTask` cancel-previous idiom: a
+    /// rapid next / next / next cancels each pending announcement before
+    /// its window elapses, so only the final track is spoken. The
+    /// announcement itself is `.high`-priority and non-interrupting (see
+    /// `AccessibilityAnnouncer`), so it never yanks VO out of the user's
+    /// current focus context.
+    func announceTrackChange(to track: Track) {
+        trackAnnounceTask?.cancel()
+        let message = "Now playing \(track.name) by \(track.artistName)"
+        trackAnnounceTask = Task {
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            } catch {
+                // Cancelled by a newer track change before the window
+                // elapsed — the newer call owns the announcement.
+                return
+            }
+            if Task.isCancelled { return }
+            AccessibilityAnnouncer.announce(message)
+        }
+    }
 
     /// Fetch detail fields (currently just `People`) for the track that is
     /// playing right now and publish the result on `currentTrackPeople` so
