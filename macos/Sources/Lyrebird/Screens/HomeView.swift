@@ -385,7 +385,7 @@ struct HomeView: View {
                     .font(Theme.font(18, weight: .bold))
                     .foregroundStyle(Theme.ink)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 16) {
+                    HStack(spacing: 16) {
                         ForEach(model.recentlyPlayed, id: \.id) { track in
                             RecentlyPlayedTile(track: track)
                         }
@@ -425,7 +425,7 @@ struct HomeView: View {
                 subtitle: "Pick up where you left off",
                 onSeeAll: { model.selectTab(.library) }
             ) {
-                LazyHStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(model.jumpBackIn, id: \.id) { album in
                         HomeAlbumTile(album: album)
                     }
@@ -455,7 +455,7 @@ struct HomeView: View {
                 subtitle: "Your latest listens, one click away",
                 onSeeAll: nil
             ) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                     ForEach(model.recentlyPlayed.prefix(20), id: \.id) { track in
                         RecentlyPlayedTrackRow(track: track)
                     }
@@ -479,7 +479,7 @@ struct HomeView: View {
                 subtitle: "Fresh arrivals in your library",
                 onSeeAll: { model.selectTab(.library) }
             ) {
-                LazyHStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(model.recentlyAdded, id: \.id) { album in
                         HomeAlbumTile(album: album) {
                             if let created = model.recentlyAddedDates[album.id],
@@ -509,7 +509,7 @@ struct HomeView: View {
                 subtitle: "Your heavy rotation — last 30 days",
                 onSeeAll: nil
             ) {
-                LazyHStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 16) {
                     ForEach(model.quickPicks, id: \.id) { album in
                         HomeAlbumTile(album: album) {
                             if let plays = model.quickPicksPlayCounts[album.id], plays > 0 {
@@ -538,7 +538,7 @@ struct HomeView: View {
                 subtitle: "Picks the server thinks you'll love",
                 onSeeAll: nil
             ) {
-                LazyHStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: 12) {
                     ForEach(model.suggestions, id: \.id) { track in
                         RecentlyPlayedTrackRow(track: track)
                     }
@@ -560,7 +560,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 12) {
                 favoritesSectionHeader
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 16) {
+                    HStack(alignment: .top, spacing: 16) {
                         ForEach(model.favoriteAlbumsVisible, id: \.id) { album in
                             HomeAlbumTile(album: album)
                         }

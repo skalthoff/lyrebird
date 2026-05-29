@@ -45,7 +45,7 @@ struct DiscoverView: View {
                         .foregroundStyle(Theme.ink3)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(spacing: 16) {
+                    HStack(spacing: 16) {
                         ForEach(model.forYou, id: \.id) { track in
                             RecentlyPlayedTile(track: track)
                         }
