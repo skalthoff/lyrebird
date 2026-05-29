@@ -133,7 +133,6 @@ struct TrackRow: View {
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
-        .onTapGesture(count: 2) { onPlay?() }
         .onTapGesture(count: 1) { onPlay?() }
         .contextMenu { TrackContextMenu(selection: [track], playlistScope: playlistScope) }
         // VoiceOver reads the row as a single "<title> by <artist>" line
