@@ -12,7 +12,7 @@ import SwiftUI
 ///    Artist Radio, Instant Mix. Mirrors the album detail transport for
 ///    consistency. Following an artist favorites the artist entity on the
 ///    server (Jellyfin has no separate follow primitive) so it can seed a
-///    future "New from artists you follow" home section (#64).
+///    future "New from artists you follow" home section.
 /// 3. **Top Songs** — built on `TopTrackRow` from PR #512 (#229). The rank /
 ///    artwork / play-count UI is already tuned there; we just render the
 ///    section around it.
@@ -327,11 +327,6 @@ struct ArtistDetailView: View {
                     ) { model.shuffle(artist: artist) }
                 }
 
-                // Follow / Following — favoriting the artist entity is the
-                // "follow" signal (#64). Reflects server state on load via
-                // `isFollowing` (snapshot-aware) and updates optimistically
-                // through `toggleFollow` → `setFavorite`, which mirrors the
-                // server's authoritative answer back and rolls back on error.
                 followButton(for: artist)
 
                 transportSecondary(
@@ -369,11 +364,9 @@ struct ArtistDetailView: View {
         .accessibilityLabel(help)
     }
 
-    /// Labeled Follow / Following pill (#64). The filled accent state reads
+    /// Labeled Follow / Following pill. The filled accent state reads
     /// "Following" so it's legible at a glance the way Apple Music / Spotify
-    /// follow buttons are; the resting state is an outlined "Follow". Both
-    /// state and action route through the `isFollowing` / `toggleFollow`
-    /// AppModel helpers, which favorite the artist entity on the server.
+    /// follow buttons are; the resting state is an outlined "Follow".
     @ViewBuilder
     private func followButton(for artist: Artist) -> some View {
         let following = model.isFollowing(artist: artist)
