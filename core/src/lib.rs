@@ -282,12 +282,10 @@ impl LyrebirdCore {
         // 1. Invalidate the server session while the token is still valid.
         //    Log but do not abort on any error — an unreachable server must
         //    not prevent local cleanup (#592).
-        {
-            let inner = self.inner.lock();
-            if let Some(ref client) = inner.client {
-                if let Err(e) = self.runtime.block_on(client.post_logout_session()) {
-                    tracing::warn!("POST /Sessions/Logout failed (continuing): {e}");
-                }
+        let client = self.inner.lock().client.clone();
+        if let Some(client) = client {
+            if let Err(e) = self.runtime.block_on(client.post_logout_session()) {
+                tracing::warn!("POST /Sessions/Logout failed (continuing): {e}");
             }
         }
 
