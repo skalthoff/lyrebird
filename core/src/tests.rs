@@ -5879,16 +5879,6 @@ async fn logout_tolerates_server_post_failure() {
     .expect("join task");
 }
 
-/// Regression for #861: `logout()` must release the `Inner` mutex *before*
-/// `block_on(post_logout_session())`, matching the `with_client` invariant.
-///
-/// The `/Sessions/Logout` handler parks until a watcher thread can acquire
-/// `core.inner` via `try_lock`. With the bug (guard held across the HTTP
-/// round-trip) the watcher can never take the lock, so the handler is never
-/// released and `logout()` deadlocks; the 10s `recv_timeout` watchdog then
-/// trips and the test fails. With the fix, the guard is dropped before
-/// `block_on`, the watcher takes the lock, signals the handler, and
-/// `logout()` returns promptly.
 #[tokio::test]
 async fn logout_releases_inner_before_http_round_trip() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -5909,8 +5899,6 @@ async fn logout_releases_inner_before_http_round_trip() {
         .mount(&server)
         .await;
 
-    // The logout POST parks until it observes `release`, which the watcher
-    // thread only sets once it has proven `core.inner` is acquirable.
     let release = std::sync::Arc::new(AtomicBool::new(false));
     let release_mock = release.clone();
     Mock::given(method("POST"))
@@ -5942,9 +5930,6 @@ async fn logout_releases_inner_before_http_round_trip() {
         core.login(server_url, "u-861".into(), "pw".into())
             .expect("login");
 
-        // Watcher: while logout's HTTP is in flight, prove `inner` is
-        // acquirable. It only becomes acquirable if logout dropped the guard
-        // before `block_on`.
         let core_watch = core.clone();
         let watcher = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(5);
@@ -5955,8 +5940,6 @@ async fn logout_releases_inner_before_http_round_trip() {
                 }
                 std::thread::sleep(Duration::from_millis(2));
             }
-            // Watchdog: never acquired the lock — unblock the server so the
-            // logout thread can return and the test reports the real failure.
             release_watch.store(true, Ordering::SeqCst);
             false
         });
