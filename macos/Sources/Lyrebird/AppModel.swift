@@ -3304,6 +3304,15 @@ final class AppModel {
         return album.userData?.isFavorite ?? false
     }
 
+    /// Snapshot-aware favorite check for playlists. Mirrors
+    /// `isFavorite(album:)` — falls back to `playlist.userData?.isFavorite`
+    /// when the cache is cold so the playlist-detail heart shows the correct
+    /// state on first paint.
+    func isFavorite(playlist: Playlist) -> Bool {
+        if let cached = favoriteById[playlist.id] { return cached }
+        return playlist.userData?.isFavorite ?? false
+    }
+
     /// Snapshot-aware favorite check for artists. Mirrors
     /// `isFavorite(track:)` — falls back to `artist.userData?.isFavorite`.
     func isFavorite(artist: Artist) -> Bool {
