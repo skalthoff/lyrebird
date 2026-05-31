@@ -133,7 +133,7 @@ enum FontRegistration {
     }
 }
 
-// MARK: - Theme presets (#354)
+// MARK: - Theme presets
 
 /// A brand primary/accent pair, decoupled from the rest of the surface tokens.
 ///
@@ -219,7 +219,7 @@ enum ThemePreset: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - WCAG contrast helpers (#354)
+// MARK: - WCAG contrast helpers
 //
 // Small, dependency-free relative-luminance / contrast-ratio helpers used to
 // assert that every shipped preset stays legible against the dark surfaces.

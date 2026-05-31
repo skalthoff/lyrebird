@@ -2,7 +2,7 @@ import SwiftUI
 import XCTest
 @testable import Lyrebird
 
-/// Guards the colour-blindness work in #354: every shipped `ThemePreset` must
+/// Guards the colour-blindness work: every shipped `ThemePreset` must
 /// keep its primary and accent legible against the dark surfaces *and* keep
 /// the two distinguishable from each other for protanopia / deuteranopia /
 /// tritanopia. The numeric targets here mirror the table in
@@ -94,7 +94,7 @@ final class ThemePresetTests: XCTestCase {
 // MARK: - Dichromat simulation (test-only)
 
 /// Viénot-1999 dichromat simulation, scoped to the test target. Mirrors the
-/// reference Python used to tune the palettes in the #354 a11y doc so the
+/// reference Python used to tune the palettes in the a11y doc so the
 /// committed separation numbers are reproducible from Swift.
 private enum ColorVisionDeficiency: CaseIterable {
     case protanopia

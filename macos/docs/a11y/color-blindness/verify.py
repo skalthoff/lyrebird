@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Reproduce the contrast + dichromat-separation numbers for the Lyrebird
-theme presets (#354).
+theme presets.
 
 Mirrors `Color.contrastRatio` (WCAG 2.1) and the Viénot-1999 dichromat
 projection used in `ThemePresetTests`. Pure-stdlib so it runs anywhere.

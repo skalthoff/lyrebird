@@ -67,17 +67,37 @@ The contrast and dichromat figures above are computed by the same maths as
 python3 macos/docs/a11y/color-blindness/verify.py
 ```
 
-## Capturing the before/after screenshots
+## Before / after
 
-The numeric verification above is the falsifiable, CI-guarded part. The
-visual before/after grid still wants a human-driven GUI pass (a headless agent
-can't drive the simulator):
+Each grid renders the preset `primary` + `accent` swatch pairs as the picker
+shows them, across three rows — **normal vision**, **protanopia**, and
+**deuteranopia** (the two deficiencies called out in the issue). Reading a
+row left-to-right: each preset is a `primary` square next to its `accent`
+square.
 
-1. Build + launch: `./macos/Scripts/a11y-audit.sh`.
-2. Open **Xcode → Open Developer Tool → Accessibility Inspector**, or the free
-   **Sim Daltonism** app, and point it at the running `Lyrebird` process.
-3. For each preset (Purple / Ocean / Forest), open
-   **Preferences → Appearance**, pick the theme, and capture the
-   `Theme.primary` + `Theme.accent` swatches side by side.
-4. Simulate **normal**, **protanopia**, **deuteranopia**, and **tritanopia**
-   and save each as `<preset>-<vision>.png` in this directory.
+| | Swatch pairs · normal / protanopia / deuteranopia |
+| --- | --- |
+| **Before** — Purple only | ![before](before.png) |
+| **After** — Purple · Ocean · Forest | ![after](after.png) |
+
+In the "before" grid the Purple `primary`/`accent` pair drifts toward similar
+muted tones in the protanopia and deuteranopia rows — the exact failure the
+issue describes. In the "after" grid the added **Ocean** and **Forest** pairs
+stay visibly separated in every row.
+
+These PNGs are an exact, reproducible render of the swatch pixels (swatch
+colour is fully determined by the preset hex; the dichromat rows use the same
+Viénot-1999 projection as `ThemePresetTests` / `verify.py`), not a hand-captured
+simulator grab. Regenerate them after any palette change:
+
+```bash
+python3 macos/docs/a11y/color-blindness/render_previews.py
+```
+
+### Optional: live simulator capture
+
+For a true on-device pass (e.g. to spot rendering issues the swatch render
+can't show), build + launch with `./macos/Scripts/a11y-audit.sh`, point
+**Accessibility Inspector** or **Sim Daltonism** at the running `Lyrebird`
+process, open **Preferences → Appearance**, and capture each preset under
+normal / protanopia / deuteranopia / tritanopia.
