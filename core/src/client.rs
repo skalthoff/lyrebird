@@ -1445,43 +1445,72 @@ impl JellyfinClient {
     /// albums — feeds the macOS genre detail "Shuffle Genre" action and
     /// the planned full-tracks tab on genre pages (#823).
     ///
-    /// Sorts catalog-style — `SortName,Album,SortName` keeps tracks
-    /// grouped by album name while still giving a stable name-first
-    /// fallback for items that share an album title. Includes the same
-    /// projection as [`JellyfinClient::tracks_by_artist`] so callers get
-    /// the full set of `Track` fields (media sources, user data, album +
-    /// artist credits, runtime) needed to enqueue and render rows.
+    /// Sorts catalog-style — `Album,ParentIndexNumber,IndexNumber` groups
+    /// tracks by album name, then disc, then track number, matching the
+    /// order in [`JellyfinClient::tracks_by_artist`]. `ItemSortBy` doesn't
+    /// expose `ParentIndexNumber` / `IndexNumber`, so the URL is hand-rolled
+    /// rather than built through [`ItemsQuery`]. Includes the same projection
+    /// as [`JellyfinClient::tracks_by_artist`] so callers get the full set of
+    /// `Track` fields (media sources, user data, album + artist credits,
+    /// runtime) needed to enqueue and render rows.
     pub async fn tracks_by_genre(&self, genre_id: &str, paging: Paging) -> Result<PaginatedTracks> {
-        ItemsQuery::new()
-            .genre(genre_id)
-            .recursive()
-            .item_types(vec![ItemKind::Audio])
-            .limit(paging.limit)
-            .offset(paging.offset)
-            .sort_by(vec![
-                ItemSortBy::SortName,
-                ItemSortBy::Album,
-                ItemSortBy::SortName,
-            ])
-            .sort_order(vec![
-                SortOrder::Ascending,
-                SortOrder::Ascending,
-                SortOrder::Ascending,
-            ])
-            .fields(vec![
-                ItemField::MediaSources,
-                ItemField::UserData,
-                ItemField::ParentId,
-                ItemField::AlbumId,
-                ItemField::AlbumArtist,
-                ItemField::Artists,
-                ItemField::ProductionYear,
-                ItemField::PrimaryImageAspectRatio,
-                ItemField::RunTimeTicks,
-            ])
-            .enable_user_data()
-            .fetch_tracks(self)
-            .await
+        let user_id = self
+            .user_id
+            .as_ref()
+            .ok_or(LyrebirdError::NotAuthenticated)?;
+        let mut url = self.endpoint(&format!("Users/{user_id}/Items"))?;
+        {
+            let mut q = url.query_pairs_mut();
+            q.append_pair("GenreIds", genre_id);
+            q.append_pair("Recursive", "true");
+            q.append_pair("IncludeItemTypes", ItemKind::Audio.as_str());
+            q.append_pair("Limit", &paging.limit.max(1).to_string());
+            q.append_pair("StartIndex", &paging.offset.to_string());
+            // Three-field sort gives proper catalog order: album name,
+            // then disc, then track. Hand-rolled because ItemSortBy doesn't
+            // expose ParentIndexNumber / IndexNumber.
+            q.append_pair("SortBy", "Album,ParentIndexNumber,IndexNumber");
+            q.append_pair(
+                "SortOrder",
+                &enums::csv(
+                    &[
+                        SortOrder::Ascending,
+                        SortOrder::Ascending,
+                        SortOrder::Ascending,
+                    ],
+                    SortOrder::as_str,
+                ),
+            );
+            q.append_pair("EnableUserData", "true");
+            q.append_pair("EnableImages", "true");
+            q.append_pair("ImageTypeLimit", "1");
+            q.append_pair(
+                "Fields",
+                &enums::csv(
+                    &[
+                        ItemField::MediaSources,
+                        ItemField::UserData,
+                        ItemField::ParentId,
+                        ItemField::AlbumId,
+                        ItemField::AlbumArtist,
+                        ItemField::Artists,
+                        ItemField::ProductionYear,
+                        ItemField::PrimaryImageAspectRatio,
+                        ItemField::RunTimeTicks,
+                    ],
+                    ItemField::as_str,
+                ),
+            );
+        }
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let raw: RawItems<RawItem> = resp.json().await?;
+        let items: Vec<Track> = raw.items.into_iter().map(Track::from).collect();
+        Ok(PaginatedTracks {
+            items,
+            total_count: raw.total_record_count,
+        })
     }
 
     /// Full artist record with biography, backdrops, and external links —

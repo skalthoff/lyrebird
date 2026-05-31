@@ -1290,6 +1290,12 @@ async fn tracks_by_genre_builds_query() {
     assert!(q.contains("Recursive=true"), "query: {q}");
     assert!(q.contains("Limit=40"), "query: {q}");
     assert!(q.contains("StartIndex=20"), "query: {q}");
+    // Catalog order: album name, then disc, then track number — NOT
+    // SortName-first (which scattered tracks alphabetically across albums).
+    assert!(
+        q.contains("SortBy=Album%2CParentIndexNumber%2CIndexNumber"),
+        "query: {q}"
+    );
 }
 
 #[tokio::test]
