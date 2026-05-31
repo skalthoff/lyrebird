@@ -2251,7 +2251,8 @@ final class AppModel {
             name: name,
             trackCount: trackCount,
             runtimeTicks: runtimeTicks,
-            imageTag: imageTag
+            imageTag: imageTag,
+            userData: nil
         )
     }
 
@@ -2473,7 +2474,8 @@ final class AppModel {
                 name: p.name,
                 trackCount: UInt32(newCount),
                 runtimeTicks: p.runtimeTicks,
-                imageTag: p.imageTag
+                imageTag: p.imageTag,
+                userData: p.userData
             )
         }
         // Capture the optimistic state so we can roll back on server failure.
@@ -2508,7 +2510,8 @@ final class AppModel {
                         name: p.name,
                         trackCount: p.trackCount + UInt32(removedSnapshot.count),
                         runtimeTicks: p.runtimeTicks,
-                        imageTag: p.imageTag
+                        imageTag: p.imageTag,
+                        userData: p.userData
                     )
                 }
                 self.pendingPlaylistRemoval = nil
@@ -2542,7 +2545,8 @@ final class AppModel {
                 name: p.name,
                 trackCount: p.trackCount + UInt32(reinserted.count),
                 runtimeTicks: p.runtimeTicks,
-                imageTag: p.imageTag
+                imageTag: p.imageTag,
+                userData: p.userData
             )
         }
         // Capture the count of optimistically-reinserted tracks so we can
@@ -2575,7 +2579,8 @@ final class AppModel {
                         name: p.name,
                         trackCount: UInt32(newCount),
                         runtimeTicks: p.runtimeTicks,
-                        imageTag: p.imageTag
+                        imageTag: p.imageTag,
+                        userData: p.userData
                     )
                 }
                 self.errorMessage = LyrebirdErrorPresenter.message(
@@ -2606,7 +2611,8 @@ final class AppModel {
                 name: p.name,
                 trackCount: p.trackCount + UInt32(trackIds.count),
                 runtimeTicks: p.runtimeTicks,
-                imageTag: p.imageTag
+                imageTag: p.imageTag,
+                userData: p.userData
             )
         }
         let bumpedCount = trackIds.count
@@ -2633,7 +2639,8 @@ final class AppModel {
                         name: p.name,
                         trackCount: UInt32(newCount),
                         runtimeTicks: p.runtimeTicks,
-                        imageTag: p.imageTag
+                        imageTag: p.imageTag,
+                        userData: p.userData
                     )
                 }
                 self.errorMessage = LyrebirdErrorPresenter.message(
@@ -3781,7 +3788,7 @@ final class AppModel {
     func toggleFavorite(playlist: Playlist) {
         // `/Users/{id}/FavoriteItems/{id}` is polymorphic, so the same
         // set/unset-favorite FFI used for albums/tracks works on playlists.
-        Task { await setFavorite(itemId: playlist.id, enabled: !isFavorite(id: playlist.id)) }
+        Task { await setFavorite(itemId: playlist.id, enabled: !isFavorite(playlist: playlist)) }
     }
 
     /// Enqueue a download of every track in the playlist.
@@ -3979,7 +3986,8 @@ final class AppModel {
                 name: trimmed,
                 trackCount: 0,
                 runtimeTicks: 0,
-                imageTag: nil
+                imageTag: nil,
+                userData: nil
             )
             playlists.insert(newPlaylist, at: 0)
         } catch {
@@ -4004,7 +4012,8 @@ final class AppModel {
             name: trimmed,
             trackCount: existing.trackCount,
             runtimeTicks: existing.runtimeTicks,
-            imageTag: existing.imageTag
+            imageTag: existing.imageTag,
+            userData: existing.userData
         )
         Task {
             do {
@@ -4056,7 +4065,8 @@ final class AppModel {
                 name: copyName,
                 trackCount: UInt32(trackIds.count),
                 runtimeTicks: source.runtimeTicks,
-                imageTag: nil
+                imageTag: nil,
+                userData: nil
             )
             playlists.insert(newPlaylist, at: 0)
             // Prime the tracks cache so the detail view doesn't have to
