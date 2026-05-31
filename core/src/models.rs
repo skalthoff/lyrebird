@@ -103,6 +103,10 @@ pub struct Playlist {
     pub track_count: u32,
     pub runtime_ticks: u64,
     pub image_tag: Option<String>,
+    /// The server's `UserData` projection for this playlist — carries the
+    /// favorite flag, play count, last-played date, etc. `None` when the
+    /// caller did not request `Fields=UserData` or the server omitted it.
+    pub user_data: Option<UserItemData>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]

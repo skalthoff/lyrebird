@@ -2822,12 +2822,14 @@ impl From<RawItem> for Album {
 
 impl From<RawItem> for Playlist {
     fn from(r: RawItem) -> Self {
+        let user_data = r.user_data.map(UserItemData::from);
         Playlist {
             id: r.id,
             name: r.name,
             track_count: r.child_count.unwrap_or(0),
             runtime_ticks: r.runtime_ticks,
             image_tag: r.image_tags.get("Primary").cloned(),
+            user_data,
         }
     }
 }
