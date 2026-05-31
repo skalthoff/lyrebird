@@ -72,9 +72,8 @@ struct DiscoverView: View {
             }
             Spacer()
             HStack(spacing: 10) {
-                // TODO: #144 / #327 — Instant Mix FFI + modal not yet wired.
-                // The AppModel stub logs to stdout for now so the CTA has a
-                // landing pad.
+                songRadioButton
+
                 Button {
                     model.startInstantMix()
                 } label: {
@@ -110,6 +109,55 @@ struct DiscoverView: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+
+    /// "Song Radio" CTA, seeded from the current context (#255). Always
+    /// available: when a track is playing it labels itself with that track and
+    /// seeds the station from it (`startSongRadio`); when nothing is playing it
+    /// falls through to `startInstantMix`, which has its own
+    /// current-track → recently-played → album seed fallback so the action is
+    /// never a dead end. Mirrors the "Start Song Radio" entry in
+    /// `TrackContextMenu`.
+    private var songRadioButton: some View {
+        let current = model.status.currentTrack
+        return Button {
+            if let current {
+                model.startSongRadio(track: current)
+            } else {
+                model.startInstantMix()
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .font(.system(size: 14, weight: .bold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Song Radio")
+                        .font(Theme.font(13, weight: .bold))
+                    if let current {
+                        Text(current.name)
+                            .font(Theme.font(10, weight: .medium))
+                            .foregroundStyle(Theme.ink2)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .foregroundStyle(Theme.ink)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule()
+                    .stroke(Theme.borderStrong, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(
+            current.map { "Start a radio station based on \($0.name)" }
+                ?? "Start a radio station from your library"
+        )
+        .accessibilityLabel(
+            current.map { "Song Radio, based on \($0.name)" } ?? "Song Radio"
+        )
+        .accessibilityHint("Starts a radio station seeded by the current song")
     }
 
     private var backgroundWash: some View {
