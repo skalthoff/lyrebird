@@ -5885,6 +5885,86 @@ async fn logout_tolerates_server_post_failure() {
     .expect("join task");
 }
 
+#[tokio::test]
+async fn logout_releases_inner_before_http_round_trip() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "tok-861",
+            "ServerId": "srv-861",
+            "ServerName": "S",
+            "User": { "Id": "u-861", "Name": "u-861", "ServerId": "srv-861", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+
+    let release = std::sync::Arc::new(AtomicBool::new(false));
+    let release_mock = release.clone();
+    Mock::given(method("POST"))
+        .and(path("/Sessions/Logout"))
+        .respond_with(move |_req: &Request| {
+            while !release_mock.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            ResponseTemplate::new(204)
+        })
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    let tmp_path = tmp.path().to_string_lossy().into_owned();
+
+    let (tx, rx) = mpsc::channel::<bool>();
+    let release_watch = release.clone();
+
+    tokio::task::spawn_blocking(move || {
+        install_mock_keyring();
+        let core = std::sync::Arc::new(
+            LyrebirdCore::new(CoreConfig {
+                data_dir: tmp_path,
+                device_name: "Test".into(),
+            })
+            .expect("core init"),
+        );
+        core.login(server_url, "u-861".into(), "pw".into())
+            .expect("login");
+
+        let core_watch = core.clone();
+        let watcher = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if core_watch.inner.try_lock().is_some() {
+                    release_watch.store(true, Ordering::SeqCst);
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            release_watch.store(true, Ordering::SeqCst);
+            false
+        });
+
+        core.logout().expect("logout");
+        let acquired = watcher.join().unwrap_or(false);
+        tx.send(acquired).ok();
+    });
+
+    let acquired = rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("logout deadlocked holding Inner across the HTTP round-trip (#861)");
+    assert!(
+        acquired,
+        "watcher could not acquire Inner while logout's HTTP was in flight \
+         — logout held the mutex across block_on (#861)"
+    );
+}
+
 // ============================================================================
 // Playlist CRUD — rename / delete / reorder (#564)
 // ============================================================================
