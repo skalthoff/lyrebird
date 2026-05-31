@@ -256,7 +256,7 @@ struct PlaylistView: View {
             .disabled(tracks.isEmpty)
 
             if let playlist = playlist {
-                let isFav = model.isFavorite(id: playlist.id)
+                let isFav = model.isFavorite(playlist: playlist)
                 Button { model.toggleFavorite(playlist: playlist) } label: {
                     Image(systemName: isFav ? "heart.fill" : "heart")
                         .font(.system(size: 20))

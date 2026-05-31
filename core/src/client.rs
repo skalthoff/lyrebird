@@ -866,8 +866,12 @@ impl JellyfinClient {
             q.append_pair("StartIndex", &paging.offset.to_string());
             q.append_pair(
                 "Fields",
-                &enums::csv(&[ItemField::ChildCount, ItemField::Path], ItemField::as_str),
+                &enums::csv(
+                    &[ItemField::ChildCount, ItemField::Path, ItemField::UserData],
+                    ItemField::as_str,
+                ),
             );
+            q.append_pair("EnableUserData", "true");
         }
         let resp = self
             .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
