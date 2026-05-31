@@ -1923,8 +1923,6 @@ async fn user_playlists_returns_every_playlist_in_library_view() {
     assert_eq!(page.items[0].name, "My Mix");
     assert_eq!(page.items[0].track_count, 12);
     assert_eq!(page.items[0].image_tag.as_deref(), Some("tag-1"));
-    // The server's favorite projection must land on the model so the
-    // playlist-detail heart paints correctly on first load.
     assert_eq!(
         page.items[0].user_data.as_ref().map(|u| u.is_favorite),
         Some(true),
