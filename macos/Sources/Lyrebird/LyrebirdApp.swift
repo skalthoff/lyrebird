@@ -5,6 +5,11 @@ import SwiftUI
 struct LyrebirdApp: App {
     @State private var model: AppModel
 
+    /// Sparkle 2 auto-update handle. Owned here so the controller's
+    /// scheduled-update timer starts at launch and the "Check for Updates…"
+    /// menu item can bind to it. No-ops in builds without a real signing key.
+    @StateObject private var updater = Updater()
+
     /// AppKit delegate for the dock menu, sleep / wake observers, and
     /// window-tabbing opt-in. SwiftUI's `Scene` protocol can't express any
     /// of those, so we bridge through the delegate adaptor and hand the
@@ -56,7 +61,7 @@ struct LyrebirdApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unifiedCompact)
         .commands {
-            LyrebirdCommands(model: model)
+            LyrebirdCommands(model: model, updater: updater)
         }
 
         // Native Preferences scene. macOS wires up ⌘, and menu item for free.
@@ -138,8 +143,18 @@ extension FocusedValues {
 /// would race the two registrations. See `MediaSession.configureRemoteCommands`.
 struct LyrebirdCommands: Commands {
     @Bindable var model: AppModel
+    @ObservedObject var updater: Updater
 
     var body: some Commands {
+        // MARK: App menu — Check for Updates… (Sparkle, #864)
+        //
+        // Standard Sparkle placement: just after the "About Lyrebird" item in
+        // the app menu. The item disables itself while a check is in flight (or
+        // when Sparkle is inactive in unsigned/dev builds).
+        CommandGroup(after: .appInfo) {
+            CheckForUpdatesView(updater: updater)
+        }
+
         // MARK: File (⌘N for New Playlist)
         //
         // Replaces SwiftUI's default "New Window" item so ⌘N creates a
