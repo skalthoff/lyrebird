@@ -133,7 +133,121 @@ enum FontRegistration {
     }
 }
 
+// MARK: - Theme presets (#354)
+
+/// A brand primary/accent pair, decoupled from the rest of the surface tokens.
+///
+/// The shipping palette is `purple` (`primary #887BFF` / `accent #CC2F71`).
+/// That pair tests *mildly* — the primary and accent collapse toward each
+/// other under protanopia and deuteranopia (the two red-green deficiencies
+/// that cover ~8% of men), so a colour-blind listener can lose the visual
+/// distinction between, say, the brand-primary "now playing" wash and an
+/// accent call-to-action. `ThemePreset` adds two alternatives whose pairs stay
+/// distinguishable across all three dichromat types:
+///
+/// - **Ocean** — blue primary + teal-cyan accent. Both ride the
+///   blue–yellow axis that protanopes/deuteranopes retain.
+/// - **Forest** — green primary + warm-gold accent. The large lightness gap
+///   keeps them separable even when hue information is gone.
+///
+/// Numeric verification (WCAG contrast against `Theme.bg`/`bgAlt`, plus
+/// Viénot-1999 dichromat separation of the primary/accent pair) lives in
+/// `macos/docs/a11y/color-blindness/README.md` and is asserted by
+/// `ThemePresetTests`.
+///
+/// This type carries only the colour data. Wiring it through every call site
+/// (so `Theme.primary` resolves per-preset) is the theme-engine work tracked
+/// in #405; until then the presets are consumed by the picker swatches and by
+/// `ThemePreset.suggestedForAccessibility()`.
+enum ThemePreset: String, CaseIterable, Identifiable {
+    case purple
+    case ocean
+    case forest
+
+    var id: String { rawValue }
+
+    /// Map from the persisted `AppearanceTheme` selection. Presets that don't
+    /// yet ship a colour-blind-verified pair (sunset / peanut) fall back to
+    /// `purple` so callers always get a concrete, validated palette.
+    init(appearanceTheme: AppearanceTheme) {
+        switch appearanceTheme {
+        case .ocean: self = .ocean
+        case .forest: self = .forest
+        default: self = .purple
+        }
+    }
+
+    /// Brand primary (large fills, "now playing" wash, active swatch ring).
+    var primaryHex: UInt32 {
+        switch self {
+        case .purple: return 0x887BFF
+        case .ocean: return 0x3D7DD6
+        case .forest: return 0x178A55
+        }
+    }
+
+    /// Brand accent (call-to-action chips, badges).
+    ///
+    /// Ocean pairs the blue primary with a bright teal; Forest pairs the deep
+    /// green primary with a warm gold. Both accents are deliberately *much*
+    /// lighter than their primary so the pair stays separable on the
+    /// lightness axis once hue information is lost to protanopia /
+    /// deuteranopia. See `ThemePresetTests` + the a11y doc for the verified
+    /// dichromat-separation numbers.
+    var accentHex: UInt32 {
+        switch self {
+        case .purple: return 0xCC2F71
+        case .ocean: return 0x47E0D0
+        case .forest: return 0xFFD24D
+        }
+    }
+
+    var primary: Color { Color(hex: primaryHex) }
+    var accent: Color { Color(hex: accentHex) }
+
+    /// Preset to prefer when the user has asked the system to convey meaning
+    /// without relying on colour alone (System Settings → Accessibility →
+    /// Display → "Differentiate without color"). Ocean is the most robust
+    /// pair across all dichromat types, so we steer there.
+    ///
+    /// Returns `nil` when no override is warranted (the flag is off), so
+    /// callers can keep the user's explicit choice. Reads
+    /// `NSWorkspace`'s live accessibility flag; safe to call on the main
+    /// actor only (AppKit requirement).
+    static func suggestedForAccessibility() -> ThemePreset? {
+        NSWorkspace.shared.accessibilityDisplayShouldDifferentiateWithoutColor ? .ocean : nil
+    }
+}
+
+// MARK: - WCAG contrast helpers (#354)
+//
+// Small, dependency-free relative-luminance / contrast-ratio helpers used to
+// assert that every shipped preset stays legible against the dark surfaces.
+// Kept here next to the tokens so palette edits and their guard test live
+// together. Formula per WCAG 2.1 §1.4.3.
+
 extension Color {
+    /// WCAG relative luminance of an sRGB hex triple.
+    static func relativeLuminance(hex: UInt32) -> Double {
+        func channel(_ raw: UInt32) -> Double {
+            let c = Double(raw) / 255.0
+            return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let r = channel((hex >> 16) & 0xFF)
+        let g = channel((hex >> 8) & 0xFF)
+        let b = channel(hex & 0xFF)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    /// WCAG contrast ratio between two sRGB hex colours (1…21).
+    static func contrastRatio(_ a: UInt32, _ b: UInt32) -> Double {
+        let la = relativeLuminance(hex: a)
+        let lb = relativeLuminance(hex: b)
+        let hi = max(la, lb)
+        let lo = min(la, lb)
+        return (hi + 0.05) / (lo + 0.05)
+    }
+
     init(hex: UInt32, alpha: Double = 1.0) {
         let r = Double((hex >> 16) & 0xFF) / 255.0
         let g = Double((hex >> 8) & 0xFF) / 255.0

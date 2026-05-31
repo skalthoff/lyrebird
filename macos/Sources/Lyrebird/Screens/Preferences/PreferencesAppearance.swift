@@ -186,13 +186,26 @@ struct AppearancePane: View {
         )
     }
 
+    /// Theme-section helper text. When the system asks apps to convey meaning
+    /// without relying on colour alone (System Settings → Accessibility →
+    /// Display → "Differentiate without color"), steer toward the Ocean preset
+    /// whose primary/accent pair stays distinguishable for every colour-blind
+    /// type (#354). Otherwise show the default copy.
+    private var themeHint: String {
+        if ThemePreset.suggestedForAccessibility() == .ocean,
+           (AppearanceTheme(rawValue: themeRaw) ?? .purple) != .ocean {
+            return "Your system prefers colour-independent contrast — the Ocean theme keeps the accent distinguishable for every colour-blind type."
+        }
+        return "Purple is the shipping default. Other presets persist today and render once the theme engine lands."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             header
 
             AppearanceSection(
                 title: "Theme",
-                hint: "Purple is the shipping default. Other presets persist today and render once the theme engine lands."
+                hint: themeHint
             ) {
                 ThemePicker(selection: theme)
             }
