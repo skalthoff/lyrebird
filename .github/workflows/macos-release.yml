@@ -80,10 +80,22 @@ jobs:
           tag="${RELEASE_TAG}"
           version="${tag#v}"              # strip leading 'v' for CFBundleShortVersionString
           build=$(date -u +%Y%m%d%H%M)    # UTC timestamp — monotonically increasing CFBundleVersion
+          # A semver pre-release tag carries a hyphenated suffix on the
+          # version core (e.g. v1.0.1-beta.1, -rc.2, -alpha, -pre). The
+          # version core itself only uses dots, so a hyphen anywhere in
+          # the tag marks a pre-release. We must NOT let GitHub's
+          # auto-latest heuristic promote one of these over the current
+          # stable release.
+          if [[ "$tag" == *-* ]]; then
+            is_prerelease=true
+          else
+            is_prerelease=false
+          fi
           {
             echo "tag=$tag"
             echo "version=$version"
             echo "build=$build"
+            echo "is_prerelease=$is_prerelease"
           } >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
@@ -206,6 +218,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
         run: |
           # Don't clobber a release that already exists (re-runs via
           # workflow_dispatch). Instead, upload the freshly built DMG to
@@ -214,11 +227,21 @@ jobs:
             echo "Release $TAG already exists — uploading asset with --clobber"
             gh release upload "$TAG" macos/build/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
           else
+            # Pre-release tags (v1.0.1-beta.1, -rc.2, …) must ship as a
+            # prerelease and must NOT become "Latest" — otherwise GitHub's
+            # auto-latest heuristic promotes a beta over the stable
+            # release. Stable tags pass --latest explicitly so the same
+            # heuristic can't be confused by an out-of-order tag either.
+            latest_args=(--prerelease --latest=false)
+            if [[ "$IS_PRERELEASE" != "true" ]]; then
+              latest_args=(--latest)
+            fi
             gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Lyrebird $TAG" \
               --generate-notes \
               --verify-tag \
+              "${latest_args[@]}" \
               macos/build/*.dmg
           fi
 
