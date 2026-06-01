@@ -1,4 +1,5 @@
 import AppKit
+import LyrebirdCore
 import Observation
 import SwiftUI
 

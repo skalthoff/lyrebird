@@ -30,11 +30,8 @@ enum AppShortcuts {
 		/// Resolved (translated) action name, used for search matching and as
 		/// the row's accessibility label.
 		var localizedName: String { NSLocalizedString(nameKeyString, comment: "") }
-		/// Which logical group the row sorts under in the help window.
 		let section: Section
-		/// The bound key (a character or a named key like `.space`).
 		let key: KeyEquivalent
-		/// Modifier mask required alongside `key`.
 		let modifiers: EventModifiers
 
 		/// Human-facing rendering of `modifiers` + `key` using the standard
