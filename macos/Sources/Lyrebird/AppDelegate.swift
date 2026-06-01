@@ -263,9 +263,13 @@ extension AppModel {
     /// `GET /System/Info/Public` (via `core.probeServer`) against the stored
     /// server URL to verify the connection is still healthy:
     ///
-    /// - **401 / not authenticated**: the token has been revoked or expired
-    ///   while the machine was asleep (VPN key rotation, server restart, etc.).
-    ///   `markAuthExpired()` surfaces the re-auth sheet.
+    /// - **401 / not authenticated**: `probeServer` hits the unauthenticated
+    ///   `/System/Info/Public`, so token revocation during sleep is detected
+    ///   not here but by the authenticated `refreshJumpBackIn` /
+    ///   `refreshRecentlyPlayed` / `refreshRecentlyAdded` calls below, which
+    ///   surface the re-auth sheet via their own `handleAuthError`. The
+    ///   `LyrebirdError` auth-variant catch here is a guard for any future
+    ///   authenticated probe.
     /// - **Network / 5xx error**: the server is temporarily unreachable;
     ///   `serverReachability.noteFailure()` updates the unreachable banner.
     /// - **Success**: `serverReachability.noteSuccess()` clears any stale
@@ -293,13 +297,13 @@ extension AppModel {
                 await refreshRecentlyPlayed()
                 await refreshRecentlyAdded()
             } catch {
-                let description = error.localizedDescription
-                let isAuthError = description.contains("not logged in")
-                    || description.contains("server returned an error: 401")
-                if isAuthError {
+                switch error as? LyrebirdError {
+                case .NotAuthenticated, .Auth, .AuthExpired:
                     markAuthExpired()
-                } else if ServerReachability.shouldCount(error: error) {
-                    serverReachability.noteFailure()
+                default:
+                    if ServerReachability.shouldCount(error: error) {
+                        serverReachability.noteFailure()
+                    }
                 }
             }
         }
