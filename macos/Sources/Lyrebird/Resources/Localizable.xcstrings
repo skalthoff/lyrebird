@@ -1285,6 +1285,42 @@
         }
       }
     },
+    "mini_player.expand" : {
+      "comment" : "Accessibility label for the expand button in the Mini Player hover overlay that returns to the full window.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand to Full Window"
+          }
+        }
+      }
+    },
+    "mini_player.favorite" : {
+      "comment" : "Accessibility label for the favorite (heart) button in the Mini Player hover overlay, when the current track is not yet a favorite.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite"
+          }
+        }
+      }
+    },
+    "mini_player.unfavorite" : {
+      "comment" : "Accessibility label for the favorite (heart) button in the Mini Player hover overlay, when the current track is already a favorite.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Favorites"
+          }
+        }
+      }
+    },
     "mini_player.previous" : {
       "comment" : "Accessibility label for the Mini Player previous-track button.",
       "extractionState" : "manual",
