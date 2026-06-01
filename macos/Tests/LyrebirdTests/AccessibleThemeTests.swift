@@ -11,15 +11,14 @@ import XCTest
 /// 1. `AccessibleTheme` — the explicit wrapper a view uses when it observes
 ///    `@Environment(\.colorSchemeContrast)` directly. Each accessor must route
 ///    to the standard token under `.standard` and to the matching
-///    `*HighContrast` token under `.increased`. This is the falsifiable unit
-///    the reviewer asked for: it fails to compile on `origin/main` (the type
-///    doesn't exist there) and pins the per-token mapping against silent drift.
+///    `*HighContrast` token under `.increased`, pinning the per-token mapping
+///    against silent drift.
 ///
 /// 2. The base `Theme` tokens (`ink2`/`ink3`/`border`/`borderStrong`) — built
 ///    by the appearance-adaptive provider so existing call sites lift to high
 ///    contrast with no churn. We resolve each one against the standard and the
-///    high-contrast appearances and assert it picks the right RGBA, which is
-///    the behaviour the issue's "every surface" criterion depends on.
+///    high-contrast appearances and assert it picks the right RGBA, so every
+///    surface using a base token adapts under Increase Contrast.
 final class AccessibleThemeTests: XCTestCase {
 
     // MARK: - AccessibleTheme dispatch
