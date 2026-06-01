@@ -362,6 +362,10 @@ final class AppModel {
     // MARK: - Player
     var status: PlayerStatus
     var pollTimer: Timer?
+    /// Whether the menu-bar "while playing" visibility has been seeded since
+    /// polling started. Lets the first poll apply the icon on a resume-into-
+    /// playing launch instead of waiting for a pause/resume transition. See #266.
+    private var didApplyMenuBarPlayingState = false
 
     // MARK: - Queue inspector (BATCH-07a, #79 / #80 / #282)
     //
@@ -4944,6 +4948,7 @@ final class AppModel {
                 let before = beforeTrack?.id
                 let beforeQueuePos = self.status.queuePosition
                 let beforeQueueLen = self.status.queueLength
+                let beforeState = self.status.state
                 self.status = self.core.status()
                 let after = self.status.currentTrack?.id
                 // Trigger a details refetch when the track changes. Scoped
@@ -4963,10 +4968,37 @@ final class AppModel {
                         self.currentTrackPeopleForId = nil
                         self.currentLyrics = nil
                         self.currentLyricsForId = nil
+                        MenuBarController.shared.setNowPlaying(nil)
                     } else {
                         Task { await self.fetchCurrentTrackDetails() }
                         Task { await self.fetchCurrentTrackLyrics() }
+                        // Notify on the new track. The manager no-ops when the
+                        // banner toggle is off, so this is cheap on every change.
+                        // The first track after a startup-from-resume is left
+                        // unsuppressed — a fresh play is exactly when the user
+                        // wants the banner.
+                        if let track = self.status.currentTrack {
+                            NotificationManager.shared.notifyTrackChange(
+                                title: track.name,
+                                artist: track.artistName,
+                                album: track.albumName
+                            )
+                            MenuBarController.shared.setNowPlaying(track.name)
+                        }
                     }
+                }
+                // Menu-bar "while playing": mirror the play/pause state onto the
+                // transient menu-bar icon when the user opts in. Apply on the
+                // first eligible poll (so a session that resumes already-playing
+                // shows the icon immediately, without waiting for a pause/resume
+                // transition) and thereafter only on a real state transition, so
+                // we don't churn the NSStatusItem every tick.
+                if NotificationPreference.showInMenuBarWhilePlaying,
+                    !self.didApplyMenuBarPlayingState || beforeState != self.status.state {
+                    MenuBarController.shared.setVisibleWhilePlaying(
+                        self.status.state == .playing
+                    )
+                    self.didApplyMenuBarPlayingState = true
                 }
                 // Keep MediaSession's queue index in sync when a skip
                 // happens. `AudioEngine.play(track:)` already fires
@@ -4993,6 +5025,7 @@ final class AppModel {
     private func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
+        didApplyMenuBarPlayingState = false
     }
 
     // MARK: - Queue inspector (BATCH-07a)

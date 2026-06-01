@@ -42,6 +42,10 @@ struct LyrebirdApp: App {
                 .frame(minWidth: 960, minHeight: 640)
                 .preferredColorScheme(preferredColorScheme)
                 .task { appDelegate.bind(appModel: model) }
+                // Re-request notification authorization on launch if the user
+                // already opted in, so track-change banners work without
+                // re-toggling. No-ops when the preference is off.
+                .task { NotificationManager.shared.requestAuthorizationIfNeeded() }
                 // Publish the current window's `AppModel` as a focused
                 // scene value so `@FocusedValue(\.appModel)` readers
                 // (e.g. future menu commands that live outside the
