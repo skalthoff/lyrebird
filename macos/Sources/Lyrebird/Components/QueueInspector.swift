@@ -191,31 +191,72 @@ struct QueueInspector: View {
 
     @ViewBuilder
     private var header: some View {
-        HStack {
-            Text("Queue")
-                .font(Theme.font(11, weight: .bold))
-                .foregroundStyle(Theme.ink2)
-                .tracking(2)
-                .textCase(.uppercase)
-            Spacer()
-            // Note: the Cmd+Opt+Q toggle lives on `MainShell` so it works
-            // whether the panel is open or closed. The X here is click-only
-            // so we don't register two responders for the same shortcut.
-            Button(action: { model.isQueueInspectorOpen = false }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Queue")
+                    .font(Theme.font(11, weight: .bold))
                     .foregroundStyle(Theme.ink2)
-                    .frame(width: 22, height: 22)
-                    .background(Circle().fill(Theme.surface))
+                    .tracking(2)
+                    .textCase(.uppercase)
+                Spacer()
+                // Note: the Cmd+Opt+Q toggle lives on `MainShell` so it works
+                // whether the panel is open or closed. The X here is click-only
+                // so we don't register two responders for the same shortcut.
+                Button(action: { model.isQueueInspectorOpen = false }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Theme.surface))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close queue")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close queue")
+            autoplayToggle
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Theme.border).frame(height: 1)
         }
+    }
+
+    /// "Autoplay similar music when queue ends" toggle (#83). When on
+    /// (default), playback extends with an Instant Mix once Up Next and the
+    /// source tail run dry; when off, playback stops at the end of what the
+    /// user queued. Persists across launches via
+    /// `AppModel.setAutoplayWhenQueueEnds(_:)`.
+    @ViewBuilder
+    private var autoplayToggle: some View {
+        Toggle(isOn: autoplayBinding) {
+            HStack(spacing: 6) {
+                Image(systemName: "infinity")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .accessibilityHidden(true)
+                Text("Autoplay similar music when queue ends")
+                    .font(Theme.font(11, weight: .medium))
+                    .foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+        .tint(Theme.accent)
+        .accessibilityLabel("Autoplay similar music when queue ends")
+        .accessibilityHint("When off, playback stops at the end of the queue instead of continuing with similar music")
+    }
+
+    /// Bridges the `@Observable` model's persisted flag to a SwiftUI
+    /// `Binding` so the `Toggle` writes through `setAutoplayWhenQueueEnds`
+    /// (which both updates state and persists to UserDefaults). The model
+    /// isn't `@Bindable` here, so we route the setter explicitly rather than
+    /// `$model.autoplayWhenQueueEnds`, which would bypass persistence.
+    private var autoplayBinding: Binding<Bool> {
+        Binding(
+            get: { model.autoplayWhenQueueEnds },
+            set: { model.setAutoplayWhenQueueEnds($0) }
+        )
     }
 
     // MARK: - Action row (BATCH-07b, #284)

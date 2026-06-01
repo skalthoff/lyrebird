@@ -525,6 +525,42 @@ final class AppModel {
         UserDefaults.standard.set(on, forKey: AppModel.miniPlayerAlwaysOnTopKey)
     }
 
+    // MARK: - Autoplay (queue end)
+
+    /// UserDefaults key for the persisted "autoplay similar music when the
+    /// queue ends" preference (#83). Same `@Observable` → UserDefaults
+    /// bridge as the mini-player flag above.
+    private static let autoplayWhenQueueEndsKey = "queue.autoplayWhenQueueEnds"
+
+    /// Whether playback should extend with an Instant Mix of similar music
+    /// when the user-added queue and its source tail run dry (#83). Default
+    /// **on** to match Apple Music / Spotify's endless-listening behaviour;
+    /// users who dislike endless autoplay flip it off in the queue header and
+    /// playback simply stops at the end of what they queued. Persisted across
+    /// launches; read through `autoplayWhenQueueEndsDefault` so an unset key
+    /// resolves to `true` rather than `bool(forKey:)`'s `false`.
+    var autoplayWhenQueueEnds: Bool = AppModel.autoplayWhenQueueEndsDefault()
+
+    /// Resolve the persisted autoplay flag, defaulting to `true` when the key
+    /// has never been written. `UserDefaults.bool(forKey:)` returns `false`
+    /// for a missing key, which would silently invert this feature's "default
+    /// on" contract, so we probe for the object first.
+    private static func autoplayWhenQueueEndsDefault() -> Bool {
+        guard UserDefaults.standard.object(forKey: autoplayWhenQueueEndsKey) != nil else {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: autoplayWhenQueueEndsKey)
+    }
+
+    /// Set + persist the autoplay-at-queue-end preference (#83). Wired to the
+    /// queue header toggle; `handleTrackEnded` reads `autoplayWhenQueueEnds`
+    /// when the queue runs dry to decide whether to extend with an Instant
+    /// Mix or stop.
+    func setAutoplayWhenQueueEnds(_ on: Bool) {
+        autoplayWhenQueueEnds = on
+        UserDefaults.standard.set(on, forKey: AppModel.autoplayWhenQueueEndsKey)
+    }
+
     /// Close the Mini Player and bring the full window forward, honouring the
     /// "closing returns to full window" contract. Used by the mini player's
     /// settings-menu and hover "return" affordances. Clearing the flag lets
@@ -4606,7 +4642,21 @@ final class AppModel {
         // Advance to the next track in the queue if there is one.
         if let next = core.skipNext() {
             playCurrent(next)
+            return
         }
+        // Queue ran dry. When "autoplay similar music when queue ends" is on
+        // (#83, default), seed an Instant Mix from the track that just
+        // finished and keep playing — matching Apple Music / Spotify's
+        // endless listening. When the user has turned it off, do nothing so
+        // playback simply stops at the end of what they queued.
+        //
+        // This only fires once the user's Up Next *and* the source tail (the
+        // album / playlist tracks the core queue already held) are exhausted,
+        // so it never short-circuits an explicit album-end — `skipNext`
+        // walks those first and only returns nil when there's genuinely
+        // nothing left.
+        guard autoplayWhenQueueEnds, let seed = status.currentTrack else { return }
+        playInstantMix(seedId: seed.id)
     }
 
     // MARK: - Now Playing details
