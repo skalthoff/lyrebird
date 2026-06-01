@@ -3,8 +3,8 @@ import SwiftUI
 @preconcurrency import LyrebirdCore
 
 /// Detached, borderless **Mini Player** — a compact always-available transport
-/// surface modeled on Apple Music's `MiniPlayer` and Spotify's now-playing
-/// widget.
+/// surface modeled on Apple Music's `MiniPlayer`, Spotify's now-playing widget,
+/// and Silicio's progressive-disclosure card.
 ///
 /// The view ships its own chrome rather than relying on a system title bar:
 /// the host `NSWindow` is reconfigured (borderless, vibrancy, rounded corners,
@@ -13,34 +13,52 @@ import SwiftUI
 /// at the root. SwiftUI's `Scene` / `WindowGroup` can't express any of those
 /// `NSWindow` knobs, so we bridge through AppKit exactly once, here.
 ///
-/// Layout (320×120pt default, width resizable 280–480pt):
-///   ┌──────────┬───────────────────────────┐
-///   │  artwork │ title (truncated)          │
-///   │  (square)│ artist (smaller)           │
-///   │          │ ◀  ⏯  ▶            🔊      │
-///   └──────────┴───────────────────────────┘
-/// On hover the bottom edge reveals a scrub bar plus a "return to full window"
-/// affordance. A gear menu in the top-trailing corner exposes the always-on-top
-/// toggle (per Apple Music's MiniPlayer settings menu) and a "Return to full
-/// window" item, mirroring the close-returns-to-full-window contract.
+/// ## Progressive disclosure
+///
+/// At rest the surface is a minimal card: artwork, title/artist, and a thin
+/// non-interactive progress line. On pointer hover a controls **overlay**
+/// fades in showing the full transport (prev / play-pause / next), volume,
+/// scrub bar, a favorite heart, and an expand-to-full-window button — mirroring
+/// Silicio's pattern. The overlay auto-hides after a 2-second pointer-idle
+/// timeout even while the cursor still rests inside the window (any pointer
+/// movement re-arms it), and hides immediately when the pointer leaves. The
+/// crossfade is suppressed when **Reduce Motion** is enabled.
 ///
 /// All playback state + actions route through the same `AppModel` entry points
 /// the `PlayerBar` uses (`togglePlayPause`, `skipNext`, `skipPrevious`,
-/// `setVolume`, `seek(toSeconds:)`, `status.*`), so the mini player and the
-/// full transport bar can never disagree — there is one writer.
+/// `setVolume`, `seek(toSeconds:)`, `toggleFavorite(track:)`, `status.*`), so
+/// the mini player and the full transport bar can never disagree — there is one
+/// writer.
 struct MiniPlayerView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Reveals the scrub bar + return-to-full-window control. Driven by
-    /// `onHover` so the resting state stays a clean two-line widget and the
-    /// extra controls only appear when the pointer is over the window.
+    /// Whether the controls overlay is currently revealed. Driven by hover plus
+    /// the 2-second idle timeout below — `true` while the pointer is moving over
+    /// the window, flips back to `false` after `Self.idleTimeout` of stillness
+    /// or immediately on pointer exit.
+    @State private var showControls = false
+
+    /// Tracks raw pointer presence so the idle-timeout task knows whether the
+    /// pointer is still inside the window when it fires.
     @State private var isHovering = false
+
+    /// Debounce task that hides the overlay after the idle timeout. Cancelled
+    /// and rescheduled on every pointer move so a moving cursor keeps the
+    /// overlay alive; allowed to fire when the cursor goes still.
+    @State private var idleHideTask: Task<Void, Never>?
 
     /// Local scrubber position used only while the user is actively dragging,
     /// so the 1Hz status poll doesn't yank the thumb back mid-drag. Same
     /// freeze pattern as `PlayerBar.scrubPosition`.
     @State private var scrubPosition: Double = 0
     @State private var isScrubbing = false
+
+    /// Seconds of pointer stillness before the controls overlay fades back out.
+    /// Short enough that the card returns to its minimal resting state quickly
+    /// once the user stops interacting, long enough that a brief pause while
+    /// aiming for a control doesn't snatch the transport away mid-reach.
+    private static let idleTimeout: Duration = .seconds(2)
 
     var body: some View {
         ZStack {
@@ -62,7 +80,24 @@ struct MiniPlayerView: View {
                 .strokeBorder(Theme.border, lineWidth: 1)
         )
         .frame(minWidth: 280, idealWidth: 320, maxWidth: 480, minHeight: 120, idealHeight: 120)
-        .onHover { isHovering = $0 }
+        // `onContinuousHover` gives us pointer-move events so we can re-arm the
+        // idle timer on movement (plain `onHover` only fires on enter/exit).
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                if !isHovering { isHovering = true }
+                reveal()
+            case .ended:
+                isHovering = false
+                idleHideTask?.cancel()
+                idleHideTask = nil
+                setControls(false)
+            }
+        }
+        .onDisappear {
+            idleHideTask?.cancel()
+            idleHideTask = nil
+        }
         // Configure the host NSWindow exactly once. Mounted as a background
         // so it adds no visual element of its own.
         .background(MiniPlayerWindowConfigurator(alwaysOnTop: model.miniPlayerAlwaysOnTop))
@@ -78,18 +113,54 @@ struct MiniPlayerView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     header(track: track)
                     Spacer(minLength: 0)
-                    transportRow
-                    // Scrub bar slides in under the transport row on hover.
-                    if isHovering {
-                        scrubber
+                    // Resting state: a thin, non-interactive progress line so
+                    // the minimal card still communicates playback position.
+                    // It crossfades out as the interactive controls fade in.
+                    if !showControls {
+                        restingProgress
+                            .transition(.opacity)
+                    }
+                    // Hover overlay: the full controls cluster.
+                    if showControls {
+                        controlsOverlay(track: track)
                             .transition(.opacity)
                     }
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: showControls)
         } else {
             idle
         }
+    }
+
+    // MARK: - Reveal / idle-timeout plumbing
+
+    /// Show the overlay and (re)arm the 2-second idle-hide timer. Called on
+    /// every pointer-move while inside the window.
+    private func reveal() {
+        setControls(true)
+        rearmIdleHide()
+    }
+
+    /// Cancel any pending idle-hide task and schedule a fresh one. Split out of
+    /// `reveal()` so the scrub-release path can re-arm the timer without also
+    /// re-showing controls that are already visible.
+    private func rearmIdleHide() {
+        idleHideTask?.cancel()
+        idleHideTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.idleTimeout)
+            guard !Task.isCancelled else { return }
+            // Only auto-hide if the pointer is still inside but idle, and the
+            // user isn't mid-scrub (hiding the scrubber out from under a drag
+            // would be hostile).
+            guard isHovering, !isScrubbing else { return }
+            setControls(false)
+        }
+    }
+
+    private func setControls(_ visible: Bool) {
+        guard showControls != visible else { return }
+        showControls = visible
     }
 
     // MARK: - Artwork (drag region)
@@ -129,8 +200,35 @@ struct MiniPlayerView: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 0)
-            settingsMenu
+            // Favorite heart + settings menu only join the header while the
+            // overlay is up so the resting card stays a clean two-line widget.
+            if showControls {
+                favoriteButton(track: track)
+                    .transition(.opacity)
+                settingsMenu
+                    .transition(.opacity)
+            }
         }
+    }
+
+    /// Heart toggle for the now-playing track. Reads the snapshot-aware
+    /// `isFavorite(track:)` so it shows the correct state on first paint, and
+    /// routes through `toggleFavorite(track:)` — the single favorite writer the
+    /// rest of the app uses (optimistic cache update + server echo + rollback
+    /// live inside `AppModel`).
+    @ViewBuilder
+    private func favoriteButton(track: Track) -> some View {
+        let isFav = model.isFavorite(track: track)
+        Button {
+            model.toggleFavorite(track: track)
+        } label: {
+            Image(systemName: isFav ? "heart.fill" : "heart")
+                .font(.system(size: 12))
+                .foregroundStyle(isFav ? Theme.accent : Theme.ink3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(isFav ? "mini_player.unfavorite" : "mini_player.favorite"))
+        .accessibilityAddTraits(isFav ? [.isSelected] : [])
     }
 
     /// Gear menu with the always-on-top toggle and a return-to-full-window
@@ -163,7 +261,39 @@ struct MiniPlayerView: View {
         .accessibilityLabel(Text("mini_player.menu.label"))
     }
 
-    // MARK: - Transport row (prev / play-pause / next / volume)
+    // MARK: - Resting progress (minimal card)
+
+    /// Thin, non-interactive position line shown when the overlay is hidden.
+    /// `Theme.ink` fill over a faint track, capsule-shaped to read as a slim
+    /// progress bar rather than a control.
+    @ViewBuilder
+    private var restingProgress: some View {
+        GeometryReader { geo in
+            let fraction = min(max(0, model.status.positionSeconds / sliderMax), 1)
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Theme.ink.opacity(0.15))
+                Capsule()
+                    .fill(Theme.ink.opacity(0.7))
+                    .frame(width: geo.size.width * fraction)
+            }
+        }
+        .frame(height: 3)
+        .padding(.bottom, 4)
+        .accessibilityHidden(true)
+    }
+
+    // MARK: - Controls overlay (hover-revealed)
+
+    @ViewBuilder
+    private func controlsOverlay(track _: Track) -> some View {
+        VStack(spacing: 4) {
+            transportRow
+            scrubber
+        }
+    }
+
+    // MARK: - Transport row (prev / play-pause / next / volume / expand)
 
     @ViewBuilder
     private var transportRow: some View {
@@ -185,13 +315,10 @@ struct MiniPlayerView: View {
             }
             Spacer(minLength: 0)
             volumePopover
-            // The return-to-full-window button appears inline on hover,
-            // complementing the always-reachable menu item.
-            if isHovering {
-                iconBtn("arrow.up.left.and.arrow.down.right", label: "mini_player.return", size: 12) {
-                    model.returnToFullWindow()
-                }
-                .transition(.opacity)
+            // Expand-to-full-window button, complementing the always-reachable
+            // menu item.
+            iconBtn("arrow.up.left.and.arrow.down.right", label: "mini_player.expand", size: 12) {
+                model.returnToFullWindow()
             }
         }
     }
@@ -224,6 +351,16 @@ struct MiniPlayerView: View {
                 } else {
                     model.seek(toSeconds: scrubPosition)
                     isScrubbing = false
+                    // The idle-hide task that fired during the drag bailed out
+                    // on the `!isScrubbing` guard, so nothing is scheduled to
+                    // dismiss the overlay anymore. If the pointer is still
+                    // inside but the user has stopped moving it (released the
+                    // scrub thumb in place, no fresh `onContinuousHover`), the
+                    // overlay would otherwise stay up forever. Re-arm the timer
+                    // here so a still cursor after a scrub still auto-hides.
+                    if isHovering {
+                        rearmIdleHide()
+                    }
                 }
             }
         )
