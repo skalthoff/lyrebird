@@ -3,7 +3,7 @@ import XCTest
 
 @testable import Lyrebird
 
-/// Coverage for the Keyboard Shortcuts help-window catalog (#24): the glyph
+/// Coverage for the Keyboard Shortcuts help-window catalog: the glyph
 /// renderer (the riskiest piece — named `KeyEquivalent` statics are backed by
 /// opaque scalars) and the catalog's internal integrity.
 final class AppShortcutsTests: XCTestCase {

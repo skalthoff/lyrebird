@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Keyboard Shortcuts help window (#24).
+/// Keyboard Shortcuts help window.
 ///
 /// A searchable, two-column map of every keyboard shortcut the app exposes:
 /// the action name on the left, the chord rendered with proper macOS symbol

@@ -92,7 +92,7 @@ struct LyrebirdApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultPosition(.topTrailing)
 
-        // Keyboard Shortcuts help window (#24). A dedicated single-instance
+        // Keyboard Shortcuts help window. A dedicated single-instance
         // `Window` (not a `WindowGroup`) so Help > Keyboard Shortcuts / ⌘?
         // toggles exactly one panel rather than spawning duplicates. It renders
         // the `AppShortcuts.all` catalog — the same map the menu bar mirrors —
@@ -158,7 +158,7 @@ struct LyrebirdCommands: Commands {
     @Bindable var model: AppModel
     @ObservedObject var updater: Updater
 
-    /// Opens the Keyboard Shortcuts help scene (#24). `@Environment(\.openWindow)`
+    /// Opens the Keyboard Shortcuts help scene. `@Environment(\.openWindow)`
     /// resolves inside a `Commands` body on macOS 14+, letting the Help menu
     /// item summon the single-instance `Window(id: AppShortcuts.windowID)`.
     @Environment(\.openWindow) private var openWindow
@@ -393,7 +393,7 @@ struct LyrebirdCommands: Commands {
 
             Divider()
 
-            // Keyboard Shortcuts help window (#24). ⌘? — on US layouts that's
+            // Keyboard Shortcuts help window. ⌘? — on US layouts that's
             // ⌘⇧/, which is what SwiftUI binds when you ask for "?" with the
             // command modifier, matching Doppler's "Keyboard Shortcuts" item.
             Button("menu.help.keyboard_shortcuts") {

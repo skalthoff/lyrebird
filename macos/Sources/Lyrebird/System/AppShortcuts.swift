@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Single source of truth for the app's keyboard-shortcut map (#24).
+/// Single source of truth for the app's keyboard-shortcut map.
 ///
 /// The menu commands in `LyrebirdCommands` declare the *live*
 /// `.keyboardShortcut(...)` bindings; this catalog mirrors them as plain data
