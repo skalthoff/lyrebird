@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Discover — the "find something new" surface. Today: a header + Instant Mix
-/// CTA (#248) and a horizontal "For You" carousel (#249). Richer
-/// recommendations (recently added, more like this, genre tiles, etc.) land
-/// in follow-ups.
+/// CTA (#248), a horizontal "For You" carousel (#249), and a "Genres to
+/// Explore" grid (#250). Richer recommendations (recently added, more like
+/// this, etc.) land in follow-ups.
 ///
 /// Title is italic 34pt, subline 14pt `ink2`, right-aligned primary "Start
 /// Instant Mix" + ghost "Generate new mix" — per `06-screen-specs.md`.
@@ -15,6 +15,7 @@ struct DiscoverView: View {
             VStack(alignment: .leading, spacing: 28) {
                 header
                 forYouSection
+                GenresToExploreSection()
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 32)
@@ -22,6 +23,15 @@ struct DiscoverView: View {
             .padding(.bottom, 32)
         }
         .background(backgroundWash)
+        // Best-effort refresh of the "Genres to Explore" grid (#250) so the
+        // tiles populate even if the user reaches Discover before the
+        // post-login bootstrap got to it. Cheap (one cached /MusicGenres
+        // page) and idempotent.
+        .task {
+            if model.genresToExplore.isEmpty {
+                await model.refreshGenresToExplore()
+            }
+        }
     }
 
     /// The "For You" recommendations carousel (#249). Today this mirrors

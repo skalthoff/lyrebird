@@ -162,6 +162,16 @@ final class AppModel {
     /// follow-up on the core (no FFI exists yet; see `refreshForYou()` for
     /// the TODO).
     var forYou: [Track] = []
+    /// Genres surfaced in the Discover "Genres to Explore" grid (#250). A
+    /// 4×2 grid of up to 8 genres the user has explored the least, ranked by
+    /// ascending `song_count` — the smallest-but-present genres bubble up so
+    /// the surface nudges toward corners of the library the user hasn't dug
+    /// into. Carries the resolved Jellyfin UUID in `Genre.id` (sourced
+    /// straight from `core.genres`), so tapping a tile can navigate to the
+    /// genre detail screen without re-resolving the name. Empty until
+    /// `refreshGenresToExplore()` runs, and stays empty for a library with no
+    /// genres so the section can hide rather than punch a blank hole.
+    var genresToExplore: [Genre] = []
     /// Last-played albums for the Home "Jump Back In" carousel (#51). Up to
     /// 12 albums the user has played recently, sorted by `DatePlayed` desc.
     /// Backed by a raw `/Items` fetch because the core's `ItemsQuery`
@@ -920,6 +930,7 @@ final class AppModel {
         artistDetailCache = [:]
         recentlyPlayed = []
         forYou = []
+        genresToExplore = []
         jumpBackIn = []
         recentlyAdded = []
         recentlyAddedDates = [:]
@@ -983,6 +994,7 @@ final class AppModel {
         artistDetailCache = [:]
         recentlyPlayed = []
         forYou = []
+        genresToExplore = []
         jumpBackIn = []
         recentlyAdded = []
         recentlyAddedDates = [:]
@@ -1139,6 +1151,7 @@ final class AppModel {
         _ = await playlistsResult
         await refreshRecentlyPlayed()
         await refreshForYou()
+        await refreshGenresToExplore()
         // Home screen carousels (#49 / #51–#55). Kicked off after the main
         // library so first paint isn't blocked on these secondary shelves.
         // Each of these is best-effort — empty or errored rows just hide in
@@ -1416,6 +1429,56 @@ final class AppModel {
         // fetched. Capped at 20 so the carousel stays tight even if the core
         // later starts returning a longer list.
         self.forYou = Array(recentlyPlayed.prefix(20))
+    }
+
+    /// Refresh the Discover "Genres to Explore" grid (#250).
+    ///
+    /// Pulls one page of `/MusicGenres` (already filtered server-side to
+    /// genres that carry Audio/Album/Artist items), keeps only those present
+    /// in the library (`song_count > 0`), then ranks them so the *least*
+    /// explored bubble to the top. Jellyfin's `/MusicGenres` projection
+    /// carries no per-genre play count, so we approximate "least-played" with
+    /// ascending `song_count` (the smallest real genres are the ones a user
+    /// is least likely to have worked through), tie-broken by name for a
+    /// stable order. Capped at 8 to fill the 4×2 grid.
+    ///
+    /// Runs the sync `core.genres` FFI off the MainActor (gap pattern #2) and
+    /// marshals the ranked result back. Failures leave the prior grid intact
+    /// rather than blanking the section mid-session.
+    func refreshGenresToExplore() async {
+        let page = await Task.detached(priority: .userInitiated) { [core] in
+            try? core.genres(offset: 0, limit: 200)
+        }.value
+        guard let items = page?.items else { return }
+        // Project the FFI genres to plain tuples before ranking. Passing the
+        // `core.Genre` struct directly would force a `LyrebirdCore.Genre`
+        // annotation, which the generated `open class LyrebirdCore` shadows
+        // (module-vs-type name collision — same reason `resolvedGenreId`
+        // tuple-extracts). Tuples keep the ranking helper pure + testable.
+        self.genresToExplore = AppModel.rankGenresToExplore(
+            items.map { (id: $0.id, name: $0.name, songCount: $0.songCount) }
+        )
+    }
+
+    /// Pure ranking for the "Genres to Explore" grid (#250), split out from
+    /// the FFI hop so it's unit-testable without a live core. Keeps only
+    /// genres present in the library (`song_count > 0`), ranks ascending by
+    /// `song_count` (least-explored first) with a case-insensitive name
+    /// tiebreaker for stable order, caps at 8 for the 4×2 grid, and carries
+    /// the resolved Jellyfin UUID through into the local `Genre.id`.
+    static func rankGenresToExplore(
+        _ genres: [(id: String, name: String, songCount: UInt32)]
+    ) -> [Genre] {
+        Array(
+            genres
+                .filter { $0.songCount > 0 }
+                .sorted {
+                    if $0.songCount != $1.songCount { return $0.songCount < $1.songCount }
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                .prefix(8)
+                .map { Genre(id: $0.id, name: $0.name) }
+        )
     }
 
     // MARK: - Home carousels (#49 / #51–#55)
