@@ -430,6 +430,14 @@ final class AppModel {
     /// `currentTrackPeopleForId`.
     private var currentLyricsForId: String?
 
+    /// One-shot request to land the Now Playing view on a specific tab when
+    /// it next appears. Set by `openLyrics()` (the inline lyrics snippet's
+    /// "open full lyrics" tap) and consumed — then cleared — by
+    /// `NowPlayingView.onAppear`. `nil` means "use the default tab". Kept as
+    /// a raw string rather than the view-local `Tab` enum so AppModel doesn't
+    /// take a dependency on a screen type. See #91.
+    var requestedNowPlayingTab: String?
+
     /// In-flight debounced VoiceOver track-change announcement (#342).
     /// Stored so a rapid next / next / next collapses to a single
     /// announcement: each call cancels the previous pending task before the
@@ -2819,6 +2827,19 @@ final class AppModel {
     /// and the command palette.
     func navigate(to route: Route) {
         navPath.append(route)
+    }
+
+    /// Open the full Now Playing view on its Lyrics tab. Wired to the inline
+    /// lyrics snippet in the Queue Inspector (#91) — tapping the snippet
+    /// promotes the compact 3-line preview to the full-screen synced lyrics.
+    /// Sets a one-shot `requestedNowPlayingTab` that `NowPlayingView` reads
+    /// and clears on appear, then pushes the route (or no-ops the push if
+    /// Now Playing is already on top so a second tap doesn't stack a copy).
+    func openLyrics() {
+        requestedNowPlayingTab = "Lyrics"
+        if !isShowingNowPlaying {
+            navigate(to: .nowPlaying)
+        }
     }
 
     /// Navigate to the Discover screen. See #248.

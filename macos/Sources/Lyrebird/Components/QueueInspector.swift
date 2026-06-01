@@ -71,6 +71,7 @@ struct QueueInspector: View {
                     VStack(alignment: .leading, spacing: 18) {
                         actionRow
                         nowPlayingCard
+                        lyricsSnippet
                         upNextSection
                         playingFromSection
                     }
@@ -425,6 +426,19 @@ struct QueueInspector: View {
                     .foregroundStyle(Theme.ink3)
                     .monospacedDigit()
             }
+        }
+    }
+
+    // MARK: - Inline lyrics snippet (#91)
+
+    /// Compact 3-line synced lyrics preview below the Now Playing card.
+    /// `InlineLyricsSnippet` renders nothing when the current track has no
+    /// timed lyrics, so the section gracefully omits itself — no spacer or
+    /// empty box is left behind. Only mounted while a track is playing.
+    @ViewBuilder
+    private var lyricsSnippet: some View {
+        if model.status.currentTrack != nil {
+            InlineLyricsSnippet()
         }
     }
 

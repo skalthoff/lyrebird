@@ -54,6 +54,26 @@ struct NowPlayingView: View {
             await model.fetchCurrentTrackDetails()
             await model.fetchCurrentTrackLyrics()
         }
+        // Honor a one-shot tab request (#91): the inline lyrics snippet in
+        // the Queue Inspector taps `openLyrics()`, which sets
+        // `requestedNowPlayingTab`. Consume it here so the view lands on the
+        // Lyrics tab, then clear it so a later plain open still defaults to
+        // Queue.
+        .onAppear { consumeRequestedTab() }
+        // Also react while already on-screen: the inline lyrics snippet in
+        // the embedded Queue tab can call `openLyrics()` without re-pushing
+        // the route, so `.onAppear` wouldn't fire. Watch the request so an
+        // in-place tap still switches to the Lyrics tab.
+        .onChange(of: model.requestedNowPlayingTab) { _, _ in consumeRequestedTab() }
+    }
+
+    /// Apply and clear a one-shot `requestedNowPlayingTab` (#91).
+    private func consumeRequestedTab() {
+        if let requested = model.requestedNowPlayingTab,
+           let resolved = Tab(rawValue: requested) {
+            tab = resolved
+        }
+        model.requestedNowPlayingTab = nil
     }
 
     // MARK: - Main content
