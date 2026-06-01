@@ -66,4 +66,26 @@ final class AudioEnginePreloadTests: XCTestCase {
 
         XCTAssertEqual(engine.queuedItemCountForTesting, 0)
     }
+
+    /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
+    /// which drops any pre-loaded next-track item. The owner needs a
+    /// post-recovery signal to re-arm gapless playback, so `recoverFromStall`
+    /// must fire `audioEngineDidRecover()` after restarting playback (#812).
+    func testStallRecoveryFiresDidRecoverDelegate() throws {
+        let engine = try makeEngine()
+        let spy = RecoverySpy()
+        engine.delegate = spy
+
+        engine.recoverFromStallForTesting(url: URL(string: "https://example.invalid/stream")!)
+
+        XCTAssertEqual(spy.didRecoverCount, 1)
+    }
+}
+
+@MainActor
+private final class RecoverySpy: AudioEngineDelegate {
+    var didRecoverCount = 0
+    func audioEngineDidStall() {}
+    func audioEngineDidFail(_ message: String) {}
+    func audioEngineDidRecover() { didRecoverCount += 1 }
 }
