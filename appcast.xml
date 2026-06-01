@@ -1,11 +1,20 @@
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>Jellify</title>
+        <title>Lyrebird</title>
+        <item>
+            <title>1.0.1-beta.1</title>
+            <pubDate>Mon, 01 Jun 2026 07:05:19 +0000</pubDate>
+            <link>https://skalthoff.github.io/lyrebird-desktop/</link>
+            <sparkle:version>202606010651</sparkle:version>
+            <sparkle:shortVersionString>1.0.1-beta.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.1-beta.1/Lyrebird-1.0.1-beta.1.dmg" length="7489291" type="application/octet-stream" sparkle:edSignature="1ViT9uIn6ZKcVNyb+O1WvWdnfQ9Nx+ZdR6D0+Y+JMmylUzWnKWwLTlhA8AZ4eGKzO2puRqtcZtqoQewM6njFAA=="/>
+        </item>
         <item>
             <title>1.0.0</title>
-            <pubDate>Mon, 11 May 2026 18:26:57 +0000</pubDate>
-            <link>https://skalthoff.github.io/jellify-desktop/</link>
+            <pubDate>Mon, 01 Jun 2026 07:05:20 +0000</pubDate>
+            <link>https://skalthoff.github.io/lyrebird-desktop/</link>
             <sparkle:version>202605111815</sparkle:version>
             <sparkle:shortVersionString>1.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
@@ -13,21 +22,12 @@
         </item>
         <item>
             <title>1.0.0-rc15</title>
-            <pubDate>Mon, 11 May 2026 18:26:59 +0000</pubDate>
-            <link>https://skalthoff.github.io/jellify-desktop/</link>
+            <pubDate>Mon, 01 Jun 2026 07:05:21 +0000</pubDate>
+            <link>https://skalthoff.github.io/lyrebird-desktop/</link>
             <sparkle:version>202605040503</sparkle:version>
             <sparkle:shortVersionString>1.0.0-rc15</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.0-rc15/Jellify-1.0.0-rc15.dmg" length="7308439" type="application/octet-stream" sparkle:edSignature="3MJNK547DclI5sDQde9CD11xIz5Bt82zkoee6gkmBgbo81bIojNlO4Bal4kZwL6JpowNz6FoUNYR+u6qBaukDQ=="/>
-        </item>
-        <item>
-            <title>1.0.0-rc14</title>
-            <pubDate>Mon, 11 May 2026 18:27:00 +0000</pubDate>
-            <link>https://skalthoff.github.io/jellify-desktop/</link>
-            <sparkle:version>202605010453</sparkle:version>
-            <sparkle:shortVersionString>1.0.0-rc14</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/skalthoff/jellify-desktop/releases/download/v1.0.0-rc14/Jellify-1.0.0-rc14.dmg" length="7305854" type="application/octet-stream" sparkle:edSignature="AbqhL+wtTW+3wfvIVUJtsrcj0k7AmbGaAhWHeqKV5QCzipZ5MrNklROjcIJAZDu7RFe/sq0GPlx1wjBiJsTOBg=="/>
         </item>
     </channel>
 </rss>
