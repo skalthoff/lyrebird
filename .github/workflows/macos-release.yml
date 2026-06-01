@@ -80,12 +80,9 @@ jobs:
           tag="${RELEASE_TAG}"
           version="${tag#v}"              # strip leading 'v' for CFBundleShortVersionString
           build=$(date -u +%Y%m%d%H%M)    # UTC timestamp — monotonically increasing CFBundleVersion
-          # A semver pre-release tag carries a hyphenated suffix on the
-          # version core (e.g. v1.0.1-beta.1, -rc.2, -alpha, -pre). The
-          # version core itself only uses dots, so a hyphen anywhere in
-          # the tag marks a pre-release. We must NOT let GitHub's
-          # auto-latest heuristic promote one of these over the current
-          # stable release.
+          # A hyphen only appears in a tag as a semver pre-release suffix
+          # (the version core uses dots); GitHub's auto-latest heuristic
+          # must never promote one of these over the stable release.
           if [[ "$tag" == *-* ]]; then
             is_prerelease=true
           else
@@ -226,12 +223,18 @@ jobs:
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists — uploading asset with --clobber"
             gh release upload "$TAG" macos/build/*.dmg --clobber --repo "$GITHUB_REPOSITORY"
+            # Re-enforce the never-Latest invariant on re-runs: a release
+            # created by an older workflow (or manually) may still be
+            # marked Latest. Demote pre-releases only — re-marking a
+            # stable re-cut as --latest could wrongly promote an old tag
+            # over a newer release.
+            if [[ "$IS_PRERELEASE" == "true" ]]; then
+              gh release edit "$TAG" --prerelease --latest=false --repo "$GITHUB_REPOSITORY"
+            fi
           else
-            # Pre-release tags (v1.0.1-beta.1, -rc.2, …) must ship as a
-            # prerelease and must NOT become "Latest" — otherwise GitHub's
-            # auto-latest heuristic promotes a beta over the stable
-            # release. Stable tags pass --latest explicitly so the same
-            # heuristic can't be confused by an out-of-order tag either.
+            # Stable tags pass --latest explicitly so GitHub's auto-latest
+            # heuristic can't be confused by an out-of-order tag; pre-
+            # releases are pinned out of the Latest slot entirely.
             latest_args=(--prerelease --latest=false)
             if [[ "$IS_PRERELEASE" != "true" ]]; then
               latest_args=(--latest)
