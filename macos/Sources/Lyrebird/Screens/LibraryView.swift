@@ -92,6 +92,19 @@ struct LibraryView: View {
     /// Anchor row index for Shift+Click range extension. Mirrors the pattern
     /// in `PlaylistDetailView`.
     @State private var anchorIndex: Int? = nil
+    /// Persisted default sort applied to the Albums chip on first entry and
+    /// whenever the user switches to it without having hand-picked a sort.
+    /// Set in Preferences → Library. See `LibraryDefaults`.
+    @AppStorage(LibraryDefaults.albumSortKey) private var defaultAlbumSort: LibrarySortOrder = .nameAscending
+    /// Persisted default sort applied to the Tracks (Songs) chip. Same
+    /// mechanics as `defaultAlbumSort`.
+    @AppStorage(LibraryDefaults.songSortKey) private var defaultSongSort: LibrarySortOrder = .nameAscending
+    /// Chips whose persisted default we've already applied this session, so
+    /// re-entering a tab the user already customised doesn't clobber their
+    /// manual sort choice. A tab is removed from the set when its persisted
+    /// default changes in Preferences mid-session, so the new default re-applies
+    /// on next entry (and immediately, if that tab is on screen).
+    @State private var appliedDefaultTabs: Set<LibraryTab> = []
 
     private var density: AppearanceDensity {
         AppearanceDensity(rawValue: densityRaw) ?? .roomy
@@ -150,7 +163,10 @@ struct LibraryView: View {
         // a specific chip. `.onAppear` covers the case where the library
         // is entered fresh; `.onChange` covers the case where the user
         // is already on the library and the sidebar flips the tab.
-        .onAppear { selectedTab = model.libraryTab }
+        .onAppear {
+            selectedTab = model.libraryTab
+            applyDefaultSort(for: selectedTab)
+        }
         .onChange(of: model.libraryTab) { _, newValue in
             selectedTab = newValue
         }
@@ -162,6 +178,7 @@ struct LibraryView: View {
             // Switching chips abandons any track multi-selection — the rows
             // it referenced are no longer on screen. See #217.
             clearSelection()
+            applyDefaultSort(for: newValue)
         }
         // `anchorIndex` is a positional cursor into the displayed list; a sort
         // or filter change reorders that list, so a stale anchor would extend a
@@ -169,6 +186,15 @@ struct LibraryView: View {
         // survives the reorder, so only the anchor needs clearing. See #217.
         .onChange(of: sortOrder) { _, _ in anchorIndex = nil }
         .onChange(of: filter) { _, _ in anchorIndex = nil }
+        // A change to a persisted default while this view is alive means the
+        // user just edited Preferences → Library. Re-apply so the criterion
+        // "changes reflect in list views" holds without a relaunch.
+        .onChange(of: defaultAlbumSort) { _, _ in
+            reapplyDefaultSort(for: .albums)
+        }
+        .onChange(of: defaultSongSort) { _, _ in
+            reapplyDefaultSort(for: .tracks)
+        }
     }
 
     /// The selected tracks resolved against the currently-sorted list, in
@@ -687,6 +713,39 @@ struct LibraryView: View {
         filter.isActive ? model.playlists.filter(passesFilter) : model.playlists
     }
 
+    /// Apply the persisted default sort for `tab` the first time the user
+    /// lands on it. Albums and Tracks (Songs) each carry their own default
+    /// set in Preferences → Library; the other chips keep whatever sort is
+    /// active. Guarded by `appliedDefaultTabs` so re-entering a chip the
+    /// user has manually re-sorted preserves their choice for the session.
+    private func applyDefaultSort(for tab: LibraryTab) {
+        guard !appliedDefaultTabs.contains(tab) else { return }
+        switch tab {
+        case .albums:
+            sortOrder = defaultAlbumSort
+            appliedDefaultTabs.insert(tab)
+        case .tracks:
+            sortOrder = defaultSongSort
+            appliedDefaultTabs.insert(tab)
+        case .artists, .playlists, .downloaded:
+            break
+        }
+    }
+
+    /// React to a mid-session change of a persisted default sort (the user
+    /// edited Preferences → Library while the Library view is alive). Drop the
+    /// affected tab's "already applied" flag so the new default takes effect on
+    /// next entry, and re-apply right away if that tab is currently on screen —
+    /// satisfying the "changes reflect in list views" criterion without
+    /// clobbering a sort the user hand-picked from the header for a *different*
+    /// tab.
+    private func reapplyDefaultSort(for tab: LibraryTab) {
+        appliedDefaultTabs.remove(tab)
+        if selectedTab == tab {
+            applyDefaultSort(for: tab)
+        }
+    }
+
     /// `filteredAlbums` re-ordered for the current `sortOrder`. The underlying
     /// model array is left untouched so pagination accounting (`loaded` vs
     /// `total`, threshold math) keeps working unchanged. Sort keys that
@@ -704,6 +763,16 @@ struct LibraryView: View {
             return filteredAlbums.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
+        case .artist:
+            return filteredAlbums.sorted { lhs, rhs in
+                let cmp = lhs.artistName.localizedCaseInsensitiveCompare(rhs.artistName)
+                if cmp == .orderedSame {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return cmp == .orderedAscending
+            }
+        case .random:
+            return filteredAlbums.shuffled()
         case .recentlyAdded:
             // `Album` does not carry `DateCreated` on the paginated shape, so
             // preserve the server's load order (which is `SortName` asc by
@@ -793,8 +862,11 @@ struct LibraryView: View {
         case .recentlyAdded:
             // No per-item date on the artist payload — keep server order.
             return filteredArtists
-        case .nameAscending, .longest, .shortest, .yearAscending, .yearDescending:
-            // Year and runtime aren't carried for artists; treat as alpha asc.
+        case .random:
+            return filteredArtists.shuffled()
+        case .nameAscending, .artist, .longest, .shortest, .yearAscending, .yearDescending:
+            // Year and runtime aren't carried for artists, and "Artist" is a
+            // no-op on the artist list itself; treat all as alpha asc.
             return filteredArtists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
@@ -814,6 +886,16 @@ struct LibraryView: View {
             return filteredTracks.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
+        case .artist:
+            return filteredTracks.sorted { lhs, rhs in
+                let cmp = lhs.artistName.localizedCaseInsensitiveCompare(rhs.artistName)
+                if cmp == .orderedSame {
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+                return cmp == .orderedAscending
+            }
+        case .random:
+            return filteredTracks.shuffled()
         case .recentlyAdded:
             return filteredTracks
         case .recentlyPlayed:
@@ -892,12 +974,35 @@ struct LibraryView: View {
             }
         case .recentlyAdded:
             return filteredPlaylists
-        case .nameAscending, .recentlyPlayed, .mostPlayed, .yearAscending, .yearDescending:
+        case .random:
+            return filteredPlaylists.shuffled()
+        case .nameAscending, .artist, .recentlyPlayed, .mostPlayed, .yearAscending, .yearDescending:
             return filteredPlaylists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
     }
+}
+
+/// Stable `@AppStorage` keys for the user-facing Library preferences.
+/// Centralised so `PreferencesLibrary` (which writes them) and the views that
+/// read them never drift on a string literal. Defaults live at each read site
+/// — the keys here are only the on-disk identifiers and must not be renamed
+/// without a migration.
+enum LibraryDefaults {
+    /// `LibrarySortOrder` raw value — default sort for the Albums chip.
+    static let albumSortKey = "library.defaultSort.albums"
+    /// `LibrarySortOrder` raw value — default sort for the Songs/Tracks chip.
+    static let songSortKey = "library.defaultSort.songs"
+    /// `Bool` — show the leading track-number column in numbered track rows.
+    static let showTrackNumbersKey = "library.showTrackNumbers"
+    /// `Bool` — reveal a track's play count on row hover.
+    static let showPlayCountOnHoverKey = "library.showPlayCountOnHover"
+    /// `Bool` toggles for each optional sidebar library section.
+    static let sidebarShowFavoritesKey = "library.sidebar.showFavorites"
+    static let sidebarShowAlbumsKey = "library.sidebar.showAlbums"
+    static let sidebarShowArtistsKey = "library.sidebar.showArtists"
+    static let sidebarShowPlaylistsKey = "library.sidebar.showPlaylists"
 }
 
 /// Persisted selection for the Library list/grid toggle. Stored via
@@ -1089,9 +1194,15 @@ struct AlbumCard: View {
 /// Library header writes this; the `sortedAlbums` / `sortedArtists` /
 /// `sortedTracks` / `sortedPlaylists` computed properties on `LibraryView`
 /// read it.
-enum LibrarySortOrder: Hashable, CaseIterable {
+///
+/// `String`-backed so the choice can be persisted as a default-sort
+/// preference via `@AppStorage` (see `PreferencesLibrary`). Raw values are
+/// stable on-disk keys — never rename them without a migration; the `label`
+/// is display-only and safe to edit.
+enum LibrarySortOrder: String, Hashable, CaseIterable, Identifiable {
     case nameAscending
     case nameDescending
+    case artist
     case recentlyAdded
     case recentlyPlayed
     case mostPlayed
@@ -1099,12 +1210,16 @@ enum LibrarySortOrder: Hashable, CaseIterable {
     case shortest
     case yearAscending
     case yearDescending
+    case random
+
+    var id: String { rawValue }
 
     /// Label shown in the menu, matching the spec's labels exactly.
     var label: String {
         switch self {
         case .nameAscending: return "A–Z"
         case .nameDescending: return "Z–A"
+        case .artist: return "Artist"
         case .recentlyAdded: return "Recently Added"
         case .recentlyPlayed: return "Recently Played"
         case .mostPlayed: return "Most Played"
@@ -1112,6 +1227,7 @@ enum LibrarySortOrder: Hashable, CaseIterable {
         case .shortest: return "Shortest"
         case .yearAscending: return "Year ↑"
         case .yearDescending: return "Year ↓"
+        case .random: return "Random"
         }
     }
 }
