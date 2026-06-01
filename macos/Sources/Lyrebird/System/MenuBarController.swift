@@ -14,10 +14,37 @@ final class MenuBarController {
 
     private init() {}
 
-    /// Show or hide the menu-bar icon. Safe to call repeatedly with the
-    /// same value — it checks current state before creating / destroying
-    /// the status item.
+    /// Tracks whether the persistent "Show in menu bar" (General) preference
+    /// is on. When true the icon stays visible regardless of playback. When
+    /// false, the "Show in menu bar while playing" (Notifications) preference
+    /// can still show it transiently — see `setVisibleWhilePlaying(_:)`.
+    private var persistentVisible = false
+
+    /// Show or hide the menu-bar icon for the persistent General preference.
+    /// Safe to call repeatedly with the same value — it checks current state
+    /// before creating / destroying the status item.
     func setVisible(_ visible: Bool) {
+        persistentVisible = visible
+        applyVisibility(visible)
+    }
+
+    /// Drive transient menu-bar visibility from playback state for the
+    /// "Show in menu bar while playing" preference (#266). When `playing` is
+    /// true the icon appears; when playback stops it's removed *unless* the
+    /// persistent General toggle is keeping it on. Idempotent.
+    func setVisibleWhilePlaying(_ playing: Bool) {
+        // Never hide an icon the user pinned via the persistent toggle.
+        applyVisibility(playing || persistentVisible)
+    }
+
+    /// Update the menu-bar button's tooltip with the current track so hovering
+    /// the icon shows what's playing. Passing `nil` resets to the app name.
+    func setNowPlaying(_ title: String?) {
+        statusItem?.button?.toolTip = title.map { "Lyrebird — \($0)" } ?? "Lyrebird"
+    }
+
+    /// Create or destroy the `NSStatusItem` to match `visible`.
+    private func applyVisibility(_ visible: Bool) {
         if visible {
             guard statusItem == nil else { return }
             let item = NSStatusBar.system.statusItem(

@@ -4944,6 +4944,7 @@ final class AppModel {
                 let before = beforeTrack?.id
                 let beforeQueuePos = self.status.queuePosition
                 let beforeQueueLen = self.status.queueLength
+                let beforeState = self.status.state
                 self.status = self.core.status()
                 let after = self.status.currentTrack?.id
                 // Trigger a details refetch when the track changes. Scoped
@@ -4963,10 +4964,35 @@ final class AppModel {
                         self.currentTrackPeopleForId = nil
                         self.currentLyrics = nil
                         self.currentLyricsForId = nil
+                        MenuBarController.shared.setNowPlaying(nil)
                     } else {
                         Task { await self.fetchCurrentTrackDetails() }
                         Task { await self.fetchCurrentTrackLyrics() }
+                        // Notifications (#266): post a Now Playing banner for
+                        // the new track. The manager no-ops when the toggle is
+                        // off, so this is cheap on every change. `before != nil`
+                        // skips the very first track at startup-from-resume
+                        // isn't suppressed — a fresh play is exactly when the
+                        // user wants the banner.
+                        if let track = self.status.currentTrack {
+                            NotificationManager.shared.notifyTrackChange(
+                                title: track.name,
+                                artist: track.artistName,
+                                album: track.albumName
+                            )
+                            MenuBarController.shared.setNowPlaying(track.name)
+                        }
                     }
+                }
+                // Menu-bar "while playing" (#266): mirror the play/pause state
+                // onto the transient menu-bar icon when the user opts in. Only
+                // acts on a real state transition so we don't churn the
+                // NSStatusItem every tick.
+                if beforeState != self.status.state,
+                    NotificationPreference.showInMenuBarWhilePlaying {
+                    MenuBarController.shared.setVisibleWhilePlaying(
+                        self.status.state == .playing
+                    )
                 }
                 // Keep MediaSession's queue index in sync when a skip
                 // happens. `AudioEngine.play(track:)` already fires
