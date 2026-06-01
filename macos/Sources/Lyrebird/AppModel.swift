@@ -799,6 +799,7 @@ final class AppModel {
         // the engine pushes state transitions to it.
         self.mediaSession.attach(delegate: self)
         self.audio.mediaSession = self.mediaSession
+        self.audio.delegate = self
     }
 
     // MARK: - Network
@@ -5407,6 +5408,30 @@ extension AppModel: MediaSessionDelegate {
     }
     func mediaSessionAuthorizationHeader() -> String? {
         try? core.authHeader()
+    }
+}
+
+// MARK: - AudioEngine transport callbacks
+
+extension AppModel: AudioEngineDelegate {
+    func audioEngineDidStall() {
+        errorMessage = "Stalled, retrying…"
+    }
+
+    func audioEngineDidFail(_ message: String) {
+        errorMessage = message
+    }
+
+    /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
+    /// which evicts any pre-loaded next-track item from the queue. Re-arm
+    /// gapless playback by preloading the upcoming track again — the
+    /// user-added "Up Next" overlay takes precedence over the auto-queue
+    /// tail, matching the order the engine would otherwise advance through.
+    func audioEngineDidRecover() {
+        guard let next = upNextUserAdded.first?.track ?? upNextAutoQueue.first?.track else {
+            return
+        }
+        audio.preloadNextTrack(next)
     }
 }
 
