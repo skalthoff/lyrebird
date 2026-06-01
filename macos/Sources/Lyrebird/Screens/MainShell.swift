@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// The three top-level regions Switch Control's "Group items" scan steps
+/// through, in scan order. `MainShell`'s `.accessibilityLabel` modifiers and
+/// the grouping tests both read these raw values, so the acceptance criteria
+/// stay a single source of truth instead of duplicated string literals.
+enum SwitchControlGroup: String, CaseIterable {
+    case sidebar = "Sidebar"
+    case content = "Content"
+    case playerBar = "Player Bar"
+}
+
 struct MainShell: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,6 +34,18 @@ struct MainShell: View {
                 // Tab order (#334): sidebar gets first focus, then the
                 // detail column, then the queue inspector / player bar.
                 Sidebar()
+                    // Switch Control "Group items" grouping. Wrapping the
+                    // whole rail in a single labelled container lets Switch
+                    // Control scan "Sidebar" as one top-level group and
+                    // descend on demand, instead of stepping through every
+                    // nav row, stat row, and playlist one at a time.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(SwitchControlGroup.sidebar.rawValue)
+                    // Sort priority must be applied AFTER the grouping
+                    // container so it lands on the container itself, not the
+                    // wrapped child. Otherwise the #334 tab-traversal order
+                    // (sidebar first) is read off the inner element and the
+                    // container falls back to default priority.
                     .accessibilitySortPriority(100)
                     // Pin the sidebar to the existing 252pt design width so
                     // NavigationSplitView's auto-sizing doesn't expand the
@@ -91,6 +113,16 @@ struct MainShell: View {
                             }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // Switch Control "Group items" grouping. The active page
+                    // + its toolbar scan as one "Content" group so Switch
+                    // Control offers Sidebar / Content / Player Bar as the
+                    // three top-level groups, then descends into the page
+                    // body (track list / grid) on demand.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(SwitchControlGroup.content.rawValue)
+                    // Sort priority must be applied AFTER the grouping
+                    // container so it lands on the container, keeping the
+                    // #334 tab order (content second, after the sidebar).
                     .accessibilitySortPriority(90)
 
                     // Right-side Queue Inspector (#79). Hidden by default;
@@ -118,6 +150,15 @@ struct MainShell: View {
             // window width (sidebar + detail) like the previous custom
             // shell did.
             PlayerBar()
+                // Switch Control "Group items" grouping. PlayerBar already
+                // wraps itself in a single labelled container
+                // (.accessibilityElement(children: .contain) +
+                // .accessibilityLabel("Playback controls")), so we must NOT
+                // add a second container here — doing so nests two groups and
+                // makes Switch Control's group scan descend through an empty
+                // outer "Player Bar" group before reaching the transport. The
+                // sort priority is the only thing the shell needs to set,
+                // pinning the player bar last in the #334 tab order.
                 .accessibilitySortPriority(50)
         }
         .background(Theme.bg)
