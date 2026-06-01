@@ -13,7 +13,7 @@ import SwiftUI
 /// at the root. SwiftUI's `Scene` / `WindowGroup` can't express any of those
 /// `NSWindow` knobs, so we bridge through AppKit exactly once, here.
 ///
-/// ## Progressive disclosure (#109)
+/// ## Progressive disclosure
 ///
 /// At rest the surface is a minimal card: artwork, title/artist, and a thin
 /// non-interactive progress line. On pointer hover a controls **overlay**
@@ -55,7 +55,9 @@ struct MiniPlayerView: View {
     @State private var isScrubbing = false
 
     /// Seconds of pointer stillness before the controls overlay fades back out.
-    /// Per the issue's acceptance criteria.
+    /// Short enough that the card returns to its minimal resting state quickly
+    /// once the user stops interacting, long enough that a brief pause while
+    /// aiming for a control doesn't snatch the transport away mid-reach.
     private static let idleTimeout: Duration = .seconds(2)
 
     var body: some View {
@@ -137,6 +139,13 @@ struct MiniPlayerView: View {
     /// every pointer-move while inside the window.
     private func reveal() {
         setControls(true)
+        rearmIdleHide()
+    }
+
+    /// Cancel any pending idle-hide task and schedule a fresh one. Split out of
+    /// `reveal()` so the scrub-release path can re-arm the timer without also
+    /// re-showing controls that are already visible.
+    private func rearmIdleHide() {
         idleHideTask?.cancel()
         idleHideTask = Task { @MainActor in
             try? await Task.sleep(for: Self.idleTimeout)
@@ -342,6 +351,16 @@ struct MiniPlayerView: View {
                 } else {
                     model.seek(toSeconds: scrubPosition)
                     isScrubbing = false
+                    // The idle-hide task that fired during the drag bailed out
+                    // on the `!isScrubbing` guard, so nothing is scheduled to
+                    // dismiss the overlay anymore. If the pointer is still
+                    // inside but the user has stopped moving it (released the
+                    // scrub thumb in place, no fresh `onContinuousHover`), the
+                    // overlay would otherwise stay up forever. Re-arm the timer
+                    // here so a still cursor after a scrub still auto-hides.
+                    if isHovering {
+                        rearmIdleHide()
+                    }
                 }
             }
         )
