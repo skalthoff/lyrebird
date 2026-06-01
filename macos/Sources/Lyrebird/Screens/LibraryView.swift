@@ -76,6 +76,11 @@ struct LibraryView: View {
     /// drives this. Defaults to alphabetical to match the order the server
     /// returns by default (`SortName` ascending).
     @State private var sortOrder: LibrarySortOrder = .nameAscending
+    /// Active client-side filter applied to the loaded library arrays before
+    /// sorting. Edited via the filter popover in the header. See #214.
+    @State private var filter = LibraryFilter()
+    /// Drives the filter popover's presentation. Anchored to the filter icon.
+    @State private var showFilter = false
 
     private let columns = [GridItem(.adaptive(minimum: 180, maximum: 220), spacing: 18)]
 
@@ -152,9 +157,56 @@ struct LibraryView: View {
             }
             Spacer()
             HStack(spacing: 8) {
+                filterButton
                 LibrarySortMenu(selection: $sortOrder)
                 LibraryViewToggle(mode: $viewMode)
             }
+        }
+    }
+
+    /// Filter icon that opens the 280pt filter popover. Carries a 10pt pink
+    /// dot when at least one filter group is active. See #214 / screen spec
+    /// Issue 15.
+    private var filterButton: some View {
+        Button {
+            showFilter = true
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(filter.isActive ? Theme.ink : Theme.ink2)
+                .frame(width: 30, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Theme.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Theme.border, lineWidth: 1)
+                        )
+                )
+                .overlay(alignment: .topTrailing) {
+                    if filter.isActive {
+                        Circle()
+                            .fill(Theme.accentHot)
+                            .frame(width: 10, height: 10)
+                            .offset(x: 3, y: -3)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Filter library")
+        .accessibilityValue(
+            filter.isActive
+                ? "\(filter.activeGroupCount) filters active"
+                : "No filters"
+        )
+        .popover(isPresented: $showFilter, arrowEdge: .bottom) {
+            LibraryFilterPopover(
+                filter: $filter,
+                availableGenres: availableGenres,
+                yearBounds: yearBounds,
+                showDownloaded: model.supportsDownloads,
+                onClose: { showFilter = false }
+            )
         }
     }
 
@@ -435,9 +487,114 @@ struct LibraryView: View {
         .background(Theme.bg)
     }
 
+    // MARK: - Filter
+
+    /// Genre names found across the loaded library, deduped and sorted A–Z.
+    /// Pulled from whichever item arrays are populated so the genre checklist
+    /// reflects what's actually loaded (the same paged-cache scope the rest of
+    /// the filter operates on). See #214.
+    private var availableGenres: [String] {
+        var set = Set<String>()
+        for album in model.albums { set.formUnion(album.genres) }
+        for artist in model.artists { set.formUnion(artist.genres) }
+        let cleaned = set
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return Array(Set(cleaned)).sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+    }
+
+    /// Release-year bounds discovered across loaded albums + tracks. `nil`
+    /// when nothing carries a year, which hides the year group entirely.
+    private var yearBounds: ClosedRange<Int>? {
+        var years: [Int] = []
+        years.append(contentsOf: model.albums.compactMap { $0.year.map(Int.init) })
+        years.append(contentsOf: model.tracks.compactMap { $0.year.map(Int.init) })
+        let valid = years.filter { $0 > 0 }
+        guard let lo = valid.min(), let hi = valid.max(), lo < hi else { return nil }
+        return lo...hi
+    }
+
+    /// Whether an album passes the active filter. Genre, year, and favorited
+    /// apply to albums; format and duration are track-level and never exclude
+    /// an album. Downloaded is a no-op until the download engine lands.
+    private func passesFilter(_ album: Album) -> Bool {
+        if !filter.genres.isEmpty,
+            filter.genres.isDisjoint(with: Set(album.genres)) {
+            return false
+        }
+        if let range = filter.yearRange {
+            guard let year = album.year.map(Int.init), range.contains(year) else {
+                return false
+            }
+        }
+        if filter.onlyFavorited, !model.isFavorite(album: album) { return false }
+        return true
+    }
+
+    /// Whether an artist passes the active filter. Only genre and favorited
+    /// apply to artists; year/format/duration are not artist-level.
+    private func passesFilter(_ artist: Artist) -> Bool {
+        if !filter.genres.isEmpty,
+            filter.genres.isDisjoint(with: Set(artist.genres)) {
+            return false
+        }
+        if filter.onlyFavorited, !model.isFavorite(artist: artist) { return false }
+        return true
+    }
+
+    /// Whether a track passes the active filter. Tracks carry every filter
+    /// dimension except genre (not projected on the track payload), so genre
+    /// is skipped here.
+    private func passesFilter(_ track: Track) -> Bool {
+        if let range = filter.yearRange {
+            guard let year = track.year.map(Int.init), range.contains(year) else {
+                return false
+            }
+        }
+        if filter.onlyFavorited, !model.isFavorite(track: track) { return false }
+        if !filter.formats.isEmpty {
+            guard filter.formats.contains(where: { $0.matches(container: track.container) })
+            else { return false }
+        }
+        if !filter.durations.isEmpty {
+            let seconds = Double(track.runtimeTicks) / 10_000_000
+            guard filter.durations.contains(where: { $0.matches(seconds: seconds) })
+            else { return false }
+        }
+        return true
+    }
+
+    /// Whether a playlist passes the active filter. Only favorited applies.
+    private func passesFilter(_ playlist: Playlist) -> Bool {
+        if filter.onlyFavorited, !model.isFavorite(playlist: playlist) { return false }
+        return true
+    }
+
     // MARK: - Sort
 
-    /// `model.albums` re-ordered for the current `sortOrder`. The underlying
+    /// Loaded arrays narrowed to the active filter. Sorting operates on these
+    /// so the displayed list is `filter → sort`; the raw `model.X` arrays stay
+    /// untouched so pagination accounting (`loaded` vs `total`) is unaffected.
+    /// When no filter is active these return the full arrays unchanged.
+    private var filteredAlbums: [Album] {
+        filter.isActive ? model.albums.filter(passesFilter) : model.albums
+    }
+
+    private var filteredArtists: [Artist] {
+        filter.isActive ? model.artists.filter(passesFilter) : model.artists
+    }
+
+    private var filteredTracks: [Track] {
+        filter.isActive ? model.tracks.filter(passesFilter) : model.tracks
+    }
+
+    private var filteredPlaylists: [Playlist] {
+        filter.isActive ? model.playlists.filter(passesFilter) : model.playlists
+    }
+
+    /// `filteredAlbums` re-ordered for the current `sortOrder`. The underlying
     /// model array is left untouched so pagination accounting (`loaded` vs
     /// `total`, threshold math) keeps working unchanged. Sort keys that
     /// don't apply to albums (`mostPlayed` for an album with no
@@ -447,11 +604,11 @@ struct LibraryView: View {
     private var sortedAlbums: [Album] {
         switch sortOrder {
         case .nameAscending:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         case .nameDescending:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
         case .recentlyAdded:
@@ -459,9 +616,9 @@ struct LibraryView: View {
             // preserve the server's load order (which is `SortName` asc by
             // default). Acts as a no-op fallback rather than a misleading
             // "newest first" promise.
-            return model.albums
+            return filteredAlbums
         case .recentlyPlayed:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 let lhsDate = lhs.userData?.lastPlayedAt ?? ""
                 let rhsDate = rhs.userData?.lastPlayedAt ?? ""
                 if lhsDate == rhsDate {
@@ -470,7 +627,7 @@ struct LibraryView: View {
                 return lhsDate > rhsDate
             }
         case .mostPlayed:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 let lhsCount = lhs.userData?.playCount ?? 0
                 let rhsCount = rhs.userData?.playCount ?? 0
                 if lhsCount == rhsCount {
@@ -479,21 +636,21 @@ struct LibraryView: View {
                 return lhsCount > rhsCount
             }
         case .longest:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks > rhs.runtimeTicks
             }
         case .shortest:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks < rhs.runtimeTicks
             }
         case .yearAscending:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 let lhsYear = lhs.year ?? Int32.max
                 let rhsYear = rhs.year ?? Int32.max
                 if lhsYear == rhsYear {
@@ -502,7 +659,7 @@ struct LibraryView: View {
                 return lhsYear < rhsYear
             }
         case .yearDescending:
-            return model.albums.sorted { lhs, rhs in
+            return filteredAlbums.sorted { lhs, rhs in
                 let lhsYear = lhs.year ?? Int32.min
                 let rhsYear = rhs.year ?? Int32.min
                 if lhsYear == rhsYear {
@@ -519,11 +676,11 @@ struct LibraryView: View {
     private var sortedArtists: [Artist] {
         switch sortOrder {
         case .nameDescending:
-            return model.artists.sorted { lhs, rhs in
+            return filteredArtists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
         case .recentlyPlayed:
-            return model.artists.sorted { lhs, rhs in
+            return filteredArtists.sorted { lhs, rhs in
                 let lhsDate = lhs.userData?.lastPlayedAt ?? ""
                 let rhsDate = rhs.userData?.lastPlayedAt ?? ""
                 if lhsDate == rhsDate {
@@ -532,7 +689,7 @@ struct LibraryView: View {
                 return lhsDate > rhsDate
             }
         case .mostPlayed:
-            return model.artists.sorted { lhs, rhs in
+            return filteredArtists.sorted { lhs, rhs in
                 let lhsCount = lhs.userData?.playCount ?? 0
                 let rhsCount = rhs.userData?.playCount ?? 0
                 if lhsCount == rhsCount {
@@ -542,10 +699,10 @@ struct LibraryView: View {
             }
         case .recentlyAdded:
             // No per-item date on the artist payload — keep server order.
-            return model.artists
+            return filteredArtists
         case .nameAscending, .longest, .shortest, .yearAscending, .yearDescending:
             // Year and runtime aren't carried for artists; treat as alpha asc.
-            return model.artists.sorted { lhs, rhs in
+            return filteredArtists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
@@ -557,17 +714,17 @@ struct LibraryView: View {
     private var sortedTracks: [Track] {
         switch sortOrder {
         case .nameAscending:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         case .nameDescending:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
         case .recentlyAdded:
-            return model.tracks
+            return filteredTracks
         case .recentlyPlayed:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 let lhsDate = lhs.userData?.lastPlayedAt ?? ""
                 let rhsDate = rhs.userData?.lastPlayedAt ?? ""
                 if lhsDate == rhsDate {
@@ -576,28 +733,28 @@ struct LibraryView: View {
                 return lhsDate > rhsDate
             }
         case .mostPlayed:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 if lhs.playCount == rhs.playCount {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.playCount > rhs.playCount
             }
         case .longest:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks > rhs.runtimeTicks
             }
         case .shortest:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks < rhs.runtimeTicks
             }
         case .yearAscending:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 let lhsYear = lhs.year ?? Int32.max
                 let rhsYear = rhs.year ?? Int32.max
                 if lhsYear == rhsYear {
@@ -606,7 +763,7 @@ struct LibraryView: View {
                 return lhsYear < rhsYear
             }
         case .yearDescending:
-            return model.tracks.sorted { lhs, rhs in
+            return filteredTracks.sorted { lhs, rhs in
                 let lhsYear = lhs.year ?? Int32.min
                 let rhsYear = rhs.year ?? Int32.min
                 if lhsYear == rhsYear {
@@ -623,27 +780,27 @@ struct LibraryView: View {
     private var sortedPlaylists: [Playlist] {
         switch sortOrder {
         case .nameDescending:
-            return model.playlists.sorted { lhs, rhs in
+            return filteredPlaylists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
             }
         case .longest:
-            return model.playlists.sorted { lhs, rhs in
+            return filteredPlaylists.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks > rhs.runtimeTicks
             }
         case .shortest:
-            return model.playlists.sorted { lhs, rhs in
+            return filteredPlaylists.sorted { lhs, rhs in
                 if lhs.runtimeTicks == rhs.runtimeTicks {
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 }
                 return lhs.runtimeTicks < rhs.runtimeTicks
             }
         case .recentlyAdded:
-            return model.playlists
+            return filteredPlaylists
         case .nameAscending, .recentlyPlayed, .mostPlayed, .yearAscending, .yearDescending:
-            return model.playlists.sorted { lhs, rhs in
+            return filteredPlaylists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
