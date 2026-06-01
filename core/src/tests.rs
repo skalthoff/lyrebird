@@ -1882,7 +1882,8 @@ async fn user_playlists_returns_every_playlist_in_library_view() {
         .and(query_param("IncludeItemTypes", "Playlist"))
         .and(query_param("Limit", "20"))
         .and(query_param("StartIndex", "5"))
-        .and(query_param("Fields", "ChildCount,Path"))
+        .and(query_param("Fields", "ChildCount,Path,UserData"))
+        .and(query_param("EnableUserData", "true"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "Items": [
                 {
@@ -1890,7 +1891,8 @@ async fn user_playlists_returns_every_playlist_in_library_view() {
                     "ChildCount": 12,
                     "RunTimeTicks": 42_000_000_000u64,
                     "Path": "/config/data/users/u1/playlists/my-mix",
-                    "ImageTags": { "Primary": "tag-1" }
+                    "ImageTags": { "Primary": "tag-1" },
+                    "UserData": { "IsFavorite": true }
                 },
                 {
                     "Id": "p2", "Name": "Community Top 40", "Type": "Playlist",
@@ -1921,9 +1923,15 @@ async fn user_playlists_returns_every_playlist_in_library_view() {
     assert_eq!(page.items[0].name, "My Mix");
     assert_eq!(page.items[0].track_count, 12);
     assert_eq!(page.items[0].image_tag.as_deref(), Some("tag-1"));
+    assert_eq!(
+        page.items[0].user_data.as_ref().map(|u| u.is_favorite),
+        Some(true),
+        "UserData.IsFavorite must be carried through on the playlist"
+    );
     // Crucially, the non-`/data/`-path playlist is included.
     assert_eq!(page.items[1].id, "p2");
     assert_eq!(page.items[1].name, "Community Top 40");
+    assert!(page.items[1].user_data.is_none());
 }
 
 #[tokio::test]

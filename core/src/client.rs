@@ -866,8 +866,12 @@ impl JellyfinClient {
             q.append_pair("StartIndex", &paging.offset.to_string());
             q.append_pair(
                 "Fields",
-                &enums::csv(&[ItemField::ChildCount, ItemField::Path], ItemField::as_str),
+                &enums::csv(
+                    &[ItemField::ChildCount, ItemField::Path, ItemField::UserData],
+                    ItemField::as_str,
+                ),
             );
+            q.append_pair("EnableUserData", "true");
         }
         let resp = self
             .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
@@ -2822,12 +2826,14 @@ impl From<RawItem> for Album {
 
 impl From<RawItem> for Playlist {
     fn from(r: RawItem) -> Self {
+        let user_data = r.user_data.map(UserItemData::from);
         Playlist {
             id: r.id,
             name: r.name,
             track_count: r.child_count.unwrap_or(0),
             runtime_ticks: r.runtime_ticks,
             image_tag: r.image_tags.get("Primary").cloned(),
+            user_data,
         }
     }
 }
