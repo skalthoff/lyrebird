@@ -3,43 +3,161 @@ import SwiftUI
 
 /// Library preferences pane.
 ///
-/// Minimal shell today — two actions users ask for on every music app:
+/// Two halves:
+///
+/// **Browsing defaults.** Default sort for the Albums and Songs chips,
+/// whether numbered track rows show their ordinal, and whether a track's play
+/// count appears on hover. These write the `LibraryDefaults.*` keys that
+/// `LibraryView`, `Sidebar`, `TrackRow`, and `TrackListRow` read, so a change
+/// here reflects in the list views immediately. The default-library picker is
+/// surfaced but inert until the core grows a `libraries()` FFI — see the row's
+/// footnote and `AppModel.playlistLibraryId`'s note on the same gap.
+///
+/// **Sidebar sections.** Toggles for each optional "Your Library" row
+/// (Favorites / Albums / Artists / Playlists). All default on, so the sidebar
+/// is unchanged until the user hides something.
+///
+/// **Maintenance.** The original Rescan + artwork-cache controls are kept:
 ///
 /// 1. **Rescan Library**: re-pulls albums/artists/tracks from the server, the
-///    same way the Library tab does on pull-to-refresh. The button is wired
-///    to `AppModel.refreshLibrary()` so the action is real even though it's a
-///    shallow surface; the longer-horizon work tracked in `TODO(core-#569)`
-///    is a server-side metadata rescan trigger (`/Library/Refresh`).
-///
-/// 2. **Cache size + Clear Cache**: shows the current on-disk footprint of
-///    the Nuke artwork cache and lets the user nuke it. Artwork is the
-///    single biggest cache in the app (256 MB limit — see `Artwork.swift`),
-///    so a visible clear affordance is the pragmatic escape hatch when a
-///    user is tight on disk. Full cache sweeps (SDK caches, DB caches) land
-///    alongside the broader download-manager work.
+///    same way the Library tab does on pull-to-refresh, wired to
+///    `AppModel.refreshLibrary()`.
+/// 2. **Cache size + Clear Cache**: shows the on-disk footprint of the Nuke
+///    artwork cache and lets the user clear it.
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 71.
 struct PreferencesLibrary: View {
     @Environment(AppModel.self) private var model
 
+    // MARK: Browsing defaults
+
+    @AppStorage(LibraryDefaults.albumSortKey) private var defaultAlbumSort: LibrarySortOrder = .nameAscending
+    @AppStorage(LibraryDefaults.songSortKey) private var defaultSongSort: LibrarySortOrder = .nameAscending
+    @AppStorage(LibraryDefaults.showTrackNumbersKey) private var showTrackNumbers = true
+    @AppStorage(LibraryDefaults.showPlayCountOnHoverKey) private var showPlayCountOnHover = false
+
+    // MARK: Sidebar sections
+
+    @AppStorage(LibraryDefaults.sidebarShowFavoritesKey) private var sidebarShowFavorites = true
+    @AppStorage(LibraryDefaults.sidebarShowAlbumsKey) private var sidebarShowAlbums = true
+    @AppStorage(LibraryDefaults.sidebarShowArtistsKey) private var sidebarShowArtists = true
+    @AppStorage(LibraryDefaults.sidebarShowPlaylistsKey) private var sidebarShowPlaylists = true
+
+    // MARK: Maintenance state
+
     /// Human-readable representation of the artwork cache size. Refreshed
-    /// when the pane appears and after a clear. Initialised as a placeholder
-    /// so the text doesn't jump when the first read comes in.
+    /// when the pane appears and after a clear.
     @State private var cacheSizeLabel: String = "Calculating…"
 
     /// Toggles the "Rescanning…" label on the button while the refresh is in
-    /// flight. Scoped to this view so the Library tab's own spinner isn't
-    /// tied to the pane being visible.
+    /// flight.
     @State private var isRescanning: Bool = false
 
-    /// Set after a successful Clear Cache to acknowledge the action — the
-    /// label fades back to normal after a short pause so the button doesn't
-    /// stick in a confirmation state forever.
+    /// Set after a successful Clear Cache to acknowledge the action.
     @State private var justCleared: Bool = false
+
+    /// The sort options offered as a default, per the issue's spec
+    /// (Name / Artist / Year / Date Added / Play Count / Random). These map
+    /// onto the existing `LibrarySortOrder` cases the Library header already
+    /// understands, so a chosen default is a real, applied sort — not a
+    /// parallel taxonomy.
+    private let defaultSortChoices: [LibrarySortOrder] = [
+        .nameAscending, .artist, .yearDescending, .recentlyAdded, .mostPlayed, .random,
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
+
+            PreferenceSection(
+                title: "Default Library",
+                footnote: "Lyrebird browses every music library you can see. A picker appears here once the server exposes more than one — until then there's nothing to choose between."
+            ) {
+                PreferenceRow(
+                    label: "Library",
+                    help: "All music libraries on \(model.session?.server.name ?? "your server")."
+                ) {
+                    Picker("", selection: .constant(0)) {
+                        Text("All Libraries").tag(0)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 200)
+                    .disabled(true)
+                    .accessibilityLabel("Default library")
+                }
+            }
+
+            PreferenceSection(
+                title: "Default Sort",
+                footnote: "Applied the first time you open each list in a session. You can still change the sort from the Library header at any time."
+            ) {
+                PreferenceRow(
+                    label: "Albums",
+                    help: "How the Albums list is ordered when you first open it."
+                ) {
+                    SortDefaultPicker(selection: $defaultAlbumSort, choices: defaultSortChoices)
+                        .accessibilityLabel("Default album sort")
+                }
+
+                Divider()
+                    .background(Theme.border)
+                    .padding(.vertical, 10)
+
+                PreferenceRow(
+                    label: "Songs",
+                    help: "How the Songs list is ordered when you first open it."
+                ) {
+                    SortDefaultPicker(selection: $defaultSongSort, choices: defaultSortChoices)
+                        .accessibilityLabel("Default song sort")
+                }
+            }
+
+            PreferenceSection(
+                title: "Track Lists",
+                footnote: "Track numbers show as the leading column on album and playlist track rows. Play counts appear on the trailing edge when you hover a row."
+            ) {
+                PreferenceRow(
+                    label: "Show track numbers",
+                    help: showTrackNumbers
+                        ? "On — numbered rows show their position."
+                        : "Off — the number column is hidden."
+                ) {
+                    Toggle("", isOn: $showTrackNumbers)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityLabel("Show track numbers")
+                }
+
+                Divider()
+                    .background(Theme.border)
+                    .padding(.vertical, 10)
+
+                PreferenceRow(
+                    label: "Show play counts on hover",
+                    help: showPlayCountOnHover
+                        ? "On — hovering a track reveals how many times you've played it."
+                        : "Off — play counts stay hidden."
+                ) {
+                    Toggle("", isOn: $showPlayCountOnHover)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityLabel("Show play counts on hover")
+                }
+            }
+
+            PreferenceSection(
+                title: "Sidebar Sections",
+                footnote: "Choose which rows appear under \"Your Library\" in the sidebar. Hidden sections are still reachable from search and detail pages."
+            ) {
+                sidebarToggle(label: "Favorites", isOn: $sidebarShowFavorites)
+                divider
+                sidebarToggle(label: "Albums", isOn: $sidebarShowAlbums)
+                divider
+                sidebarToggle(label: "Artists", isOn: $sidebarShowArtists)
+                divider
+                sidebarToggle(label: "Playlists", isOn: $sidebarShowPlaylists)
+            }
 
             PreferenceSection(
                 title: "Refresh",
@@ -113,16 +231,36 @@ struct PreferencesLibrary: View {
             Text("Library")
                 .font(Theme.font(28, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
-            Text("Refresh server data and manage local caches.")
+            Text("Browsing defaults, sidebar sections, and local caches.")
                 .font(Theme.font(13, weight: .medium))
                 .foregroundStyle(Theme.ink3)
         }
     }
 
+    /// Shared divider used between rows inside a section.
+    private var divider: some View {
+        Divider()
+            .background(Theme.border)
+            .padding(.vertical, 10)
+    }
+
+    /// A single sidebar-section visibility toggle.
+    @ViewBuilder
+    private func sidebarToggle(label: String, isOn: Binding<Bool>) -> some View {
+        PreferenceRow(
+            label: label,
+            help: isOn.wrappedValue ? "Shown in the sidebar." : "Hidden from the sidebar."
+        ) {
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .accessibilityLabel("Show \(label) in sidebar")
+        }
+    }
+
     // MARK: - Actions
 
-    /// Kick off the same refresh the Library tab uses. The pane disables the
-    /// button while it's in flight so repeat taps don't fan out.
+    /// Kick off the same refresh the Library tab uses.
     private func rescan() {
         guard !isRescanning else { return }
         isRescanning = true
@@ -132,15 +270,10 @@ struct PreferencesLibrary: View {
         }
     }
 
-    /// Evict the shared Nuke pipeline's memory + disk caches. `cache.removeAll`
-    /// sweeps every layer (image memory, encoded-image memory, and disk data)
-    /// in one call — equivalent to removing each cache individually.
+    /// Evict the shared Nuke pipeline's memory + disk caches.
     private func clearCache() {
         Artwork.pipeline.cache.removeAll()
         justCleared = true
-        // Give Nuke's background queue a moment to flush before we re-read
-        // the footprint. 0.6s is generous — the NSCache eviction is instant,
-        // disk removal is a few milliseconds in practice.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             refreshCacheSize()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
@@ -150,20 +283,9 @@ struct PreferencesLibrary: View {
     }
 
     /// Read the artwork cache's current on-disk size and render it as
-    /// `4.3 MB` / `1.7 GB`. Uses `ByteCountFormatter` so the locale and unit
-    /// match every other size-of-thing in macOS.
-    ///
-    /// The pipeline's `dataCache` is typed as the `DataCaching` protocol so
-    /// callers can swap implementations; `totalSize` lives on the concrete
-    /// `Nuke.DataCache` Lyrebird actually uses (wired in
-    /// `Artwork.pipeline`). A failed downcast means someone swapped the
-    /// cache implementation, so we fall back to a dash rather than a zero.
-    ///
-    /// `totalSize` walks the cache index (read-after-index is O(n) on the
-    /// count of entries, not the bytes), so wrapping the read in a Task keeps
-    /// the view's first paint snappy even with a full 256 MB cache. The Task
-    /// stays on the main actor because `Artwork.pipeline` and `DataCache` are
-    /// both main-actor isolated in this module.
+    /// `4.3 MB` / `1.7 GB`. Wrapped in a Task so the index walk doesn't
+    /// block first paint. Stays on the main actor because `Artwork.pipeline`
+    /// and `DataCache` are both main-actor isolated in this module.
     private func refreshCacheSize() {
         Task { @MainActor in
             let cache = Artwork.pipeline.configuration.dataCache as? DataCache
@@ -176,6 +298,26 @@ struct PreferencesLibrary: View {
             }()
             cacheSizeLabel = label
         }
+    }
+}
+
+/// Menu picker for a default `LibrarySortOrder`. Renders only the curated
+/// `choices` (Name / Artist / Year / Date Added / Play Count / Random) so the
+/// default-sort menu stays a short, spec-shaped list rather than exposing all
+/// nine header sort modes.
+private struct SortDefaultPicker: View {
+    @Binding var selection: LibrarySortOrder
+    let choices: [LibrarySortOrder]
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(choices) { option in
+                Text(option.label).tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(width: 160)
     }
 }
 

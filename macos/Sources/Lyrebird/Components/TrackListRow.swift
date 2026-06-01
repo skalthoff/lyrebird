@@ -63,6 +63,10 @@ struct TrackListRow: View {
     /// keep their current look.
     var density: AppearanceDensity = .roomy
     @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
+    // Reveal a track's play count on hover when the user opts in. The
+    // Tracks tab has no number column, so the track-numbers toggle doesn't
+    // apply here — only play-count-on-hover does.
+    @AppStorage(LibraryDefaults.showPlayCountOnHoverKey) private var showPlayCountOnHover = false
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
@@ -293,6 +297,15 @@ struct TrackListRow: View {
                 })
             }
 
+            if showPlayCountOnHover, isHovering, track.playCount > 0 {
+                Text(playCountLabel)
+                    .font(Theme.font(11, weight: .medium))
+                    .foregroundStyle(Theme.ink3)
+                    .monospacedDigit()
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
+            }
+
             Text(track.durationFormatted)
                 .font(Theme.font(12, weight: .medium))
                 .foregroundStyle(Theme.ink3)
@@ -311,6 +324,12 @@ struct TrackListRow: View {
         if isFocused { return Theme.rowHover }
         if isHovering { return Theme.rowHover }
         return .clear
+    }
+
+    /// "1 play" / "12 plays" readout shown on hover when the user enables
+    /// "Show play counts on hover".
+    private var playCountLabel: String {
+        track.playCount == 1 ? "1 play" : "\(track.playCount) plays"
     }
 
     /// Advance the focused row by `delta` (+1 for down, -1 for up) inside

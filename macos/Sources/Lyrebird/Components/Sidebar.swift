@@ -17,6 +17,14 @@ struct Sidebar: View {
     /// nothing is hovered.
     @State private var hoveredPlaylistId: String?
 
+    // User-toggleable "Your Library" sections. Each defaults to on so
+    // the sidebar looks unchanged until the user hides a row in
+    // Preferences → Library. Keys live in `LibraryDefaults`.
+    @AppStorage(LibraryDefaults.sidebarShowFavoritesKey) private var showFavorites = true
+    @AppStorage(LibraryDefaults.sidebarShowAlbumsKey) private var showAlbums = true
+    @AppStorage(LibraryDefaults.sidebarShowArtistsKey) private var showArtists = true
+    @AppStorage(LibraryDefaults.sidebarShowPlaylistsKey) private var showPlaylists = true
+
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
@@ -61,21 +69,35 @@ struct Sidebar: View {
             // Stats header. Keep the aggregate "Albums / Artists / Playlists"
             // summary rows above the playlist list so the count glance stays
             // in place; the playlist list lives as its own section below.
-            sectionHeader("sidebar.section.your_library")
-            VStack(alignment: .leading, spacing: 2) {
-                favoritesRow
-                libRow("square.stack", label: "sidebar.stats.albums", count: model.albumsTotal, tab: .albums)
-                libRow("person.crop.circle", label: "sidebar.stats.artists", count: model.artistsTotal, tab: .artists)
-                libRow("music.note.list", label: "sidebar.stats.playlists", count: UInt32(model.playlists.count), tab: .playlists)
+            // The whole "Your Library" stats block is hidden when the
+            // user has switched every section off, so the header doesn't
+            // float over an empty gap.
+            if showFavorites || showAlbums || showArtists || showPlaylists {
+                sectionHeader("sidebar.section.your_library")
+                VStack(alignment: .leading, spacing: 2) {
+                    if showFavorites { favoritesRow }
+                    if showAlbums {
+                        libRow("square.stack", label: "sidebar.stats.albums", count: model.albumsTotal, tab: .albums)
+                    }
+                    if showArtists {
+                        libRow("person.crop.circle", label: "sidebar.stats.artists", count: model.artistsTotal, tab: .artists)
+                    }
+                    if showPlaylists {
+                        libRow("music.note.list", label: "sidebar.stats.playlists", count: UInt32(model.playlists.count), tab: .playlists)
+                    }
+                }
+                .padding(.horizontal, 10)
             }
-            .padding(.horizontal, 10)
 
             // Playlist list — scrolls independently if the user has a long
             // library. Capped to a reasonable chunk of sidebar height so
-            // the server footer stays anchored at the bottom.
-            playlistsSection
-                .padding(.horizontal, 10)
-                .padding(.top, 6)
+            // the server footer stays anchored at the bottom. Hidden with the
+            // Playlists section toggle.
+            if showPlaylists {
+                playlistsSection
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+            }
 
             Spacer(minLength: 0)
 

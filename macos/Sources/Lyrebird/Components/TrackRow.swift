@@ -35,6 +35,10 @@ struct TrackRow: View {
     var playlistScope: Playlist? = nil
 
     @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
+    // Library preferences. Track numbers default on; play-count-on-hover
+    // defaults off so the row stays clean until the user opts in.
+    @AppStorage(LibraryDefaults.showTrackNumbersKey) private var showTrackNumbers = true
+    @AppStorage(LibraryDefaults.showPlayCountOnHoverKey) private var showPlayCountOnHover = false
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
@@ -58,7 +62,10 @@ struct TrackRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Number / play button / equalizer
+            // Number / play button / equalizer. When the user hides track
+            // numbers the static ordinal disappears but the play /
+            // equalizer affordances stay — and the column keeps its width so
+            // every row's title still aligns.
             ZStack {
                 if isPlaying {
                     EqualizerIcon()
@@ -67,7 +74,7 @@ struct TrackRow: View {
                     Image(systemName: "play.fill")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.ink)
-                } else {
+                } else if showTrackNumbers {
                     Text("\(number)")
                         .font(Theme.font(12, weight: .medium))
                         .foregroundStyle(isActive ? Theme.accent : Theme.ink3)
@@ -109,6 +116,15 @@ struct TrackRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isFav ? "Unfavorite" : "Favorite")
+            }
+
+            if showPlayCountOnHover, isHovering, track.playCount > 0 {
+                Text(playCountLabel)
+                    .font(Theme.font(11, weight: .medium))
+                    .foregroundStyle(Theme.ink3)
+                    .monospacedDigit()
+                    .transition(.opacity)
+                    .accessibilityHidden(true)
             }
 
             Text(track.durationFormatted)
@@ -181,6 +197,12 @@ struct TrackRow: View {
         if isFocused { return Theme.rowHover }
         if isHovering { return Theme.rowHover }
         return .clear
+    }
+
+    /// "1 play" / "12 plays" readout shown on hover when the user enables
+    /// "Show play counts on hover". Matches `TopTrackRow`'s wording.
+    private var playCountLabel: String {
+        track.playCount == 1 ? "1 play" : "\(track.playCount) plays"
     }
 
     /// Move focus by `delta` within `siblings`. No-op when siblings wasn't
