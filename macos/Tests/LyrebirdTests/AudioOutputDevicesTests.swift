@@ -2,7 +2,7 @@ import XCTest
 @testable import LyrebirdAudio
 
 /// Unit coverage for the Core Audio output-device enumeration + UID
-/// resolution that backs the Preferences output-device picker (#262).
+/// resolution that backs the Preferences output-device picker.
 ///
 /// These don't assume any particular device is present (CI runners may have
 /// none): they verify the contract that holds regardless of hardware —

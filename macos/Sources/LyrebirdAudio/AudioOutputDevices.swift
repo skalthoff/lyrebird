@@ -10,7 +10,7 @@ private let deviceLog = Logger(subsystem: "org.lyrebird.desktop", category: "aud
 /// — it survives reboots and reconnects, unlike the transient `AudioDeviceID`.
 /// We persist `uid` and resolve it back to a live `AudioDeviceID` at playback
 /// time so a device that's currently unplugged simply falls back to the system
-/// default instead of breaking playback. See issue #262.
+/// default instead of breaking playback.
 public struct AudioOutputDevice: Identifiable, Hashable, Sendable {
     /// `kAudioDevicePropertyDeviceUID` — stable across reboots/reconnects.
     public let uid: String
@@ -72,7 +72,7 @@ public enum AudioOutputDevices {
     public static let exclusiveModePreferenceKey = "audio.exclusiveMode"
 
     /// Acquire or release exclusive (hog) access to the device identified by
-    /// `uid` (#262). Exclusive mode hands the device to this process so the
+    /// `uid`. Exclusive mode hands the device to this process so the
     /// hardware can run at the stream's native sample rate without the system
     /// mixer's resampling — the "bit-perfect"/lossless path audiophiles want.
     ///
@@ -184,7 +184,7 @@ public enum AudioOutputDevices {
     }
 }
 
-/// Failures surfaced by the output-device routing layer (#262).
+/// Failures surfaced by the output-device routing layer.
 public enum AudioOutputDeviceError: LocalizedError {
     /// The persisted device UID no longer maps to a present device.
     case deviceUnavailable

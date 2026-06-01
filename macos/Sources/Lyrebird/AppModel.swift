@@ -841,7 +841,7 @@ final class AppModel {
         self.mediaSession.attach(delegate: self)
         self.audio.mediaSession = self.mediaSession
         self.audio.delegate = self
-        // Seed the engine with the persisted output-device selection (#262)
+        // Seed the engine with the persisted output-device selection
         // so the first track honours it without waiting for the Preferences
         // pane to mount. An empty/absent value means "follow system default".
         let savedDeviceUID = UserDefaults.standard.string(forKey: AudioOutputDevices.preferenceKey) ?? ""
@@ -4716,12 +4716,13 @@ final class AppModel {
 
     func setVolume(_ v: Float) { audio.setVolume(v) }
 
-    // MARK: - Output device routing (#262)
+    // MARK: - Output device routing
 
     /// Select the Core Audio output device playback routes to. Persists the
     /// UID and re-pins the live + future players. An empty UID means "follow
     /// the system default". If exclusive mode is on, the hog claim is moved to
-    /// the newly-selected device (and released from the old one).
+    /// the newly-selected device (and released from the old one); a failure to
+    /// release the old claim or acquire the new one surfaces via `errorMessage`.
     func setOutputDevice(uid: String) {
         let previousUID = UserDefaults.standard.string(forKey: AudioOutputDevices.preferenceKey) ?? ""
         UserDefaults.standard.set(uid, forKey: AudioOutputDevices.preferenceKey)
@@ -4733,9 +4734,22 @@ final class AppModel {
         let exclusive = UserDefaults.standard.bool(forKey: AudioOutputDevices.exclusiveModePreferenceKey)
         guard exclusive else { return }
         Task.detached {
-            try? AudioOutputDevices.setExclusiveMode(false, forUID: previousUID)
+            // Release the old device's hog claim. A failure here can leave the
+            // previous device permanently hogged, so surface it instead of
+            // swallowing it — but still attempt to claim the new device.
+            var releaseError: Error?
+            do {
+                try AudioOutputDevices.setExclusiveMode(false, forUID: previousUID)
+            } catch {
+                releaseError = error
+            }
             do {
                 try AudioOutputDevices.setExclusiveMode(true, forUID: uid)
+                if let releaseError {
+                    await MainActor.run {
+                        self.errorMessage = releaseError.localizedDescription
+                    }
+                }
             } catch {
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription

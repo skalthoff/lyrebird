@@ -151,7 +151,7 @@ public final class AudioEngine: NSObject {
     /// Held weakly — the owner (`AppModel`) has the strong reference.
     public weak var delegate: AudioEngineDelegate?
 
-    /// UID of the Core Audio output device playback is pinned to (#262).
+    /// UID of the Core Audio output device playback is pinned to.
     /// `nil` / empty means "follow the system default output". Persisted by
     /// the owner via `@AppStorage(AudioOutputDevices.preferenceKey)`; set it
     /// once at startup and again whenever the Preferences picker changes — the
@@ -309,7 +309,7 @@ public final class AudioEngine: NSObject {
     }
 
     /// Pin (or unpin) the given player to the selected Core Audio output
-    /// device (#262). An empty / unknown UID clears the override so playback
+    /// device. An empty / unknown UID clears the override so playback
     /// follows the system default — the graceful fallback for an unplugged
     /// device. `AVPlayer.audioOutputDeviceUniqueID` is macOS-only and the
     /// correct knob here (`AVAudioSession` is iOS-only; see the file-level
@@ -359,7 +359,7 @@ public final class AudioEngine: NSObject {
         let newPlayer = AVQueuePlayer(items: [item])
         newPlayer.automaticallyWaitsToMinimizeStalling = true
         // Pin the new player to the user's chosen output device before it
-        // starts pumping audio (#262). No-ops to the system default when no
+        // starts pumping audio. No-ops to the system default when no
         // device is selected or the saved one is gone.
         self.player = newPlayer
         applyOutputDevice(to: newPlayer)
