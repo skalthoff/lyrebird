@@ -62,7 +62,7 @@ public protocol AudioEngineDelegate: AnyObject {
     /// and restarted playback. Because the rebuild swaps the item in via
     /// `replaceCurrentItem`, any pre-loaded next-track item is dropped from
     /// the `AVQueuePlayer` queue. The owner should re-arm gapless playback
-    /// by calling `preloadNextTrack` for the upcoming track. See issue #812.
+    /// by calling `preloadNextTrack` for the upcoming track.
     func audioEngineDidRecover()
 }
 
@@ -72,7 +72,7 @@ public extension AudioEngineDelegate {
     func audioEngineDidEncounterTransientError(_ message: String) {}
 
     /// Default no-op so existing conformers don't have to implement the
-    /// new recovery hook to compile (#812).
+    /// new recovery hook to compile.
     func audioEngineDidRecover() {}
 }
 
@@ -178,7 +178,7 @@ public final class AudioEngine: NSObject {
 
     /// Test seam: drive the stall-recovery rebuild directly so the
     /// `audioEngineDidRecover()` delegate hook can be verified without a
-    /// live stall (#812).
+    /// live stall.
     func recoverFromStallForTesting(url: URL) {
         guard let player else { return }
         recoverFromStall(player: player, url: url)
@@ -835,7 +835,7 @@ public final class AudioEngine: NSObject {
     /// `AVQueuePlayer` inherits `replaceCurrentItem` from `AVPlayer`, so this
     /// call drops any pre-loaded next-item from the queue. After restarting
     /// playback the engine fires `audioEngineDidRecover()` so the owner can
-    /// re-arm gapless playback via `preloadNextTrack` (#812).
+    /// re-arm gapless playback via `preloadNextTrack`.
     private func recoverFromStall(player: AVQueuePlayer, url: URL) {
         let options: [String: Any]
         if let header = currentAuthHeader {

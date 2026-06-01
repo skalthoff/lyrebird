@@ -70,7 +70,7 @@ final class AudioEnginePreloadTests: XCTestCase {
     /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
     /// which drops any pre-loaded next-track item. The owner needs a
     /// post-recovery signal to re-arm gapless playback, so `recoverFromStall`
-    /// must fire `audioEngineDidRecover()` after restarting playback (#812).
+    /// must fire `audioEngineDidRecover()` after restarting playback.
     func testStallRecoveryFiresDidRecoverDelegate() throws {
         let engine = try makeEngine()
         let spy = RecoverySpy()
