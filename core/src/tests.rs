@@ -7737,3 +7737,44 @@ async fn suggestions_rejects_non_audio_items() {
     assert_eq!(tracks[0].id, "t1");
     assert_eq!(tracks[0].name, "Real Track");
 }
+
+#[tokio::test]
+async fn playback_info_parses_negative_bitrate_sentinel() {
+    use crate::models::PlaybackInfoOpts;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/Items/flac-xyz/PlaybackInfo"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "MediaSources": [
+                {
+                    "Id": "src-1",
+                    "Container": "flac",
+                    "Bitrate": -1000,
+                    "SupportsDirectPlay": true
+                }
+            ],
+            "PlaySessionId": "play-session-flac"
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let resp = client
+        .playback_info("flac-xyz", PlaybackInfoOpts::default())
+        .await
+        .unwrap();
+
+    assert_eq!(resp.play_session_id.as_deref(), Some("play-session-flac"));
+    assert_eq!(resp.media_sources.len(), 1);
+    assert_eq!(resp.media_sources[0].bitrate, Some(-1000));
+}

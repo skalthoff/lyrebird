@@ -350,7 +350,7 @@ struct NowPlayingView: View {
         count == 1 ? "1 play" : "\(count) plays"
     }
 
-    private func formatBitrate(_ bitrate: UInt32) -> String {
+    private func formatBitrate(_ bitrate: Int64) -> String {
         let kbps = Int(bitrate) / 1000
         return "\(kbps) kbps"
     }

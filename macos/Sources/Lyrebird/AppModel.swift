@@ -2019,8 +2019,8 @@ final class AppModel {
             return 0
         }()
         let container = (entry["Container"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        let bitrate: UInt32? = {
-            if let b = entry["Bitrate"] as? Int, b > 0 { return UInt32(b) }
+        let bitrate: Int64? = {
+            if let b = entry["Bitrate"] as? Int, b > 0 { return Int64(b) }
             return nil
         }()
         let imageTag: String? = {

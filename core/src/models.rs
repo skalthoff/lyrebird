@@ -76,7 +76,7 @@ pub struct Track {
     /// See [`Self::is_favorite`].
     pub play_count: u32,
     pub container: Option<String>,
-    pub bitrate: Option<u32>,
+    pub bitrate: Option<i64>,
     pub image_tag: Option<String>,
     /// Jellyfin `PlaylistItemId` — only populated when the track was fetched
     /// as part of a playlist (via `playlist_tracks`). Used by
@@ -545,7 +545,7 @@ pub struct MediaSourceInfo {
     #[serde(default)]
     pub container: Option<String>,
     #[serde(default)]
-    pub bitrate: Option<u32>,
+    pub bitrate: Option<i64>,
     #[serde(default)]
     pub size: Option<i64>,
     #[serde(default)]

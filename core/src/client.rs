@@ -2632,7 +2632,7 @@ pub struct RawItem {
     #[serde(rename = "Container")]
     pub container: Option<String>,
     #[serde(rename = "Bitrate")]
-    pub bitrate: Option<u32>,
+    pub bitrate: Option<i64>,
     #[serde(rename = "Path")]
     pub path: Option<String>,
     #[serde(rename = "PlaylistItemId")]
