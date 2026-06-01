@@ -4253,6 +4253,28 @@ final class AppModel {
         playInstantMix(seedId: track.id)
     }
 
+    /// Routing for the Discover-screen "Song Radio" CTA (#255), split out from
+    /// the SwiftUI closure so the seed-source decision is unit-testable.
+    /// Returns the action it dispatched so tests can assert the branch without
+    /// reaching into the FFI: `.songRadio` when a track is playing, `.instantMix`
+    /// when nothing is, which leans on `startInstantMix`'s own library fallback
+    /// rather than dead-ending the button.
+    @discardableResult
+    func startDiscoverSongRadio() -> SongRadioRoute {
+        if let current = status.currentTrack {
+            startSongRadio(track: current)
+            return .songRadio
+        }
+        startInstantMix()
+        return .instantMix
+    }
+
+    /// Which seed source `startDiscoverSongRadio()` dispatched to.
+    enum SongRadioRoute: Equatable {
+        case songRadio
+        case instantMix
+    }
+
     /// Append a selection of tracks to a user-picked playlist.
     /// Route-through to the async `addToPlaylist(trackIds:playlistId:)`
     /// so every context menu **Add to Playlist** entry actually hits the
