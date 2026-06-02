@@ -1237,6 +1237,78 @@
         }
       }
     },
+    "menu_bar.now_playing.label" : {
+      "comment" : "Accessibility label for the menu-bar Now Playing status item.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Now Playing"
+          }
+        }
+      }
+    },
+    "menu_bar.now_playing.next" : {
+      "comment" : "Accessibility label for the menu-bar Now Playing next button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        }
+      }
+    },
+    "menu_bar.now_playing.open" : {
+      "comment" : "Button in the menu-bar Now Playing panel that focuses the main Lyrebird window.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Lyrebird"
+          }
+        }
+      }
+    },
+    "menu_bar.now_playing.pause" : {
+      "comment" : "Accessibility label for the menu-bar Now Playing pause button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause"
+          }
+        }
+      }
+    },
+    "menu_bar.now_playing.play" : {
+      "comment" : "Accessibility label for the menu-bar Now Playing play button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play"
+          }
+        }
+      }
+    },
+    "menu_bar.now_playing.previous" : {
+      "comment" : "Accessibility label for the menu-bar Now Playing previous button.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous"
+          }
+        }
+      }
+    },
     "mini_player.window.title" : {
       "comment" : "Window title for the detached Mini Player (not shown — the window is borderless — but used by the window list / accessibility).",
       "extractionState" : "manual",
