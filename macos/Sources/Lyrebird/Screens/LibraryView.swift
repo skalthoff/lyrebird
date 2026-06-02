@@ -166,9 +166,16 @@ struct LibraryView: View {
         .onAppear {
             selectedTab = model.libraryTab
             applyDefaultSort(for: selectedTab)
+            applyPendingDecadeFilter()
         }
         .onChange(of: model.libraryTab) { _, newValue in
             selectedTab = newValue
+        }
+        // A decade tile tapped while the Library is already on screen flips
+        // `pendingLibraryYearRange` without re-running `.onAppear`; pick it up
+        // here so the year filter still lands.
+        .onChange(of: model.pendingLibraryYearRange) { _, _ in
+            applyPendingDecadeFilter()
         }
         .onChange(of: selectedTab) { _, newValue in
             // Write-back so the sidebar's highlighted chip stays in sync.
@@ -711,6 +718,19 @@ struct LibraryView: View {
 
     private var filteredPlaylists: [Playlist] {
         filter.isActive ? model.playlists.filter(passesFilter) : model.playlists
+    }
+
+    /// Consume the one-shot decade window deep-linked from the Discover
+    /// "Browse by Decade" row and fold it into the active filter. Forces
+    /// the Albums chip (album items carry the `year` the filter keys on) and
+    /// replaces any prior year constraint with the decade's `[start, start+9]`
+    /// span. Other filter groups (genre, favorited, …) are preserved so the
+    /// decade composes with whatever the user already had set. No-op when no
+    /// window is pending, so an ordinary Library visit is untouched.
+    private func applyPendingDecadeFilter() {
+        guard let range = model.consumePendingLibraryYearRange() else { return }
+        selectedTab = .albums
+        filter.yearRange = range
     }
 
     /// Apply the persisted default sort for `tab` the first time the user

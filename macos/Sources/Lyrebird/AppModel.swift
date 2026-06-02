@@ -90,6 +90,15 @@ final class AppModel {
     /// user-chip-change so the sidebar selection persists across navigation.
     var libraryTab: LibraryTab = .albums
 
+    /// One-shot inclusive release-year window the Library should pre-apply on
+    /// its next appearance. Set by `browseDecade(_:)` (the Discover "Browse by
+    /// Decade" row) so a tapped decade tile lands on the Library
+    /// pre-filtered to that ten-year span. `LibraryView` reads this on appear /
+    /// change and clears it via `consumePendingLibraryYearRange()` so the
+    /// filter isn't re-imposed when the user later returns to the Library by
+    /// other means.
+    var pendingLibraryYearRange: ClosedRange<Int>?
+
     /// Screen the app was on before the user opened the full Now Playing
     /// view. `NowPlayingView` offers a "Back" affordance that pops to this
     /// value rather than unconditionally routing to `.library`, so a user
@@ -2987,6 +2996,28 @@ final class AppModel {
     /// and the command palette.
     func navigate(to route: Route) {
         navPath.append(route)
+    }
+
+    /// Deep-link the Library to a decade. Stashes the inclusive
+    /// `[start, start+9]` release-year window on `pendingLibraryYearRange`,
+    /// forces the Albums chip (the only library tab whose items carry a year
+    /// the filter keys on), and switches to the Library tab. `LibraryView`
+    /// folds the pending window into its filter on appear and clears it, so
+    /// the constraint is applied exactly once. Wired by the Discover "Browse
+    /// by Decade" gradient tiles.
+    func browseDecade(startingYear start: Int) {
+        pendingLibraryYearRange = start...(start + 9)
+        libraryTab = .albums
+        selectTab(.library)
+    }
+
+    /// Read-and-clear the one-shot `pendingLibraryYearRange`. Returns the
+    /// window the caller should apply (or `nil` when none is pending) and
+    /// leaves the slot empty so a subsequent Library appearance doesn't
+    /// re-impose a decade the user already navigated away from.
+    func consumePendingLibraryYearRange() -> ClosedRange<Int>? {
+        defer { pendingLibraryYearRange = nil }
+        return pendingLibraryYearRange
     }
 
     /// Open the full Now Playing view on its Lyrics tab. Wired to the inline
