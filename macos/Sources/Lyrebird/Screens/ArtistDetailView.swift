@@ -44,6 +44,9 @@ struct ArtistDetailView: View {
     @State private var fetchedArtist: Artist?
     @State private var isBioExpanded = false
     @State private var similarArtistsState: [Artist] = []
+    /// Playlists whose track list features this artist. Populated by
+    /// the `.task(id:)` block; the rail collapses silently when empty.
+    @State private var featuringPlaylists: [Playlist] = []
     /// Plain-text biography, HTML-stripped from `ArtistDetail.overview`.
     /// `nil` until the detail fetch resolves; empty/whitespace-only overviews
     /// collapse to `nil` so the About section hides entirely.
@@ -89,6 +92,7 @@ struct ArtistDetailView: View {
                 transportBar
                 topSongsSection
                 discographySection
+                featuringPlaylistsSection
                 similarArtistsSection
                 aboutSection
                 footer
@@ -113,6 +117,7 @@ struct ArtistDetailView: View {
             bioOverview = nil
             isBioExpanded = false
             scopedQuery = ""
+            featuringPlaylists = []
             isLoadingTopTracks = true
             if model.artists.first(where: { $0.id == artistID }) == nil {
                 fetchedArtist = await model.resolveArtist(id: artistID)
@@ -125,6 +130,7 @@ struct ArtistDetailView: View {
             topTracks = await model.loadArtistTopTracks(artistId: artistID)
             isLoadingTopTracks = false
             similarArtistsState = await model.loadSimilarArtists(artistId: artistID)
+            featuringPlaylists = await model.loadPlaylistsFeaturingArtist(artistId: artistID)
             // Biography is independent of the lists above so a missing or slow
             // detail fetch never blocks the rest of the page. The server
             // overview may carry HTML, so it is stripped to plain text before
@@ -646,6 +652,35 @@ struct ArtistDetailView: View {
         let albums: [Album]
     }
 
+    // MARK: - Playlists featuring artist
+
+    /// Horizontal carousel of playlists whose track list features this
+    /// artist. Mirrors the discography carousel's shape with 160pt playlist
+    /// tiles. Hidden entirely when the artist appears in no playlists so the
+    /// section never reads as a broken empty shelf. Data comes from
+    /// `featuringPlaylists`, populated by the `.task(id:)` block.
+    @ViewBuilder
+    private var featuringPlaylistsSection: some View {
+        if !featuringPlaylists.isEmpty, let artist = artist {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader(eyebrow: "APPEARS ON", title: "Featuring \(artist.name)")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // Eager `HStack` (not `LazyHStack`) for the same macOS 26.4
+                    // recycle-UAF reason documented in `discographyGroup`. The
+                    // rail is capped at six tiles, so eager rendering is free.
+                    HStack(alignment: .top, spacing: 16) {
+                        ForEach(featuringPlaylists, id: \.id) { playlist in
+                            FeaturingPlaylistTile(playlist: playlist)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+        }
+    }
+
     // MARK: - Similar Artists (#232)
 
     /// Horizontal carousel of 140pt circular artist tiles, mirroring
@@ -1019,5 +1054,78 @@ private struct SimilarArtistTile: View {
         .contextMenu { ArtistContextMenu(artist: artist) }
         .accessibilityLabel("\(artist.name), similar artist")
         .accessibilityHint("Opens artist detail")
+    }
+}
+
+// MARK: - Featuring-playlist tile
+
+/// Compact 160pt square playlist tile used in the "Featuring <artist>" rail
+/// on the Artist detail screen. Mirrors `ArtistDiscographyTile`'s shape
+/// so the two artist-page carousels read consistently; tapping opens the
+/// playlist detail, the hover play button plays the playlist, and the subline
+/// is the track count.
+private struct FeaturingPlaylistTile: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let playlist: Playlist
+    @State private var isHovering = false
+
+    var body: some View {
+        Button {
+            model.navPath.append(AppModel.Route.playlist(playlist.id))
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack(alignment: .bottomTrailing) {
+                    Artwork(
+                        url: model.imageURL(for: playlist.id, tag: playlist.imageTag, maxWidth: 400),
+                        seed: playlist.name,
+                        size: 160,
+                        radius: 6
+                    )
+                    .frame(width: 160, height: 160)
+
+                    Button { model.play(playlist: playlist) } label: {
+                        Image(systemName: "play.fill")
+                            .foregroundStyle(.white)
+                            .font(.system(size: 14))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Theme.primary))
+                            .shadow(color: Theme.primary.opacity(0.5), radius: 8, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .opacity(isHovering ? 1 : 0)
+                    .offset(y: reduceMotion ? 0 : (isHovering ? 0 : 8))
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHovering)
+                    .accessibilityLabel("Play \(playlist.name)")
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.name)
+                        .font(Theme.font(12, weight: .bold))
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(Theme.font(11, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
+                        .lineLimit(1)
+                }
+                .frame(width: 160, alignment: .leading)
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .contextMenu { PlaylistContextMenu(playlist: playlist) }
+        .accessibilityLabel("\(playlist.name), \(subtitle)")
+        .accessibilityHint("Opens playlist detail")
+    }
+
+    /// "42 tracks" / "1 track" / "Empty" — matches `PlaylistCard`'s subline.
+    private var subtitle: String {
+        switch playlist.trackCount {
+        case 0: return "Empty"
+        case 1: return "1 track"
+        default: return "\(playlist.trackCount) tracks"
+        }
     }
 }

@@ -199,6 +199,11 @@ final class AppModel {
     /// `loadSimilarArtists(artistId:)` when the Artist detail screen opens.
     /// Held for the session; cleared on logout. See #146.
     var artistSimilarCache: [String: [Artist]] = [:]  // artistID → similar artists
+    /// Cache of playlists that feature a given artist in their track list.
+    /// Populated on demand by `loadPlaylistsFeaturingArtist(artistId:)` when
+    /// the Artist detail screen opens. Held for the session; cleared on
+    /// logout.
+    var artistPlaylistsCache: [String: [Playlist]] = [:]  // artistID → featuring playlists
     var recentlyPlayed: [Track] = []
     /// Tracks surfaced in the Discover "For You" carousel (#249). Today this
     /// is a best-effort fallback to the first 20 `recentlyPlayed` tracks. A
@@ -1012,6 +1017,7 @@ final class AppModel {
         playlistPendingDelete = nil
         artistTopTracks = [:]
         artistSimilarCache = [:]
+        artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         recentlyPlayed = []
@@ -1078,6 +1084,7 @@ final class AppModel {
         playlistPendingDelete = nil
         artistTopTracks = [:]
         artistSimilarCache = [:]
+        artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         recentlyPlayed = []
@@ -2609,6 +2616,40 @@ final class AppModel {
         } catch {
             // Silent fallback — don't surface errors for a secondary widget.
             Log.app.notice("loadSimilarArtists failed artist=\(artistId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            if handleAuthError(error) { return [] }
+            if ServerReachability.shouldCount(error: error) {
+                serverReachability.noteFailure()
+            }
+            return []
+        }
+    }
+
+    /// Fetch the playlists whose track list features `artistId`, for the
+    /// "Playlists featuring this artist" rail on the Artist detail screen.
+    /// Backed by `core.playlistsContainingArtist`, which walks each
+    /// playlist and matches the artist at the track level (guest features
+    /// count). Cached for the session in `artistPlaylistsCache`, cleared on
+    /// logout. Mirrors `loadSimilarArtists` — detached FFI call, silent
+    /// fallback (the rail collapses when empty so an error reads as "no
+    /// featuring playlists" rather than a broken section).
+    @discardableResult
+    func loadPlaylistsFeaturingArtist(artistId: String, limit: UInt32 = 6) async -> [Playlist] {
+        if let cached = artistPlaylistsCache[artistId] { return cached }
+        let libraryId = await ensurePlaylistLibraryId()
+        do {
+            let playlists = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.playlistsContainingArtist(
+                    playlistLibraryId: libraryId,
+                    artistId: artistId,
+                    limit: limit
+                )
+            }.value
+            artistPlaylistsCache[artistId] = playlists
+            serverReachability.noteSuccess()
+            return playlists
+        } catch {
+            // Silent fallback — don't surface errors for a secondary widget.
+            Log.app.notice("loadPlaylistsFeaturingArtist failed artist=\(artistId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
             if handleAuthError(error) { return [] }
             if ServerReachability.shouldCount(error: error) {
                 serverReachability.noteFailure()

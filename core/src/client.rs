@@ -837,6 +837,100 @@ impl JellyfinClient {
         self.user_playlists(playlist_library_id, paging).await
     }
 
+    /// Playlists in the user's Playlists library whose track list features the
+    /// given artist, capped at `limit` results.
+    ///
+    /// Jellyfin's `/Items` endpoint **ignores `ArtistIds` when the parent is a
+    /// playlist** (verified against a real server: the filter is silently
+    /// dropped and the full track list comes back), so we cannot push the
+    /// membership test server-side. Instead we walk each playlist's audio
+    /// items — requesting only `Fields=ArtistItems` to keep the payload small —
+    /// and match client-side against the track-level artist credits
+    /// (`ArtistItems`) plus the album-artist id. "Featured" therefore means the
+    /// artist appears anywhere in the track list, including guest features, not
+    /// just album-artist credits — which is what the Artist-detail rail wants.
+    ///
+    /// Cost: one playlist-list request plus one items request per playlist
+    /// scanned. We stop scanning as soon as `limit` matches are found, and cap
+    /// the playlists scanned at `MAX_PLAYLISTS_SCANNED` so a pathological
+    /// library can't turn this into an unbounded fan-out. Per-playlist we ask
+    /// for up to `PLAYLIST_TRACK_PROBE_LIMIT` items, which covers ordinary
+    /// playlists in a single round-trip; longer playlists are probed by their
+    /// leading window (a featured artist in a multi-hundred-track playlist is
+    /// overwhelmingly present in that window, and the rail is a discovery
+    /// affordance, not an exhaustive index).
+    pub async fn playlists_containing_artist(
+        &self,
+        playlist_library_id: &str,
+        artist_id: &str,
+        limit: u32,
+    ) -> Result<Vec<Playlist>> {
+        // Upper bounds that keep the fan-out predictable on large libraries.
+        const MAX_PLAYLISTS_SCANNED: u32 = 200;
+        const PLAYLIST_TRACK_PROBE_LIMIT: u32 = 500;
+
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let user_id = self
+            .user_id
+            .as_ref()
+            .ok_or(LyrebirdError::NotAuthenticated)?;
+
+        let candidates = self
+            .playlists_items(playlist_library_id, Paging::new(0, MAX_PLAYLISTS_SCANNED))
+            .await?;
+
+        let mut matches: Vec<Playlist> = Vec::new();
+        for raw in candidates.items {
+            if matches.len() as u32 >= limit {
+                break;
+            }
+            if self
+                .playlist_features_artist(&raw.id, user_id, artist_id, PLAYLIST_TRACK_PROBE_LIMIT)
+                .await?
+            {
+                matches.push(Playlist::from(raw));
+            }
+        }
+        Ok(matches)
+    }
+
+    /// Probe a single playlist for an artist credit. Returns `true` when any
+    /// audio item in the playlist's leading window credits `artist_id` at the
+    /// track level (`ArtistItems`) or as the album artist (`AlbumArtistId`).
+    /// Fetches only the artist fields to keep the per-playlist request cheap.
+    async fn playlist_features_artist(
+        &self,
+        playlist_id: &str,
+        user_id: &str,
+        artist_id: &str,
+        probe_limit: u32,
+    ) -> Result<bool> {
+        let mut url = self.endpoint("Items")?;
+        {
+            let mut q = url.query_pairs_mut();
+            q.append_pair("ParentId", playlist_id);
+            q.append_pair("UserId", user_id);
+            q.append_pair("IncludeItemTypes", ItemKind::Audio.as_str());
+            q.append_pair("Limit", &probe_limit.max(1).to_string());
+            q.append_pair("StartIndex", "0");
+            // Only the artist-credit fields — the rest of the track payload is
+            // irrelevant to the membership test and just inflates the response.
+            q.append_pair("Fields", "ArtistItems");
+        }
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let raw: RawItems<RawItem> = resp.json().await?;
+        let features = raw.items.iter().any(|item| {
+            item.album_artist_id.as_deref() == Some(artist_id)
+                || item.artist_items.iter().any(|a| a.id == artist_id)
+        });
+        Ok(features)
+    }
+
     /// Shared `GET /Items` request that returns all playlists under the
     /// given Playlists library view. `user_playlists` / `public_playlists`
     /// partition the result by `Path`. Returns the raw [`RawItems`] wrapper

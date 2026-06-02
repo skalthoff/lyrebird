@@ -7873,3 +7873,128 @@ async fn album_tracks_parses_negative_bitrate_sentinel() {
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].bitrate, Some(-1000));
 }
+
+/// `playlists_containing_artist` walks every playlist in the library
+/// view and keeps only those whose track list credits the target artist at
+/// the track level (`ArtistItems`) or as album artist. The membership test is
+/// client-side because Jellyfin ignores `ArtistIds` under a playlist parent.
+#[tokio::test]
+async fn playlists_containing_artist_filters_by_track_credit() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    // Library view: three playlists.
+    Mock::given(method("GET"))
+        .and(path("/Items"))
+        .and(query_param("ParentId", "lib-pl"))
+        .and(query_param("IncludeItemTypes", "Playlist"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                { "Id": "pl-a", "Name": "Has Artist", "Type": "Playlist", "ChildCount": 2 },
+                { "Id": "pl-b", "Name": "No Artist", "Type": "Playlist", "ChildCount": 1 },
+                { "Id": "pl-c", "Name": "Album Artist", "Type": "Playlist", "ChildCount": 1 }
+            ],
+            "TotalRecordCount": 3
+        })))
+        .mount(&server)
+        .await;
+    // pl-a — artist credited at the track level via ArtistItems.
+    Mock::given(method("GET"))
+        .and(path("/Items"))
+        .and(query_param("ParentId", "pl-a"))
+        .and(query_param("IncludeItemTypes", "Audio"))
+        .and(query_param("Fields", "ArtistItems"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                {
+                    "Id": "t1", "Name": "Some Other", "Type": "Audio",
+                    "ArtistItems": [ { "Id": "other", "Name": "Other" } ]
+                },
+                {
+                    "Id": "t2", "Name": "Guest Feature", "Type": "Audio",
+                    "ArtistItems": [
+                        { "Id": "other2", "Name": "Other Two" },
+                        { "Id": "artist-x", "Name": "Artist X" }
+                    ]
+                }
+            ],
+            "TotalRecordCount": 2
+        })))
+        .mount(&server)
+        .await;
+    // pl-b — no credit for the artist anywhere.
+    Mock::given(method("GET"))
+        .and(path("/Items"))
+        .and(query_param("ParentId", "pl-b"))
+        .and(query_param("IncludeItemTypes", "Audio"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                {
+                    "Id": "t3", "Name": "Unrelated", "Type": "Audio",
+                    "ArtistItems": [ { "Id": "nope", "Name": "Nope" } ]
+                }
+            ],
+            "TotalRecordCount": 1
+        })))
+        .mount(&server)
+        .await;
+    // pl-c — artist credited only as album artist (AlbumArtistId) still counts.
+    Mock::given(method("GET"))
+        .and(path("/Items"))
+        .and(query_param("ParentId", "pl-c"))
+        .and(query_param("IncludeItemTypes", "Audio"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                {
+                    "Id": "t4", "Name": "Album Track", "Type": "Audio",
+                    "AlbumArtistId": "artist-x",
+                    "ArtistItems": []
+                }
+            ],
+            "TotalRecordCount": 1
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let result = client
+        .playlists_containing_artist("lib-pl", "artist-x", 6)
+        .await
+        .unwrap();
+
+    let ids: Vec<&str> = result.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["pl-a", "pl-c"],
+        "only playlists crediting the artist (track-level or album-artist) are returned"
+    );
+}
+
+/// A zero `limit` short-circuits without issuing any HTTP request.
+#[tokio::test]
+async fn playlists_containing_artist_zero_limit_is_empty() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let result = client
+        .playlists_containing_artist("lib-pl", "artist-x", 0)
+        .await
+        .unwrap();
+    assert!(result.is_empty());
+}

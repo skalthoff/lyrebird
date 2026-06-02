@@ -619,6 +619,27 @@ impl LyrebirdCore {
         })
     }
 
+    /// Playlists in the user's Playlists library whose track list features the
+    /// given artist, capped at `limit`. Powers the "Playlists featuring this
+    /// artist" rail on the Artist detail screen. Matching is track-level
+    /// (guest features count), scanned client-side because Jellyfin ignores
+    /// `ArtistIds` under a playlist parent — see
+    /// [`JellyfinClient::playlists_containing_artist`] for the cost bounds.
+    pub fn playlists_containing_artist(
+        &self,
+        playlist_library_id: String,
+        artist_id: String,
+        limit: u32,
+    ) -> std::result::Result<Vec<Playlist>, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime.block_on(c.playlists_containing_artist(
+                &playlist_library_id,
+                &artist_id,
+                limit,
+            ))
+        })
+    }
+
     /// Tracks on a playlist, in the server's playlist order. Pass `offset`
     /// and `limit` for paging; the underlying `/Items` request does NOT sort
     /// server-side so the playlist's stored order is preserved. The
