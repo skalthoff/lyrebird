@@ -7,9 +7,9 @@ import SwiftUI
 /// throttles the (manual) `NSApp.dockTile.display()` calls so the tile never
 /// redraws more than once a second.
 ///
-/// Issue #43. The Dock tile does **not** auto-redraw — AppKit only repaints it
-/// when you call `display()` — and repainting it faster than ~1 Hz spikes CPU
-/// (see the referenced thisdevbrain write-up). So the controller:
+/// The Dock tile does **not** auto-redraw — AppKit only repaints it when you
+/// call `display()` — and repainting it faster than ~1 Hz spikes CPU. So the
+/// controller:
 ///
 ///   1. Installs the `NSHostingView` once, lazily, on first update.
 ///   2. Resolves album art off-screen via the shared Nuke pipeline (cached, so
@@ -54,7 +54,7 @@ final class DockTileController {
     /// Map raw `(position, duration)` seconds to a `0...1` ring fill. Guards a
     /// zero / negative / unknown duration (returns 0) and clamps a position
     /// that briefly overshoots duration at end-of-track (returns 1). Pure so
-    /// it can be unit-tested without touching the live Dock. See #43.
+    /// it can be unit-tested without touching the live Dock.
     nonisolated static func progressFraction(position: Double, duration: Double) -> Double {
         guard duration > 0 else { return 0 }
         return min(1, max(0, position / duration))

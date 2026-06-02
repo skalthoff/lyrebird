@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Lyrebird
 
-/// Coverage for the Dock-tile progress mapping and snapshot diffing (#43).
+/// Coverage for the Dock-tile progress mapping and snapshot diffing.
 ///
 /// The ring fill and the throttle's "skip redundant redraw" both hinge on two
 /// pure pieces of logic — `DockTileController.progressFraction` and

@@ -14,7 +14,7 @@ import SwiftUI
 ///   art wrapped in a thin progress ring (filling in real time) plus a
 ///   pause overlay while paused, via `DockTileController`. Falls back to a
 ///   "▶" text badge as a lightweight signal when no track is loaded yet.
-///   Restores the stock icon on quit. See #43 / #322.
+///   Restores the stock icon on quit.
 /// - **Window tabbing** — opts the app into macOS' automatic window-tab
 ///   behaviour so `WindowGroup`'s extra windows show up as tabs under the
 ///   Window menu. See issue #27.
@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dockBadgeTask: Task<Void, Never>?
 
     /// Owns the custom Dock tile (album art + progress ring + pause overlay).
-    /// Throttles its own `display()` calls to ≤1 Hz. See #43.
+    /// Throttles its own `display()` calls to ≤1 Hz.
     private let dockTile = DockTileController()
 
     /// How long to wait after a wake event before probing the server.
@@ -190,19 +190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// updates ride the existing 1 s status poll via `refreshDockTile()`; this
     /// loop only catches the discrete play/pause/stop transitions so the ring
     /// flips its overlay the moment state changes rather than on the next tick.
-    /// See #43 / #322.
     @MainActor
     private func startDockBadgeObserver(model: AppModel) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                // `withObservationTracking` registers access to the @Observable
-                // properties read inside `apply:` and calls `onChange:` exactly
-                // once the next time any of them change. We only read
-                // `status.state` so only playback-state transitions wake us up.
+                // Only `status.state` is read inside the tracking closure, so the
+                // loop wakes solely on playback-state transitions rather than on
+                // every status mutation (position ticks, queue edits, etc.).
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     withObservationTracking {
-                        // Read the property so the Observation framework registers
-                        // this access and will fire the onChange closure on change.
                         _ = model.status.state
                     } onChange: {
                         continuation.resume()

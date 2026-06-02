@@ -30,8 +30,8 @@ struct DockTileSnapshot: Equatable {
 /// `NSHostingView`. Shows the current album art with a thin progress ring
 /// around the tile edge and a pause overlay when playback is paused.
 ///
-/// Issue #43. The ring (rather than a bottom bar) was chosen so progress reads
-/// at the small Dock size from any angle — the same affordance Doppler uses.
+/// The ring (rather than a bottom bar) was chosen so progress reads at the
+/// small Dock size from any angle — the same affordance Doppler uses.
 struct DockTileView: View {
     var snapshot: DockTileSnapshot
 

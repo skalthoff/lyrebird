@@ -5178,7 +5178,7 @@ final class AppModel {
                 let after = self.status.currentTrack?.id
                 // Keep the custom Dock tile's progress ring filling in real
                 // time. The controller throttles its own redraws to ≤1 Hz, so
-                // calling it on every 1 s poll tick is the right cadence. See #43.
+                // calling it on every 1 s poll tick is the right cadence.
                 AppDelegate.shared?.refreshDockTile()
                 // Trigger a details refetch when the track changes. Scoped
                 // to the polling loop so skipping via the PlayerBar,
