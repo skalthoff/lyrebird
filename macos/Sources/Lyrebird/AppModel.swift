@@ -1029,6 +1029,7 @@ final class AppModel {
         artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
         artistDetailCache = [:]
+        resolvedNameCache = [:]
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -1096,6 +1097,7 @@ final class AppModel {
         artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
         artistDetailCache = [:]
+        resolvedNameCache = [:]
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -2377,8 +2379,12 @@ final class AppModel {
     /// "N albums · M songs" strip silently hides the zero-count lines
     /// rather than lying.
     func resolveArtist(id: String) async -> Artist? {
-        if let cached = artists.first(where: { $0.id == id }) { return cached }
+        if let cached = artists.first(where: { $0.id == id }) {
+            resolvedNameCache[id] = cached.name
+            return cached
+        }
         guard let detail = await artistDetail(artistId: id) else { return nil }
+        resolvedNameCache[id] = detail.name
         return Artist(
             id: detail.id,
             name: detail.name,
@@ -2416,6 +2422,25 @@ final class AppModel {
     /// Per-session cache for `artistDetail`. Cleared on `logout()` / `forgetToken()`.
     private var artistDetailCache: [String: ArtistDetail] = [:]
 
+    /// Album/artist id → display name, seeded by `resolveAlbum` / `resolveArtist`
+    /// when they resolve an id past the loaded library page. The breadcrumb
+    /// builder reads this so a drill destination reached from outside
+    /// `albums` / `artists` (recently played, discography, genre detail) shows
+    /// its name instead of "…". Cleared on `logout()` / `forgetToken()`.
+    var resolvedNameCache: [String: String] = [:]
+
+    /// Breadcrumb display name for an album id: the loaded `albums` page first,
+    /// then `resolvedNameCache` (seeded by `resolveAlbum` on drill-in), then nil
+    /// when neither knows the name so the caller can render an ellipsis.
+    func breadcrumbAlbumName(id: String) -> String? {
+        albums.first(where: { $0.id == id })?.name ?? resolvedNameCache[id]
+    }
+
+    /// Breadcrumb display name for an artist id, mirroring `breadcrumbAlbumName`.
+    func breadcrumbArtistName(id: String) -> String? {
+        artists.first(where: { $0.id == id })?.name ?? resolvedNameCache[id]
+    }
+
     /// Resolve an `Album` record by id — cache-first, falling back to
     /// `core.fetchItem` for libraries larger than the loaded `albums`
     /// page. Returns nil on error or missing id.
@@ -2426,7 +2451,10 @@ final class AppModel {
     /// `ChildCount`; `AlbumDetailView` re-counts the loaded tracklist
     /// in that case.
     func resolveAlbum(id: String) async -> Album? {
-        if let cached = albums.first(where: { $0.id == id }) { return cached }
+        if let cached = albums.first(where: { $0.id == id }) {
+            resolvedNameCache[id] = cached.name
+            return cached
+        }
         do {
             let json = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.fetchItem(
@@ -2434,7 +2462,9 @@ final class AppModel {
                     fields: ["PrimaryImageAspectRatio", "Genres", "ProductionYear", "ChildCount", "RunTimeTicks"]
                 )
             }.value
-            return Self.parseAlbum(from: json)
+            let album = Self.parseAlbum(from: json)
+            if let album { resolvedNameCache[id] = album.name }
+            return album
         } catch {
             _ = handleAuthError(error)
             return nil
