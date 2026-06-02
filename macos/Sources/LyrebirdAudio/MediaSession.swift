@@ -72,6 +72,14 @@ public final class MediaSession {
     }()
     private var artworkTask: Task<Void, Never>?
     private var currentTrackID: String?
+    /// Last `(elapsed, rate)` pair published via `updateElapsedAndRate`. The
+    /// rate/seek transition hooks fire repeatedly with values the system
+    /// already has (e.g. a pause when already paused), and each redundant
+    /// write is an IPC round-trip to `mediaremoted` that the system logs as
+    /// "Setting identical nowPlayingInfo, skipping update." Short-circuit
+    /// those no-ops here (issue #807).
+    private var lastPublishedElapsed: Double?
+    private var lastPublishedRate: Float?
 
     /// Construct the session with no delegate. Call `attach(delegate:)` from
     /// the owner's initializer once `self` is available. This two-phase
@@ -107,6 +115,8 @@ public final class MediaSession {
 
         if track == nil {
             currentTrackID = nil
+            lastPublishedElapsed = nil
+            lastPublishedRate = nil
             artworkTask?.cancel()
             artworkTask = nil
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
@@ -133,9 +143,13 @@ public final class MediaSession {
         info[MPNowPlayingInfoPropertyIsLiveStream] = false
 
         let status = delegate.currentStatus
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, status.positionSeconds)
-        info[MPNowPlayingInfoPropertyPlaybackRate] = status.state == .playing ? 1.0 : 0.0
+        let elapsed = max(0, status.positionSeconds)
+        let rate: Float = status.state == .playing ? 1.0 : 0.0
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
+        info[MPNowPlayingInfoPropertyPlaybackRate] = rate
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+        lastPublishedElapsed = elapsed
+        lastPublishedRate = rate
         if status.queueLength > 0 {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = NSNumber(value: status.queuePosition)
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = NSNumber(value: status.queueLength)
@@ -204,10 +218,16 @@ public final class MediaSession {
     // MARK: - Internals
 
     private func updateElapsedAndRate(elapsed: Double, rate: Float) {
+        let clamped = max(0, elapsed)
+        if lastPublishedElapsed == clamped, lastPublishedRate == rate {
+            return
+        }
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = max(0, elapsed)
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = clamped
         info[MPNowPlayingInfoPropertyPlaybackRate] = rate
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        lastPublishedElapsed = clamped
+        lastPublishedRate = rate
     }
 
     // MARK: - Remote command center
