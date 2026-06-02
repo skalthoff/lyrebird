@@ -178,30 +178,18 @@ struct NowPlayingView: View {
         return min(520, byWidth)
     }
 
-    // MARK: - Fact tagline (#280)
-
-    /// Rotating italic "fact" line under the hero metadata. Cycles through a
-    /// small set of quips derived from the current track's metadata — play
-    /// count, year, last-heard date, lossless flag — advancing every 15s.
-    ///
-    /// The set is recomputed per track (keyed on `track.id`), so switching
-    /// songs resets the rotation. Under Reduce Motion we freeze on the first
-    /// variant rather than auto-advancing, matching the motion contract the
-    /// rest of this screen honors (see the tab cross-fade above).
-    ///
-    /// 11pt italic, `ink3`, centered — per the screen spec in
-    /// `06-screen-specs.md`.
     @ViewBuilder
     private func factTagline(for track: Track) -> some View {
-        let facts = factVariants(for: track)
+        let facts = NowPlayingFacts.variants(
+            playCount: track.playCount,
+            container: track.container,
+            lastPlayedAt: track.userData?.lastPlayedAt
+        )
         if !facts.isEmpty {
-            // `TimelineView(.periodic)` re-renders every 15s; we map the
-            // elapsed schedule date to an index so no timer/`@State` churn is
-            // needed and the view stays purely a function of its inputs.
             TimelineView(.periodic(from: .now, by: 15)) { context in
                 let index = reduceMotion
                     ? 0
-                    : factIndex(at: context.date, count: facts.count)
+                    : NowPlayingFacts.index(at: context.date, count: facts.count)
                 Text(facts[index])
                     .font(Theme.font(11, weight: .regular, italic: true))
                     .foregroundStyle(Theme.ink3)
@@ -215,87 +203,6 @@ struct NowPlayingView: View {
             }
             .padding(.top, 6)
         }
-    }
-
-    /// Stable variant index from wall-clock time so every render of the same
-    /// timeline slot lands on the same quip regardless of when the view first
-    /// appeared.
-    private func factIndex(at date: Date, count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let slot = Int(date.timeIntervalSinceReferenceDate / 15)
-        return ((slot % count) + count) % count
-    }
-
-    /// Build the quip set for a track from the metadata we already hold —
-    /// no extra fetch. Order is the rotation order; empty when the track
-    /// carries nothing worth saying.
-    private func factVariants(for track: Track) -> [String] {
-        var facts: [String] = []
-
-        if track.playCount > 0 {
-            facts.append(playCountQuip(track.playCount))
-        }
-
-        if isLossless(track) {
-            facts.append("Lossless — you're hearing the master.")
-        }
-
-        if let heard = lastHeardQuip(track) {
-            facts.append(heard)
-        }
-
-        if let year = track.year {
-            facts.append("Released in \(String(year)).")
-        }
-
-        return facts
-    }
-
-    /// Playful play-count line. The exact phrasing scales with how often the
-    /// track has been heard so a 1-play song and a 200-play favorite don't
-    /// read identically.
-    private func playCountQuip(_ count: UInt32) -> String {
-        switch count {
-        case 1: return "You've heard this once."
-        case 2...4: return "You've played this \(count) times."
-        case 5...24: return "A regular — \(count) plays and counting."
-        default: return "On heavy rotation — \(count) plays."
-        }
-    }
-
-    /// "Last heard …" from the server's `lastPlayedAt`. The spec calls this
-    /// "first heard", but only a last-played timestamp is exposed on the
-    /// `Track` UserData projection, so we surface the honest label rather than
-    /// mislabel the value.
-    private func lastHeardQuip(_ track: Track) -> String? {
-        guard let raw = track.userData?.lastPlayedAt, !raw.isEmpty else {
-            return nil
-        }
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        var date = iso.date(from: raw)
-        if date == nil {
-            iso.formatOptions = [.withInternetDateTime]
-            date = iso.date(from: raw)
-        }
-        guard let date else { return nil }
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .none
-        return "Last heard \(fmt.string(from: date))."
-    }
-
-    /// Best-effort lossless detection from the source container. The bitrate
-    /// alone is unreliable (Jellyfin reports the lossy transcode bitrate when
-    /// streaming), so we key off the original container codec instead.
-    private func isLossless(_ track: Track) -> Bool {
-        guard let container = track.container?.lowercased() else { return false }
-        let lossless: Set<String> = ["flac", "alac", "wav", "aiff", "aif", "ape", "wv"]
-        // Container can be a comma-joined list (e.g. "flac,alac"); match if any
-        // component is lossless.
-        return container
-            .split(whereSeparator: { $0 == "," || $0 == " " })
-            .contains { lossless.contains(String($0)) }
     }
 
     /// Right pane — segmented tab picker over a per-tab view.
