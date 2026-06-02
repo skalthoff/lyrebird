@@ -492,7 +492,7 @@ struct CommandPalette: View {
 
 // MARK: - Row
 
-private struct PaletteRow: View {
+struct PaletteRow: View {
     let row: CommandPalette.Row
     let isSelected: Bool
     let onActivate: () -> Void
