@@ -7,11 +7,19 @@ import XCTest
 /// `PaletteRow` labels and icons each action by id through two hand-maintained
 /// static maps (`actionTitleById` / `actionSymbolById`), kept in sync with the
 /// roster emitted by `AppModel.paletteActions`. A drift between the two renders
-/// the raw id string and a generic bolt icon (the key-miss fallbacks) — exactly
-/// the `nav.favorites` regression in #937. This gate fails if any registered
-/// action id is missing from either map.
+/// the raw id string and a generic bolt icon (the key-miss fallbacks) — a
+/// `nav.favorites` row showing its raw id is the regression this guards. This
+/// gate fails if any registered action id is missing from either map.
 @MainActor
 final class PaletteRowCoverageTests: XCTestCase {
+
+	/// Action ids that `paletteActions` only appends behind a capability flag
+	/// (`supportsDownloads`, etc.), so the default `AppModel` roster never
+	/// surfaces them. They still need map entries because the row renders the
+	/// same way once the flag flips, so cover them explicitly.
+	private static let conditionalActionIds: Set<String> = [
+		"download.current"
+	]
 
 	override class func setUp() {
 		super.setUp()
@@ -22,6 +30,7 @@ final class PaletteRowCoverageTests: XCTestCase {
 	func testEveryPaletteActionHasATitleAndSymbolEntry() throws {
 		let model = try AppModel()
 		let actionIds = Set(model.paletteActions.map(\.id))
+			.union(Self.conditionalActionIds)
 
 		let titleKeys = Set(PaletteRow.actionTitleById.keys)
 		XCTAssertTrue(
