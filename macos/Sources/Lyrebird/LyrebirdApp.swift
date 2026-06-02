@@ -111,7 +111,7 @@ struct LyrebirdApp: App {
 
         // Status-bar "Now Playing" extra. A `MenuBarExtra` lives in the system
         // menu bar, so this transport surface stays reachable even when every
-        // Lyrebird window is closed or the app is hidden (#320). The `.window`
+        // Lyrebird window is closed or the app is hidden. The `.window`
         // style lets the panel render artwork + a rich transport cluster rather
         // than a flat text menu; the label reflects play state at a glance.
         // Clicking "Open Lyrebird" routes through `returnToFullWindow`, which

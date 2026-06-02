@@ -9,10 +9,9 @@ import SwiftUI
 /// explicit "Open Lyrebird" affordance that focuses the main window.
 ///
 /// Because a `MenuBarExtra` lives in the system menu bar, this surface stays
-/// reachable even when every Lyrebird window is closed or the app is hidden —
-/// the issue's "shows even when app is hidden" contract. When nothing is
-/// playing (or the user is signed out) it falls back to a minimal idle state
-/// so the panel never renders an empty box.
+/// reachable even when every Lyrebird window is closed or the app is hidden.
+/// When nothing is playing (or the user is signed out) it falls back to a
+/// minimal idle state so the panel never renders an empty box.
 ///
 /// All playback state + actions route through the same `AppModel` entry points
 /// the `PlayerBar` and `MiniPlayerView` use (`togglePlayPause`, `skipNext`,
@@ -23,7 +22,9 @@ struct MenuBarNowPlaying: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let track = model.status.currentTrack {
+            if Self.showsNowPlaying(currentTrack: model.status.currentTrack),
+                let track = model.status.currentTrack
+            {
                 nowPlaying(track: track)
             } else {
                 idle
@@ -71,7 +72,7 @@ struct MenuBarNowPlaying: View {
                 model.skipPrevious()
             }
             Button(action: model.togglePlayPause) {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: Self.transportIcon(isPlaying: isPlaying))
                     .font(.system(size: 14))
                     .foregroundStyle(Theme.bg)
                     .frame(width: 34, height: 34)
@@ -129,6 +130,19 @@ struct MenuBarNowPlaying: View {
 
     private var isPlaying: Bool { model.status.state == .playing }
 
+    /// SF Symbol for the centre transport button given the play state. Pure so
+    /// the play↔pause icon swap can be verified without realizing the view.
+    static func transportIcon(isPlaying: Bool) -> String {
+        isPlaying ? "pause.fill" : "play.fill"
+    }
+
+    /// Whether the panel should show the rich now-playing card (`true`) or the
+    /// minimal idle fallback (`false`) for a given current track. Pure so the
+    /// idle-vs-playing branch is testable headlessly.
+    static func showsNowPlaying(currentTrack: Track?) -> Bool {
+        currentTrack != nil
+    }
+
     @ViewBuilder
     private func iconBtn(
         _ name: String,
@@ -154,7 +168,15 @@ struct MenuBarNowPlayingLabel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        Image(systemName: model.status.state == .playing ? "waveform" : "music.note")
+        Image(systemName: Self.icon(for: model.status.state))
             .accessibilityLabel(Text("menu_bar.now_playing.label"))
+    }
+
+    /// SF Symbol for the status-bar label given the playback state: an animated
+    /// `waveform` while audio is running, the resting `music.note` otherwise.
+    /// Pure so the at-a-glance icon swap can be verified without a window
+    /// server.
+    static func icon(for state: PlaybackState) -> String {
+        state == .playing ? "waveform" : "music.note"
     }
 }
