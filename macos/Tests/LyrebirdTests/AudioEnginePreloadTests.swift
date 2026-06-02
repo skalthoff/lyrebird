@@ -67,6 +67,26 @@ final class AudioEnginePreloadTests: XCTestCase {
         XCTAssertEqual(engine.queuedItemCountForTesting, 0)
     }
 
+    /// `play(track:)` resolves the PlaybackInfo source off the main actor and
+    /// is therefore `async`. Against the un-authed test core the off-main
+    /// resolve returns `(nil, nil)` and the subsequent `streamUrl` FFI throws,
+    /// so the call completes by throwing rather than deadlocking on the
+    /// detached resolve — and the pre-installed empty player is left untouched
+    /// because the failure happens before any new player is swapped in.
+    func testPlayResolvesOffMainAndThrowsAgainstUnauthedCore() async throws {
+        let engine = try makeEngine()
+        XCTAssertEqual(engine.queuedItemCountForTesting, 0)
+
+        do {
+            try await engine.play(track: makeTrack("a"))
+            XCTFail("play(track:) should throw against an un-authed core")
+        } catch {
+            // Expected: streamUrl/authHeader reject without an active client.
+        }
+
+        XCTAssertEqual(engine.queuedItemCountForTesting, 0)
+    }
+
     /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
     /// which drops any pre-loaded next-track item. The owner needs a
     /// post-recovery signal to re-arm gapless playback, so `recoverFromStall`
