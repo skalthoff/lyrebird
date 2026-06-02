@@ -1516,6 +1516,119 @@ impl JellyfinClient {
         })
     }
 
+    /// Audio tracks whose `ProductionYear` falls in the inclusive range
+    /// `[start_year, end_year]`. Powers the Radio page's "Decade Radio"
+    /// row — e.g. the '80s tile resolves to `1980..=1989`. Mirrors
+    /// [`Self::tracks_by_genre`]'s field projection so the returned
+    /// [`Track`]s carry artwork + user-data for the player.
+    pub async fn tracks_by_year_range(
+        &self,
+        start_year: u32,
+        end_year: u32,
+        paging: Paging,
+    ) -> Result<PaginatedTracks> {
+        let user_id = self
+            .user_id
+            .as_ref()
+            .ok_or(LyrebirdError::NotAuthenticated)?;
+        let mut url = self.endpoint(&format!("Users/{user_id}/Items"))?;
+        {
+            let mut q = url.query_pairs_mut();
+            // Jellyfin's `Years` filter takes a CSV of discrete years; expand
+            // the inclusive range into that list. A decade is 10 entries —
+            // trivially short.
+            let years: Vec<String> = (start_year..=end_year).map(|y| y.to_string()).collect();
+            q.append_pair("Years", &years.join(","));
+            q.append_pair("Recursive", "true");
+            q.append_pair("IncludeItemTypes", ItemKind::Audio.as_str());
+            q.append_pair("Limit", &paging.limit.max(1).to_string());
+            q.append_pair("StartIndex", &paging.offset.to_string());
+            // Random order so repeat taps on the same decade tile don't always
+            // serve the same opening tracks — this is a "radio", not a catalog.
+            q.append_pair("SortBy", "Random");
+            q.append_pair("EnableUserData", "true");
+            q.append_pair("EnableImages", "true");
+            q.append_pair("ImageTypeLimit", "1");
+            q.append_pair(
+                "Fields",
+                &enums::csv(
+                    &[
+                        ItemField::MediaSources,
+                        ItemField::UserData,
+                        ItemField::ParentId,
+                        ItemField::AlbumId,
+                        ItemField::AlbumArtist,
+                        ItemField::Artists,
+                        ItemField::ProductionYear,
+                        ItemField::PrimaryImageAspectRatio,
+                        ItemField::RunTimeTicks,
+                    ],
+                    ItemField::as_str,
+                ),
+            );
+        }
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let raw: RawItems<RawItem> = resp.json().await?;
+        let items: Vec<Track> = raw.items.into_iter().map(Track::from).collect();
+        Ok(PaginatedTracks {
+            items,
+            total_count: raw.total_record_count,
+        })
+    }
+
+    /// Audio tracks carrying the given free-text `tag`. Powers the Radio
+    /// page's "Mood Radio" row, where moods (chill / focus / workout /
+    /// sleep / party) are sourced from item tags when the library has them.
+    /// Returns an empty page (not an error) when no track carries the tag,
+    /// so the caller can gracefully hide an unpopulated mood tile.
+    pub async fn tracks_by_tag(&self, tag: &str, paging: Paging) -> Result<PaginatedTracks> {
+        let user_id = self
+            .user_id
+            .as_ref()
+            .ok_or(LyrebirdError::NotAuthenticated)?;
+        let mut url = self.endpoint(&format!("Users/{user_id}/Items"))?;
+        {
+            let mut q = url.query_pairs_mut();
+            q.append_pair("Tags", tag);
+            q.append_pair("Recursive", "true");
+            q.append_pair("IncludeItemTypes", ItemKind::Audio.as_str());
+            q.append_pair("Limit", &paging.limit.max(1).to_string());
+            q.append_pair("StartIndex", &paging.offset.to_string());
+            q.append_pair("SortBy", "Random");
+            q.append_pair("EnableUserData", "true");
+            q.append_pair("EnableImages", "true");
+            q.append_pair("ImageTypeLimit", "1");
+            q.append_pair(
+                "Fields",
+                &enums::csv(
+                    &[
+                        ItemField::MediaSources,
+                        ItemField::UserData,
+                        ItemField::ParentId,
+                        ItemField::AlbumId,
+                        ItemField::AlbumArtist,
+                        ItemField::Artists,
+                        ItemField::ProductionYear,
+                        ItemField::PrimaryImageAspectRatio,
+                        ItemField::RunTimeTicks,
+                    ],
+                    ItemField::as_str,
+                ),
+            );
+        }
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let raw: RawItems<RawItem> = resp.json().await?;
+        let items: Vec<Track> = raw.items.into_iter().map(Track::from).collect();
+        Ok(PaginatedTracks {
+            items,
+            total_count: raw.total_record_count,
+        })
+    }
+
     /// Full artist record with biography, backdrops, and external links —
     /// extends [`JellyfinClient::fetch_item`] with an artist-focused field
     /// projection. Powers the artist detail header (bio + MusicBrainz /

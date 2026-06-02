@@ -510,6 +510,42 @@ impl LyrebirdCore {
         })
     }
 
+    /// Audio tracks whose production year falls in the inclusive range
+    /// `[start_year, end_year]`. Feeds the Radio page's "Decade Radio" row
+    /// (#256) — e.g. the '90s tile passes `1990, 1999`. Returns tracks in
+    /// random order so the station varies between taps.
+    pub fn tracks_by_year_range(
+        &self,
+        start_year: u32,
+        end_year: u32,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedTracks, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime.block_on(c.tracks_by_year_range(
+                start_year,
+                end_year,
+                Paging::new(offset, limit),
+            ))
+        })
+    }
+
+    /// Audio tracks carrying the given free-text tag. Feeds the Radio page's
+    /// "Mood Radio" row (#256), where moods come from item tags when present.
+    /// Returns an empty page (not an error) when nothing carries the tag, so
+    /// the caller can hide an unpopulated mood tile.
+    pub fn tracks_by_tag(
+        &self,
+        tag: String,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedTracks, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime
+                .block_on(c.tracks_by_tag(&tag, Paging::new(offset, limit)))
+        })
+    }
+
     /// Full artist record with biography, backdrop image tags, and
     /// external links (MusicBrainz / Last.fm / Discogs). Feeds the artist
     /// detail header.

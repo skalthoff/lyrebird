@@ -7873,3 +7873,95 @@ async fn album_tracks_parses_negative_bitrate_sentinel() {
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].bitrate, Some(-1000));
 }
+
+#[tokio::test]
+async fn tracks_by_year_range_builds_query() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Users/u1/Items"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                { "Id": "t1", "Name": "Disco Inferno", "Type": "Audio", "ProductionYear": 1976 }
+            ],
+            "TotalRecordCount": 1
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let page = client
+        .tracks_by_year_range(1970, 1979, Paging::new(0, 100))
+        .await
+        .unwrap();
+    assert_eq!(page.total_count, 1);
+    assert_eq!(page.items[0].id, "t1");
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    // Inclusive range expanded into the CSV `Years` filter (URL-encoded comma).
+    assert!(q.contains("Years=1970%2C1971%2C1972"), "query: {q}");
+    assert!(
+        q.contains("Years=1970%2C1971%2C1972%2C1973%2C1974%2C1975%2C1976%2C1977%2C1978%2C1979"),
+        "query: {q}"
+    );
+    assert!(q.contains("IncludeItemTypes=Audio"), "query: {q}");
+    assert!(q.contains("Recursive=true"), "query: {q}");
+    assert!(q.contains("Limit=100"), "query: {q}");
+    assert!(q.contains("SortBy=Random"), "query: {q}");
+}
+
+#[tokio::test]
+async fn tracks_by_tag_builds_query() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Users/u1/Items"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [],
+            "TotalRecordCount": 0
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    // Empty result is a valid page, not an error — lets the UI hide an
+    // unpopulated mood tile gracefully.
+    let page = client
+        .tracks_by_tag("chill", Paging::new(0, 100))
+        .await
+        .unwrap();
+    assert_eq!(page.total_count, 0);
+    assert!(page.items.is_empty());
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    assert!(q.contains("Tags=chill"), "query: {q}");
+    assert!(q.contains("IncludeItemTypes=Audio"), "query: {q}");
+    assert!(q.contains("Recursive=true"), "query: {q}");
+    assert!(q.contains("SortBy=Random"), "query: {q}");
+}

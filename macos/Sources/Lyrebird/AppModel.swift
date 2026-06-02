@@ -4851,6 +4851,72 @@ final class AppModel {
         PinnedStationsStore.save(stations)
     }
 
+    // MARK: - Decade / Mood radio (Radio page rows, #256)
+    //
+    // Genre Radio already routes through `startGenreRadio` (Instant Mix on a
+    // resolved genre UUID). Decade and Mood don't have a single seed item to
+    // hand to Instant Mix, so they query a track set directly
+    // (`tracksByYearRange` / `tracksByTag`), then play it. Both FFIs return
+    // server-randomized pages, so the station varies between taps without a
+    // client-side shuffle.
+
+    /// Start a "decade radio" — plays a randomized page of tracks whose
+    /// production year falls in `[startYear, endYear]`. Backs the Decade
+    /// Radio tile row on the Radio page (#256). The FFI runs off the
+    /// MainActor per CLAUDE.md gap pattern #2.
+    func startDecadeRadio(startYear: UInt32, endYear: UInt32, label: String) {
+        Task {
+            do {
+                let page = try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.tracksByYearRange(
+                        startYear: startYear,
+                        endYear: endYear,
+                        offset: 0,
+                        limit: 100
+                    )
+                }.value
+                guard !page.items.isEmpty else {
+                    errorMessage = "No tracks found for \(label)"
+                    return
+                }
+                play(tracks: page.items, startIndex: 0)
+            } catch {
+                if handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = "Couldn't start \(label) radio: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Start a "mood radio" — plays a randomized page of tracks carrying the
+    /// given tag (chill / focus / workout / sleep / party). Backs the Mood
+    /// Radio tile row on the Radio page (#256). Surfaces a friendly message
+    /// when the library has no tracks tagged with the mood rather than
+    /// silently doing nothing. The FFI runs off the MainActor per CLAUDE.md
+    /// gap pattern #2.
+    func startMoodRadio(tag: String, label: String) {
+        Task {
+            do {
+                let page = try await Task.detached(priority: .userInitiated) { [core] in
+                    try core.tracksByTag(tag: tag, offset: 0, limit: 100)
+                }.value
+                guard !page.items.isEmpty else {
+                    errorMessage = "No \(label) tracks tagged in your library"
+                    return
+                }
+                play(tracks: page.items, startIndex: 0)
+            } catch {
+                if handleAuthError(error) { return }
+                if ServerReachability.shouldCount(error: error) {
+                    serverReachability.noteFailure()
+                }
+                errorMessage = "Couldn't start \(label) radio: \(error.localizedDescription)"
+            }
+        }
+    }
+
     func pause() { audio.pause() }
     func resume() { audio.resume() }
     func stop() { audio.stop() }

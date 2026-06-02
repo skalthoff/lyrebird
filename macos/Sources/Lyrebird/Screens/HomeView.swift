@@ -41,6 +41,7 @@ struct HomeView: View {
                 // does nothing. Re-enable once the real pin infrastructure
                 // lands (#144, #253).
                 artistRadioRow
+                radioStationsSection
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 32)
@@ -268,6 +269,137 @@ struct HomeView: View {
             }
         }
     }
+
+    // MARK: - Genre / Decade / Mood radio rows (#256)
+
+    /// The three station rows from the Radio screen spec (§9, Issue 57):
+    /// Genre Radio, Decade Radio, and Mood Radio. Each is a horizontal row of
+    /// gradient `RadioStationTile`s. Tapping a tile starts the corresponding
+    /// station via `AppModel`. The Genre row only renders when the library
+    /// has surfaced genres to explore; Decade and Mood are static presets and
+    /// always render (the AppModel starters surface a friendly message if a
+    /// given decade/mood has no tracks).
+    @ViewBuilder
+    private var radioStationsSection: some View {
+        if !genreRadioStations.isEmpty {
+            radioRow(
+                title: "Genre Radio",
+                subtitle: "Stations from your library",
+                tiles: genreRadioStations,
+                eyebrow: "GENRE"
+            ) { genre in
+                model.startGenreRadio(genre: genre)
+            } labelFor: { genre in
+                (label: genre.name, seed: "genre-\(genre.name)")
+            }
+        }
+
+        radioRow(
+            title: "Decade Radio",
+            subtitle: "Travel through the years",
+            tiles: Self.decadeStations,
+            eyebrow: "DECADE"
+        ) { decade in
+            model.startDecadeRadio(
+                startYear: decade.startYear,
+                endYear: decade.endYear,
+                label: decade.label
+            )
+        } labelFor: { decade in
+            (label: decade.label, seed: "decade-\(decade.label)")
+        }
+
+        radioRow(
+            title: "Mood Radio",
+            subtitle: "Tagged by feel",
+            tiles: Self.moodStations,
+            eyebrow: "MOOD"
+        ) { mood in
+            model.startMoodRadio(tag: mood.tag, label: mood.label)
+        } labelFor: { mood in
+            (label: mood.label, seed: "mood-\(mood.tag)")
+        }
+    }
+
+    /// Shared layout for a radio station row: shelf header + a horizontal
+    /// strip of `RadioStationTile`s. Generic over the tile model so Genre /
+    /// Decade / Mood can share one implementation.
+    @ViewBuilder
+    private func radioRow<Item: Hashable>(
+        title: String,
+        subtitle: String,
+        tiles: [Item],
+        eyebrow: String,
+        action: @escaping (Item) -> Void,
+        labelFor: @escaping (Item) -> (label: String, seed: String)
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(Theme.accent)
+                    .font(.system(size: 14, weight: .bold))
+                Text(title)
+                    .font(Theme.font(18, weight: .bold))
+                    .foregroundStyle(Theme.ink)
+                Text(subtitle)
+                    .font(Theme.font(12, weight: .medium))
+                    .foregroundStyle(Theme.ink3)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(tiles, id: \.self) { tile in
+                        let info = labelFor(tile)
+                        RadioStationTile(
+                            label: info.label,
+                            eyebrow: eyebrow,
+                            seed: info.seed,
+                            action: { action(tile) }
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// Genre stations — drawn from the same ranked "genres to explore" signal
+    /// the Discover screen uses, capped to the spec's 4–6 tiles.
+    private var genreRadioStations: [Genre] {
+        Array(model.genresToExplore.prefix(6))
+    }
+
+    /// Static decade presets (§9 Issue 52/57). `endYear` is inclusive.
+    struct DecadeStation: Hashable {
+        let label: String
+        let startYear: UInt32
+        let endYear: UInt32
+    }
+
+    static let decadeStations: [DecadeStation] = [
+        DecadeStation(label: "'60s", startYear: 1960, endYear: 1969),
+        DecadeStation(label: "'70s", startYear: 1970, endYear: 1979),
+        DecadeStation(label: "'80s", startYear: 1980, endYear: 1989),
+        DecadeStation(label: "'90s", startYear: 1990, endYear: 1999),
+        DecadeStation(label: "'00s", startYear: 2000, endYear: 2009),
+        DecadeStation(label: "'10s", startYear: 2010, endYear: 2019),
+    ]
+
+    /// Static mood presets sourced from item tags when present (§9 Issue 57).
+    /// The AppModel starter surfaces a friendly message when a mood has no
+    /// tagged tracks, so showing the tile costs nothing if the library is
+    /// untagged.
+    struct MoodStation: Hashable {
+        let label: String
+        let tag: String
+    }
+
+    static let moodStations: [MoodStation] = [
+        MoodStation(label: "Chill", tag: "chill"),
+        MoodStation(label: "Focus", tag: "focus"),
+        MoodStation(label: "Workout", tag: "workout"),
+        MoodStation(label: "Sleep", tag: "sleep"),
+        MoodStation(label: "Party", tag: "party"),
+    ]
 
     /// Pinned Stations row (#253). A user-curated shelf of station "presets"
     /// — artist radios, playlists, moods. The real pin infrastructure (server
