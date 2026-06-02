@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Genre / Decade / Mood radio rows (#256, `06-screen-specs.md` §9).
+/// The Genre / Decade / Mood radio rows (`06-screen-specs.md` §9).
 ///
 /// Three horizontal rows of 4–6 gradient tiles. Each tile *starts a radio
 /// station* — it replaces the queue with a shuffled, station-style mix and

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Discover — the "find something new" surface. Today: a header + Instant Mix
 /// CTA (#248), a horizontal "For You" carousel (#249), the Genre / Decade /
-/// Mood radio rows (#256), a "Browse by Decade" gradient-tile row, and a
+/// Mood radio rows, a "Browse by Decade" gradient-tile row, and a
 /// "Genres to Explore" grid (#250). Richer recommendations (recently added,
 /// more like this, etc.) land in follow-ups.
 ///

@@ -2042,6 +2042,43 @@ final class AppModel {
             url: baseURL.appendingPathComponent("Users/\(userId)/Items"),
             resolvingAgainstBaseURL: false
         )
+        comps?.queryItems = Self.itemsQueryItems(
+            includeItemTypes: includeItemTypes,
+            sortBy: sortBy,
+            sortOrder: sortOrder,
+            filters: filters,
+            limit: limit,
+            extraFields: extraFields,
+            minDateLastSaved: minDateLastSaved,
+            parentId: parentId,
+            years: years,
+            tags: tags
+        )
+        guard let url = comps?.url else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    /// Pure assembly of the `/Users/{id}/Items` query string. Split out of
+    /// `buildItemsQuery` so the param matrix — especially the radio-only
+    /// `Years` (comma-joined) and `Tags` (pipe-joined) dimensions added for the
+    /// Decade / Mood stations — can be unit-tested without a live session or a
+    /// network round-trip. `nil`/empty optionals are omitted entirely rather
+    /// than emitted as blank params.
+    static func itemsQueryItems(
+        includeItemTypes: String,
+        sortBy: String,
+        sortOrder: String,
+        filters: String?,
+        limit: UInt32,
+        extraFields: [String],
+        minDateLastSaved: String?,
+        parentId: String?,
+        years: [Int]?,
+        tags: [String]?
+    ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "IncludeItemTypes", value: includeItemTypes),
             URLQueryItem(name: "Recursive", value: "true"),
@@ -2071,12 +2108,15 @@ final class AppModel {
         if let tags, !tags.isEmpty {
             queryItems.append(URLQueryItem(name: "Tags", value: tags.joined(separator: "|")))
         }
-        comps?.queryItems = queryItems
-        guard let url = comps?.url else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        return request
+        return queryItems
+    }
+
+    /// Test seam: the radio stations parse their `/Items` response through the
+    /// private `parseTracksFromItems`. This thin internal wrapper lets the test
+    /// target exercise that JSON path (the half of `fetchRadioTracks` that runs
+    /// after the `URLSession` hop) without a live server.
+    static func parseTracksFromItemsForTesting(data: Data) -> [Track] {
+        parseTracksFromItems(data: data)
     }
 
     /// Parse the `{ Items: [...], TotalRecordCount: ... }` envelope
@@ -4916,7 +4956,7 @@ final class AppModel {
         }
     }
 
-    // MARK: - Decade / Mood radio (#256)
+    // MARK: - Decade / Mood radio
     //
     // The Discover/Home "Radio" surface offers Genre, Decade, and Mood
     // stations (per `06-screen-specs.md` §9). Genre radio reuses
@@ -4958,32 +4998,49 @@ final class AppModel {
     /// Best-effort probe of which spec moods have any tagged tracks. Fires one
     /// tiny (`limit: 1`) `/Items` HEAD-style fetch per mood concurrently and
     /// keeps only the moods that came back non-empty. Idempotent and cheap;
-    /// safe to call on Discover/Home appearance. Failures (auth/network) leave
-    /// `availableMoods` unchanged rather than blanking an already-populated row.
+    /// safe to call on Discover/Home appearance.
+    ///
+    /// Partial-failure contract: a probe that fails (auth/network/parse) is
+    /// *indeterminate*, not "no tracks". If any mood probe is indeterminate we
+    /// leave `availableMoods` unchanged rather than risk dropping a mood whose
+    /// tracks exist but whose probe merely errored — a transient blip must not
+    /// blank an already-populated row, nor permanently hide a mood on the first
+    /// probe. We only commit a new set when every probe returned a definite
+    /// yes/no answer.
     func probeAvailableMoods() async {
         guard session != nil else { return }
-        let present = await withTaskGroup(of: Mood?.self) { group in
+        let results = await withTaskGroup(of: (Mood, Bool?).self) { group in
             for mood in Mood.all {
                 group.addTask { [weak self] in
-                    guard let self else { return nil }
-                    let hit = await self.moodHasTracks(tag: mood.tag)
-                    return hit ? mood : nil
+                    guard let self else { return (mood, nil) }
+                    return (mood, await self.moodHasTracks(tag: mood.tag))
                 }
             }
-            var found: [Mood] = []
+            var collected: [(Mood, Bool?)] = []
             for await result in group {
-                if let mood = result { found.append(mood) }
+                collected.append(result)
             }
-            return found
+            return collected
         }
-        guard !present.isEmpty else { return }
+
+        // Any indeterminate probe → don't touch `availableMoods` (leave the
+        // prior state as-is per the partial-failure contract).
+        guard results.allSatisfy({ $0.1 != nil }) else {
+            Log.net.notice("probeAvailableMoods: at least one mood probe was indeterminate; leaving availableMoods unchanged")
+            return
+        }
+
+        let present = Set(results.filter { $0.1 == true }.map { $0.0 })
         // Re-order to the canonical spec order rather than completion order.
-        availableMoods = Mood.all.filter { mood in present.contains(mood) }
+        availableMoods = Mood.all.filter { present.contains($0) }
     }
 
     /// Does the given mood tag have at least one audio track? One `limit: 1`
-    /// `/Items` probe; returns false on auth/network/parse failure.
-    private func moodHasTracks(tag: String) async -> Bool {
+    /// `/Items` probe. Returns `true`/`false` for a definite answer, or `nil`
+    /// when the probe is *indeterminate* (auth expiry, network error, or an
+    /// unparseable response) — callers must treat `nil` as "unknown", not "no
+    /// tracks", so a transient failure can't silently drop a mood.
+    private func moodHasTracks(tag: String) async -> Bool? {
         guard let request = buildItemsQuery(
             includeItemTypes: "Audio",
             sortBy: "Random",
@@ -4994,16 +5051,23 @@ final class AppModel {
             minDateLastSaved: nil,
             parentId: nil,
             tags: [tag]
-        ) else { return false }
+        ) else { return nil }
         do {
             let (data, resp) = try await URLSession.shared.data(for: request)
-            if let http = resp as? HTTPURLResponse, http.statusCode == 401 {
-                markAuthExpired()
-                return false
+            if let http = resp as? HTTPURLResponse {
+                if http.statusCode == 401 {
+                    markAuthExpired()
+                    return nil
+                }
+                guard (200...299).contains(http.statusCode) else {
+                    Log.net.error("moodHasTracks(\(tag, privacy: .public)) HTTP \(http.statusCode)")
+                    return nil
+                }
             }
             return !Self.parseTracksFromItems(data: data).isEmpty
         } catch {
-            return false
+            Log.net.error("moodHasTracks(\(tag, privacy: .public)) failed: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
