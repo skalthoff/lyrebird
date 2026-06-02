@@ -1,14 +1,53 @@
 import SwiftUI
 
+/// Spin-state math for the vinyl disc, factored out of the view so the
+/// freeze-on-pause behaviour is unit-testable without a running scene graph.
+///
+/// The disc animates a monotonically growing `angle` so it can stop in place
+/// rather than unwinding to 0°. The subtlety: when SwiftUI is mid-ramp, the
+/// model's `angle` already holds the *target* of the in-flight animation, not
+/// the value currently on screen. Truncating that target by 360 lands on an
+/// arbitrary multiple-of-360 remainder, so the disc visibly snaps. To freeze
+/// at the *interpolated* position we reconstruct it from the ramp's start
+/// time and duration.
+enum VinylSpin {
+    /// One rotation per this many seconds, linear.
+    static let secondsPerRotation: Double = 8
+
+    /// Degrees swept since a ramp began, given how long it has been running.
+    /// Linear at `360 / secondsPerRotation` deg/s, clamped to non-negative
+    /// elapsed so a clock skew can't rewind the disc.
+    static func sweep(elapsed: Double) -> Double {
+        guard elapsed > 0 else { return 0 }
+        return elapsed * (360 / secondsPerRotation)
+    }
+
+    /// The angle the disc is actually showing when paused mid-ramp: the angle
+    /// it started the current rotation from, advanced by the interpolated
+    /// sweep, then normalised to `[0, 360)`. This is the value to commit on
+    /// pause — using the model's already-advanced target instead would snap
+    /// the disc to an unrelated remainder.
+    static func frozenAngle(base: Double, elapsed: Double) -> Double {
+        normalize(base + sweep(elapsed: elapsed))
+    }
+
+    /// Map any accumulated angle into `[0, 360)` without the sign quirk of
+    /// `truncatingRemainder` on negatives.
+    static func normalize(_ angle: Double) -> Double {
+        let r = angle.truncatingRemainder(dividingBy: 360)
+        return r < 0 ? r + 360 : r
+    }
+}
+
 /// A stylized vinyl record that peeks out the right edge of the Now Playing
-/// hero artwork and spins while audio is playing (#270).
+/// hero artwork and spins while audio is playing.
 ///
 /// Mirrors the prototype recipe in `design/project/src/panels.jsx`:
 /// a 400pt conic-gradient disc offset `-80pt` to the right and `+10pt` up,
 /// sitting *behind* the 420pt artwork, with a primary→accent label and a
 /// black center hole. One rotation per 8s, linear, only while `playing`.
-/// Pausing freezes the disc in place (the angle is interpolated, so it
-/// stops where it was rather than snapping back to 0°).
+/// Pausing freezes the disc at its on-screen position; Reduce Motion holds it
+/// still.
 ///
 /// The disc scales to whatever side length the hero art is rendered at
 /// (the hero is responsive, not a hard 420pt), preserving the prototype's
@@ -21,13 +60,16 @@ struct VinylDisc: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Accumulated rotation in degrees. Animating a monotonically growing
-    /// value (rather than toggling 0↔360) lets the disc freeze in place on
-    /// pause instead of unwinding, and resume from the same angle.
+    /// Accumulated rotation in degrees, normalised to `[0, 360)` whenever the
+    /// disc is at rest. Animating a growing value lets the disc freeze in
+    /// place on pause and resume from the same angle.
     @State private var angle: Double = 0
+    /// The angle the current ramp started from, captured when the spin begins.
+    @State private var rampBaseAngle: Double = 0
+    /// When the current ramp began, used to reconstruct the interpolated angle
+    /// on pause. `nil` while the disc is at rest.
+    @State private var rampStart: Date?
 
-    /// Prototype reference dimensions, scaled by the live art side so the
-    /// disc keeps its proportions on a 13" MBP and on an ultrawide alike.
     private var scale: CGFloat { artSide / 420 }
     private var discSize: CGFloat { 400 * scale }
     private var offsetX: CGFloat { 80 * scale }
@@ -35,8 +77,6 @@ struct VinylDisc: View {
 
     var body: some View {
         ZStack {
-            // Grooved body — repeating conic gradient reads as concentric
-            // pressing lines once it spins.
             Circle()
                 .fill(
                     AngularGradient(
@@ -60,7 +100,6 @@ struct VinylDisc: View {
                         .padding(discSize * 0.02)
                 )
 
-            // Label — primary→accent wash.
             Circle()
                 .fill(
                     LinearGradient(
@@ -71,7 +110,6 @@ struct VinylDisc: View {
                 )
                 .frame(width: discSize * 0.2, height: discSize * 0.2)
 
-            // Center spindle hole.
             Circle()
                 .fill(Color.black)
                 .frame(width: discSize * 0.06, height: discSize * 0.06)
@@ -79,7 +117,6 @@ struct VinylDisc: View {
         .frame(width: discSize, height: discSize)
         .shadow(color: .black.opacity(0.5), radius: 20 * scale, x: 0, y: 20 * scale)
         .rotationEffect(.degrees(angle))
-        // Behind the artwork, peeking out its right edge.
         .offset(x: offsetX, y: offsetY)
         .zIndex(-1)
         .allowsHitTesting(false)
@@ -94,19 +131,23 @@ struct VinylDisc: View {
     }
 
     /// Start or stop the rotation. While playing (and motion is allowed) we
-    /// drive `angle` forward by 360° on a repeating 8s linear ramp. On pause
-    /// we re-assign the current angle with no animation, which halts the
-    /// in-flight ramp at its present position.
+    /// drive `angle` forward by 360° on a repeating 8s linear ramp, recording
+    /// the base angle and start time so a later pause can recover the
+    /// on-screen position. On pause we commit that interpolated position with
+    /// no animation, halting the ramp where the disc actually is.
     private func updateSpin(playing: Bool) {
         if playing && !reduceMotion {
-            withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
+            guard rampStart == nil else { return }
+            rampBaseAngle = angle
+            rampStart = Date()
+            withAnimation(.linear(duration: VinylSpin.secondsPerRotation).repeatForever(autoreverses: false)) {
                 angle += 360
             }
         } else {
-            // Freeze in place: cancel the repeating animation by writing the
-            // value without an animation transaction.
+            let elapsed = rampStart.map { Date().timeIntervalSince($0) } ?? 0
+            rampStart = nil
             withAnimation(.linear(duration: 0)) {
-                angle = angle.truncatingRemainder(dividingBy: 360)
+                angle = VinylSpin.frozenAngle(base: rampBaseAngle, elapsed: elapsed)
             }
         }
     }

@@ -111,9 +111,9 @@ struct NowPlayingView: View {
                 radius: 14
             )
             .frame(width: artSide, height: artSide)
-            // Vinyl disc peeking out the artwork's right edge (#270). Aligned
-            // trailing so it slides out past the art rather than behind its
-            // center; the disc's own `+80pt` x-offset pushes it clear.
+            // Trailing alignment so the disc slides out past the art's right
+            // edge rather than behind its center; the disc's own `+80pt`
+            // x-offset pushes it clear.
             .background(alignment: .trailing) {
                 VinylDisc(
                     artSide: artSide,
