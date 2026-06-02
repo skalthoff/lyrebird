@@ -217,6 +217,16 @@ final class AppModel {
     /// `refreshGenresToExplore()` runs, and stays empty for a library with no
     /// genres so the section can hide rather than punch a blank hole.
     var genresToExplore: [Genre] = []
+    /// Genres surfaced in the Search "Browse by Genre" tile grid (#247). The
+    /// dual of `genresToExplore`: the *largest* genres in the library, ranked
+    /// by descending `song_count` and capped at 12, so the empty-search page
+    /// leads with the corners of the library the user is most likely to want
+    /// to browse. Carries the resolved Jellyfin UUID in `Genre.id` (sourced
+    /// straight from `core.genres`), so tapping a tile navigates to the genre
+    /// detail screen without a name→UUID round-trip. Empty until
+    /// `refreshBrowseGenres()` runs, and stays empty for a genre-less library
+    /// so the section can hide rather than render a blank band.
+    var browseGenres: [Genre] = []
     /// Last-played albums for the Home "Jump Back In" carousel (#51). Up to
     /// 12 albums the user has played recently, sorted by `DatePlayed` desc.
     /// Backed by a raw `/Items` fetch because the core's `ItemsQuery`
@@ -1007,6 +1017,7 @@ final class AppModel {
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
+        browseGenres = []
         jumpBackIn = []
         recentlyAdded = []
         recentlyAddedDates = [:]
@@ -1072,6 +1083,7 @@ final class AppModel {
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
+        browseGenres = []
         jumpBackIn = []
         recentlyAdded = []
         recentlyAddedDates = [:]
@@ -1230,6 +1242,7 @@ final class AppModel {
         await refreshRecentlyPlayed()
         await refreshForYou()
         await refreshGenresToExplore()
+        await refreshBrowseGenres()
         // Home screen carousels (#49 / #51–#55). Kicked off after the main
         // library so first paint isn't blocked on these secondary shelves.
         // Each of these is best-effort — empty or errored rows just hide in
@@ -1565,6 +1578,62 @@ final class AppModel {
                     return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
                 }
                 .prefix(8)
+                .map { Genre(id: $0.id, name: $0.name) }
+        )
+    }
+
+    /// Refresh the Search "Browse by Genre" tile grid (#247).
+    ///
+    /// Pulls one page of `/MusicGenres` (already filtered server-side to
+    /// genres carrying Audio/Album/Artist items) and ranks them so the
+    /// *biggest* genres lead — the dual of `refreshGenresToExplore`. Jellyfin's
+    /// `/MusicGenres` projection carries `song_count` per genre, so we rank by
+    /// descending count, tie-broken by name for a stable order, and cap at 12
+    /// for the tile grid.
+    ///
+    /// Runs the sync `core.genres` FFI off the MainActor (gap pattern #2) and
+    /// marshals the ranked result back. Failures leave the prior grid intact
+    /// rather than blanking the section mid-session; auth expiry surfaces so
+    /// the user is routed to re-login like every other refresh path.
+    func refreshBrowseGenres() async {
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                // limit: 500 matches `refreshGenresToExplore` / `resolvedGenreId`
+                // — /MusicGenres sorts SortName ascending, so a smaller cap would
+                // silently drop alphabetically-late genres from the ranking pool
+                // (the test library has 254 genres).
+                try core.genres(offset: 0, limit: 500)
+            }.value
+            // Project the FFI genres to plain tuples before ranking — passing the
+            // `core.Genre` struct directly would force a `LyrebirdCore.Genre`
+            // annotation, which the generated `open class LyrebirdCore` shadows
+            // (module-vs-type name collision). Tuples keep the ranking helper
+            // pure + testable.
+            self.browseGenres = AppModel.rankBrowseGenres(
+                page.items.map { (id: $0.id, name: $0.name, songCount: $0.songCount) }
+            )
+        } catch {
+            _ = handleAuthError(error)
+        }
+    }
+
+    /// Pure ranking for the "Browse by Genre" grid (#247), split out from the
+    /// FFI hop so it's unit-testable without a live core. Keeps only genres
+    /// present in the library (`song_count > 0`), ranks descending by
+    /// `song_count` (biggest first) with a case-insensitive name tiebreaker for
+    /// stable order, caps at 12 for the tile grid, and carries the resolved
+    /// Jellyfin UUID through into the local `Genre.id`.
+    static func rankBrowseGenres(
+        _ genres: [(id: String, name: String, songCount: UInt32)]
+    ) -> [Genre] {
+        Array(
+            genres
+                .filter { $0.songCount > 0 }
+                .sorted {
+                    if $0.songCount != $1.songCount { return $0.songCount > $1.songCount }
+                    return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+                .prefix(12)
                 .map { Genre(id: $0.id, name: $0.name) }
         )
     }

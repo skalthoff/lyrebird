@@ -78,6 +78,15 @@ struct SearchView: View {
         // #585: Route space-bar keypresses to the search TextField even
         // while the global Play/Pause ⎵ shortcut is active.
         .spaceKeyGuardForTextField()
+        // Best-effort populate of the "Browse by Genre" tiles (#247) so the
+        // empty-search landing has something to browse even if the user
+        // reaches Search before the post-login bootstrap got to it. Cheap
+        // (one cached /MusicGenres page) and idempotent.
+        .task {
+            if model.browseGenres.isEmpty {
+                await model.refreshBrowseGenres()
+            }
+        }
         .onAppear {
             if model.requestSearchFocus {
                 searchFieldFocused = true
@@ -230,6 +239,16 @@ struct SearchView: View {
     @ViewBuilder
     private var recentSearches: some View {
         let items = AppModel.decodeRecentSearches(recentSearchesJSON)
+        VStack(alignment: .leading, spacing: 28) {
+            recentSearchesList(items)
+            BrowseByGenreSection()
+        }
+    }
+
+    /// The recent-searches list proper, split out so the empty-query body can
+    /// compose it above the "Browse by Genre" tiles (#247).
+    @ViewBuilder
+    private func recentSearchesList(_ items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Recent searches")
                 .font(Theme.font(18, weight: .bold))
