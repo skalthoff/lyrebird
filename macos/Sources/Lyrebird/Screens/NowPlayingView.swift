@@ -161,6 +161,7 @@ struct NowPlayingView: View {
                 .help(isFav ? "Unfavorite" : "Favorite")
                 .accessibilityLabel(isFav ? "Unfavorite" : "Favorite")
             }
+            factTagline(for: track)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: width, alignment: .topLeading)
@@ -175,6 +176,33 @@ struct NowPlayingView: View {
     private func heroArtSide(containerWidth: CGFloat?) -> CGFloat {
         let byWidth = containerWidth.map { max(240, $0 - 72) } ?? 320
         return min(520, byWidth)
+    }
+
+    @ViewBuilder
+    private func factTagline(for track: Track) -> some View {
+        let facts = NowPlayingFacts.variants(
+            playCount: track.playCount,
+            container: track.container,
+            lastPlayedAt: track.userData?.lastPlayedAt
+        )
+        if !facts.isEmpty {
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                let index = reduceMotion
+                    ? 0
+                    : NowPlayingFacts.index(at: context.date, count: facts.count)
+                Text(facts[index])
+                    .font(Theme.font(11, weight: .regular, italic: true))
+                    .foregroundStyle(Theme.ink3)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+                    .id(index)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: index)
+                    .accessibilityLabel(facts[index])
+            }
+            .padding(.top, 6)
+        }
     }
 
     /// Right pane — segmented tab picker over a per-tab view.
