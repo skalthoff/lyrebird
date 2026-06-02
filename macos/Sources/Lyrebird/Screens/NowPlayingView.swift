@@ -111,6 +111,15 @@ struct NowPlayingView: View {
                 radius: 14
             )
             .frame(width: artSide, height: artSide)
+            // Trailing alignment so the disc slides out past the art's right
+            // edge rather than behind its center; the disc's own `+80pt`
+            // x-offset pushes it clear.
+            .background(alignment: .trailing) {
+                VinylDisc(
+                    artSide: artSide,
+                    isPlaying: model.status.state == .playing
+                )
+            }
             VStack(alignment: .leading, spacing: 6) {
                 Text(track.name)
                     .font(Theme.font(26, weight: .heavy))
