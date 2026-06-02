@@ -202,11 +202,9 @@ public final class AudioEngine: NSObject {
     /// caller falls back to the server's default source and an
     /// opportunistic (uncorrelated) session — the URL is still playable.
     ///
-    /// The `core.playbackInfo` call crosses the FFI into Rust and blocks the
-    /// calling thread on the core's `block_on` for the full `POST
-    /// /Items/{id}/PlaybackInfo` round-trip (50–500 ms local, unbounded on a
-    /// slow link). It runs off the main actor so `play(track:)` never beach-
-    /// balls the UI for the duration of that request (#936).
+    /// Runs off the main actor: the `core.playbackInfo` FFI blocks the calling
+    /// thread on the full `POST /Items/{id}/PlaybackInfo` round-trip, which
+    /// would beach-ball the UI if taken on the main actor.
     private func resolvePlaybackSource(for trackId: String) async -> (mediaSourceId: String?, playSessionId: String?) {
         let core = self.core
         let opts = PlaybackInfoOpts(
@@ -339,9 +337,7 @@ public final class AudioEngine: NSObject {
         // server picks the right source for multi-version items and can
         // correlate subsequent /Sessions/Playing* reports with the stream.
         // Falling back to nil is harmless — the server just picks its
-        // default source and correlation stays opportunistic. The resolution
-        // runs off the main actor (#936) so the network POST never blocks the
-        // UI; everything below resumes on the main actor.
+        // default source and correlation stays opportunistic.
         let (mediaSourceId, playSessionId) = await resolvePlaybackSource(for: track.id)
         let urlString = try core.streamUrl(
             trackId: track.id,
