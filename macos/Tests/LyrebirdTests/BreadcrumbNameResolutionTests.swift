@@ -3,7 +3,7 @@ import XCTest
 @testable import Lyrebird
 @testable import LyrebirdCore
 
-/// Coverage for the breadcrumb name-resolution chain (#938): the loaded
+/// Coverage for the breadcrumb name-resolution chain: the loaded
 /// `albums` / `artists` page first, then `resolvedNameCache` (seeded by
 /// `resolveAlbum` / `resolveArtist` on drill-in from outside that page), then
 /// nil so the trail renders an ellipsis. Before the fix a drill destination
@@ -45,7 +45,7 @@ final class BreadcrumbNameResolutionTests: XCTestCase {
 
     func testAlbumNameFallsBackToResolvedCache() throws {
         let model = try AppModel()
-        // Empty page (the #938 case: album drilled into from outside page 1).
+        // Empty page (album drilled into from outside page 1).
         model.albums = []
         model.resolvedNameCache["a2"] = "Cache Album"
 
