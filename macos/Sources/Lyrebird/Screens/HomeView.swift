@@ -35,6 +35,7 @@ struct HomeView: View {
                 recentlyPlayedTracksSection
                 yourPlaylistsSection
                 recentlyAddedSection
+                rediscoverSection
                 quickPicksSection
                 suggestionsSection
                 favoritesSection
@@ -558,6 +559,33 @@ struct HomeView: View {
                                 NewBadge()
                             }
                         }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// "Rediscover" — albums the user has never played (#57). Backed by
+    /// `model.rediscover`, an `/Items` query filtered to `IsUnplayed` and
+    /// sorted `Random`, so the shelf surfaces a fresh handful from the
+    /// unplayed corners of the library on each refresh. Hidden when empty
+    /// (a fully-played library) so we don't punch a blank hole in the
+    /// layout. Reuses `HomeAlbumTile`, the same tile the other album
+    /// carousels render.
+    @ViewBuilder
+    private var rediscoverSection: some View {
+        if !model.rediscover.isEmpty {
+            carouselSection(
+                icon: "binoculars.fill",
+                iconColor: Theme.primary,
+                title: "Rediscover",
+                subtitle: "Albums in your library you haven't played yet",
+                onSeeAll: { model.selectTab(.library) }
+            ) {
+                HStack(alignment: .top, spacing: 16) {
+                    ForEach(model.rediscover, id: \.id) { album in
+                        HomeAlbumTile(album: album)
                     }
                 }
                 .padding(.vertical, 4)

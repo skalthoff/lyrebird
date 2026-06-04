@@ -280,6 +280,13 @@ final class AppModel {
     /// section, so the two never drift. Hidden in the Home layout when
     /// empty — a fresh user with no favorited artists sees no shelf.
     var favoriteArtists: [Artist] = []
+    /// "Rediscover" — albums the user has never played, for the Home shelf
+    /// of the same name (#57). Backed by an `/Items` query filtered to
+    /// `IsUnplayed` and sorted `Random` so the row surfaces a fresh,
+    /// varied handful each session (the same shuffle-for-freshness shape
+    /// as the Favorites carousel). Up to 12 albums. Hidden when empty so a
+    /// fully-played library renders no shelf rather than a blank band.
+    var rediscover: [Album] = []
     /// Server-curated "You might like" tracks for the Home discovery row
     /// (#145). Backed by `core.suggestions()`, which hits Jellyfin's
     /// `/Items/Suggestions` endpoint. Up to 20 tracks. Hidden until data
@@ -1052,6 +1059,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        rediscover = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1124,6 +1132,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        rediscover = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1285,6 +1294,7 @@ final class AppModel {
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
         await refreshFavoriteArtists()
+        await refreshRediscover()
         await refreshSuggestions()
     }
 
@@ -1772,6 +1782,24 @@ final class AppModel {
     /// the server.
     func reshuffleFavoriteAlbumsVisible() {
         self.favoriteAlbumsVisible = Array(favoriteAlbumsAll.shuffled().prefix(12))
+    }
+
+    /// Refresh the "Rediscover" carousel (#57). Fetches up to 12 albums the
+    /// user has never played, filtered to `IsUnplayed` and sorted `Random`
+    /// server-side so the row surfaces a different corner of the library on
+    /// each cold launch / refresh rather than the same alphabetically-first
+    /// dozen. Reuses `fetchAlbumsViaItemsQuery` — the `Descending` sort order
+    /// it hardcodes is a no-op for `Random`. Best-effort: an empty result
+    /// (a fully-played library) just leaves the shelf hidden.
+    func refreshRediscover() async {
+        let albums = await fetchAlbumsViaItemsQuery(
+            sortBy: "Random",
+            filters: "IsUnplayed",
+            limit: 12,
+            extraFields: [],
+            minDateLastSaved: nil
+        )
+        self.rediscover = albums
     }
 
     /// Refresh the "Artists You Love" carousel (#207). Reuses
