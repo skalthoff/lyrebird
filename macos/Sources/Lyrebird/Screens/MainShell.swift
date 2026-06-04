@@ -16,7 +16,10 @@ struct MainShell: View {
 
     /// Drives `NavigationSplitView`'s sidebar visibility so the toolbar
     /// `Toggle Sidebar` item has somewhere to write. SwiftUI animates the
-    /// column collapse / reveal for us when this changes.
+    /// column collapse / reveal for us when this changes. Seeded from
+    /// `persistedSidebarRaw` / the Appearance preference on first appearance
+    /// and mirrored back into `@SceneStorage` so the layout survives a
+    /// relaunch — see `restoreWindowState()` and `WindowStateStore` (#10).
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     /// Auto-hide bookkeeping (#318). Tracks whether the current collapse was
@@ -30,6 +33,23 @@ struct MainShell: View {
     /// stops overriding their choice. Survives relaunch via `@AppStorage`.
     @AppStorage(SidebarDefaults.userDidOverrideAutoHideKey)
     private var userDidOverrideAutoHide: Bool = false
+
+    /// Persisted main-window content state (#10). The OS already restores the
+    /// window's size/position via `WindowGroup` (#17); these three reach the
+    /// things it can't — the last-viewed tab, the sidebar column visibility,
+    /// and the queue inspector — via `@SceneStorage` so each is keyed to the
+    /// window scene rather than leaking globally across windows. All decode /
+    /// fallback logic lives in the testable `WindowStateStore`; these hold
+    /// only the stable raw strings.
+    @SceneStorage(WindowStateKeys.screen) private var persistedScreenRaw: String = ""
+    @SceneStorage(WindowStateKeys.sidebar) private var persistedSidebarRaw: String = ""
+    @SceneStorage(WindowStateKeys.inspector) private var persistedInspectorRaw: String = ""
+
+    /// The Appearance pane's `Sidebar` preference (`PreferencesAppearance`).
+    /// Read here so a window with no persisted per-scene visibility yet opens
+    /// honouring the user's chosen default — wiring the previously UI-only
+    /// `AppearanceSidebar` enum into real behaviour (#10).
+    @AppStorage(AppearanceKeys.sidebar) private var sidebarPreferenceRaw: String = AppearanceSidebar.visible.rawValue
 
     var body: some View {
         @Bindable var model = model
@@ -189,6 +209,27 @@ struct MainShell: View {
                     }
             }
         )
+        // Restore the persisted window content state once, on first
+        // appearance of the shell (#10). `WindowStateStore` owns the decode +
+        // fallback rules; here we just apply the resolved values. Runs after
+        // the scene mounts so `@SceneStorage` has rehydrated.
+        .onAppear { restoreWindowState() }
+        // Persist the last-viewed tab whenever it changes so the next launch
+        // lands where the user left off.
+        .onChange(of: model.screen) { _, newScreen in
+            persistedScreenRaw = newScreen.persistedRawValue
+        }
+        // Persist the sidebar column visibility on every change — the toolbar
+        // toggle, the native separator drag/collapse, and ⌘⌃S all write
+        // `columnVisibility`, so observing it here captures every path.
+        .onChange(of: columnVisibility) { _, newValue in
+            persistedSidebarRaw = newValue.persistedRawValue
+        }
+        // Persist the queue inspector visibility (#79 surface) so it reopens
+        // with the window if the user left it open.
+        .onChange(of: model.isQueueInspectorOpen) { _, isOpen in
+            persistedInspectorRaw = isOpen ? "true" : "false"
+        }
         // Announce track changes to VoiceOver (#342). Keyed on the track id
         // so it fires for user skips and autoplay alike but not for
         // non-identity status churn (position / volume polls). The stop
@@ -286,6 +327,34 @@ struct MainShell: View {
         sidebarAutoHide = decision.state
         if let newVisibility = decision.visibility, newVisibility != columnVisibility {
             columnVisibility = newVisibility
+        }
+    }
+
+    /// Apply the persisted window content state on first appearance (#10).
+    /// Pulls the resolved values out of `WindowStateStore` (which encapsulates
+    /// every fallback rule, including the Appearance `Sidebar` preference) and
+    /// writes them into the live state. Idempotent and cheap: re-running it
+    /// would just re-apply the same values, but `.onAppear` only fires it once
+    /// per shell mount.
+    ///
+    /// Restoring the tab routes through `selectTab(_:)` rather than assigning
+    /// `model.screen` directly so any drill stack from a stale launch is
+    /// cleared — the user should land on the tab root, not a half-restored
+    /// detail page whose subject may no longer exist.
+    private func restoreWindowState() {
+        let restoredScreen = WindowStateStore.restoredScreen(persistedRaw: persistedScreenRaw)
+        if model.screen != restoredScreen {
+            model.selectTab(restoredScreen)
+        }
+
+        columnVisibility = WindowStateStore.initialSidebarVisibility(
+            persistedRaw: persistedSidebarRaw,
+            preferenceRaw: sidebarPreferenceRaw
+        )
+
+        let restoredInspector = WindowStateStore.restoredInspectorVisible(persistedRaw: persistedInspectorRaw)
+        if model.isQueueInspectorOpen != restoredInspector {
+            model.isQueueInspectorOpen = restoredInspector
         }
     }
 
