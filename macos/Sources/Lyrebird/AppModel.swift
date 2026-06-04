@@ -434,6 +434,15 @@ final class AppModel {
     /// playing launch instead of waiting for a pause/resume transition. See #266.
     private var didApplyMenuBarPlayingState = false
 
+    // MARK: - Scrobbling (#46)
+    /// Decides when to fire a `playing_now` vs a durable `single` listen. Driven
+    /// from the 1 Hz status poll; the actual POSTs go to the Rust core off the
+    /// main actor. Pure value type — see `ScrobbleGate`.
+    private var scrobbleGate = ScrobbleGate()
+    /// Mirrors `core.isScrobbleConfigured()` for the Preferences pane to read
+    /// without a per-render FFI. Refreshed when the token changes and at launch.
+    var scrobbleConnected: Bool = false
+
     // MARK: - Queue inspector (BATCH-07a, #79 / #80 / #282)
     //
     // Issue #282 — separate "Up Next" (user-added) from "Auto Queue" (what
@@ -917,6 +926,9 @@ final class AppModel {
         // pane to mount. An empty/absent value means "follow system default".
         let savedDeviceUID = UserDefaults.standard.string(forKey: AudioOutputDevices.preferenceKey) ?? ""
         self.audio.outputDeviceUID = savedDeviceUID.isEmpty ? nil : savedDeviceUID
+        // Seed the scrobble-connected flag from the core's persisted token so
+        // the Preferences pane shows the right state on first open.
+        self.scrobbleConnected = core.isScrobbleConfigured()
     }
 
     // MARK: - Network
@@ -5408,6 +5420,66 @@ final class AppModel {
     }
     #endif
 
+    // MARK: - Scrobbling (#46)
+
+    /// Persist a ListenBrainz token through the core and refresh the connected
+    /// flag. Passing `nil` / blank disconnects. The token never lives in
+    /// `UserDefaults` — only the core's settings table — so it stays out of the
+    /// diagnostic bundle. Surfaces failures via `errorMessage`.
+    func connectScrobbler(token: String?) {
+        do {
+            try core.setScrobbleToken(token: token)
+            scrobbleConnected = core.isScrobbleConfigured()
+        } catch {
+            errorMessage = LyrebirdErrorPresenter.message(for: error, context: .generic)
+        }
+    }
+
+    /// Clear the stored token and reset the in-flight gate so a re-connect
+    /// starts clean.
+    func disconnectScrobbler() {
+        scrobbleGate.reset()
+        connectScrobbler(token: nil)
+    }
+
+    /// Drive the scrobble gate from one status-poll observation and perform
+    /// whichever action it returns. Called once per poll tick.
+    ///
+    /// Both submit paths hop off the main actor via `Task.detached` — they take
+    /// the core's `parking_lot` mutex and make a network call, neither of which
+    /// belongs on the main thread (gap pattern #2). The threshold *decision*
+    /// stays on the main actor: `core.scrobbleThresholdReached` is side-effect
+    /// free (no mutex, no I/O), so calling it per tick is cheap.
+    ///
+    /// Submit errors are swallowed by design — a failed scrobble must never
+    /// interrupt playback or surface a toast. A genuinely bad token shows up
+    /// in the pane (the connect call validates it); transient network blips
+    /// are simply skipped.
+    private func driveScrobble() {
+        let track = status.currentTrack
+        let enabled = ScrobblePreference.enabled && scrobbleConnected
+        let action = scrobbleGate.noteTrack(
+            track,
+            position: status.positionSeconds,
+            duration: (track?.runtimeTicks).map { Double($0) / 10_000_000.0 } ?? 0,
+            enabled: enabled,
+            thresholdReached: { [core] pos, dur in
+                core.scrobbleThresholdReached(positionSecs: pos, runtimeSecs: dur)
+            }
+        )
+
+        switch action {
+        case .none:
+            break
+        case .nowPlaying(let t):
+            let core = self.core
+            Task.detached { try? core.scrobbleNowPlaying(track: t) }
+        case .submitListen(let t, let listenedAt):
+            let core = self.core
+            Task.detached { try? core.scrobbleSubmitListen(track: t, listenedAt: listenedAt) }
+        }
+    }
+
     private func handleTrackEnded() {
         // Advance to the next track in the queue if there is one. Arm the
         // gapless pre-load for the track *after* this new one so the next
@@ -5605,6 +5677,10 @@ final class AppModel {
                 // time. The controller throttles its own redraws to ≤1 Hz, so
                 // calling it on every 1 s poll tick is the right cadence.
                 AppDelegate.shared?.refreshDockTile()
+                // Feed the scrobble gate the fresh status. Fires a ListenBrainz
+                // `playing_now` on track change and a durable listen once the
+                // current track passes the threshold — both off the main actor.
+                self.driveScrobble()
                 // Trigger a details refetch when the track changes. Scoped
                 // to the polling loop so skipping via the PlayerBar,
                 // media keys, or end-of-track auto-advance all get it

@@ -18,7 +18,7 @@ import SwiftUI
 /// wants the minimal account view).
 struct PreferencesView: View {
     enum Pane: String, CaseIterable, Hashable, Identifiable {
-        case general, server, playback, audio, library, appearance, notifications, downloads, advanced, about
+        case general, server, playback, audio, library, appearance, notifications, scrobbling, downloads, advanced, about
 
         var id: String { rawValue }
 
@@ -31,6 +31,7 @@ struct PreferencesView: View {
             case .library: return "Library"
             case .appearance: return "Appearance"
             case .notifications: return "Notifications"
+            case .scrobbling: return "Scrobbling"
             case .downloads: return "Downloads"
             case .advanced: return "Advanced"
             case .about: return "About"
@@ -46,6 +47,7 @@ struct PreferencesView: View {
             case .library: return "music.note.list"
             case .appearance: return "paintpalette"
             case .notifications: return "bell"
+            case .scrobbling: return "dot.radiowaves.up.forward"
             case .downloads: return "arrow.down.circle"
             case .advanced: return "wrench.and.screwdriver"
             case .about: return "info.circle"
@@ -84,6 +86,7 @@ struct PreferencesView: View {
         case .library: PreferencesLibrary()
         case .appearance: AppearancePane()
         case .notifications: PreferencesNotifications()
+        case .scrobbling: PreferencesScrobbling()
         case .downloads: PreferencesDownloads()
         case .advanced: PreferencesAdvanced()
         case .about: PreferencesAbout()

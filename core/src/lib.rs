@@ -16,6 +16,7 @@ pub mod error;
 pub mod models;
 pub mod player;
 pub mod query;
+pub mod scrobble;
 pub mod storage;
 
 pub use enums::{ImageType, ItemField, ItemKind, ItemSortBy, SortOrder};
@@ -32,6 +33,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 uniffi::setup_scaffolding!();
+
+/// Settings-table key under which the ListenBrainz user token is persisted.
+/// Deliberately *not* on the diagnostic-bundle allowlist and *not* cleared by
+/// [`storage::Database::clear_user_data`], so the secret never leaks into a
+/// support bundle and survives logout like other account-independent prefs.
+const SCROBBLE_TOKEN_KEY: &str = "scrobble_listenbrainz_token";
 
 /// Handle for a running heartbeat task.  Dropping or calling [`stop`] cancels
 /// the background interval so there are no leaked timers after skip / logout.
@@ -1099,6 +1106,80 @@ impl LyrebirdCore {
         self.with_client(|c| self.runtime.block_on(c.report_playback_progress(info)))
     }
 
+    // ---------- Scrobbling (ListenBrainz) ----------
+
+    /// Persist the user's ListenBrainz token. Pass `None` (or an empty/blank
+    /// string) to disconnect scrobbling and clear the stored token.
+    ///
+    /// The token is a secret: it lives in the local settings table only, is
+    /// never written to logs, and is intentionally excluded from the
+    /// diagnostic bundle (which reads an allowlist of non-secret keys). It is
+    /// also *not* cleared on logout — like shuffle/repeat it is an
+    /// account-independent preference, so signing out of a Jellyfin server
+    /// leaves the scrobble connection intact for the next sign-in.
+    pub fn set_scrobble_token(
+        &self,
+        token: Option<String>,
+    ) -> std::result::Result<(), LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        match token.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
+            Some(t) => db.set_setting(SCROBBLE_TOKEN_KEY, &t)?,
+            None => db.delete_setting(SCROBBLE_TOKEN_KEY)?,
+        }
+        Ok(())
+    }
+
+    /// Whether a ListenBrainz token is currently stored. Returns a boolean
+    /// rather than the token itself so the UI can render connected / not-
+    /// connected state without the secret ever crossing the FFI boundary.
+    pub fn is_scrobble_configured(&self) -> bool {
+        self.inner
+            .lock()
+            .db
+            .get_setting(SCROBBLE_TOKEN_KEY)
+            .ok()
+            .flatten()
+            .map(|t| !t.trim().is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Submit a ListenBrainz `playing_now` for the track that just started.
+    /// No-op error (`InvalidInput`) when no token is configured, which the
+    /// platform layer treats as "scrobbling disabled" and swallows. Other
+    /// errors (network, 401) propagate so the UI can surface a token problem.
+    pub fn scrobble_now_playing(
+        &self,
+        track: Track,
+    ) -> std::result::Result<(), LyrebirdError> {
+        let token = self.scrobble_token()?;
+        let scrobbler = scrobble::Scrobbler::new(token)?;
+        self.runtime
+            .block_on(scrobbler.submit_playing_now(&track))
+    }
+
+    /// Submit a durable ListenBrainz `single` listen for a track that has
+    /// passed the scrobble threshold. `listened_at` is the Unix timestamp
+    /// (seconds) at which the track *started* — ListenBrainz keys the listen
+    /// on it. No-op error (`InvalidInput`) when no token is configured.
+    pub fn scrobble_submit_listen(
+        &self,
+        track: Track,
+        listened_at: i64,
+    ) -> std::result::Result<(), LyrebirdError> {
+        let token = self.scrobble_token()?;
+        let scrobbler = scrobble::Scrobbler::new(token)?;
+        self.runtime
+            .block_on(scrobbler.submit_listen(&track, listened_at))
+    }
+
+    /// Pure threshold predicate exposed for the platform trigger gate: returns
+    /// `true` once a track at `position_secs` of its `runtime_secs` has played
+    /// long enough to count as a listen (half the track, or four minutes).
+    /// Side-effect free — safe to call on the main thread.
+    pub fn scrobble_threshold_reached(&self, position_secs: f64, runtime_secs: f64) -> bool {
+        scrobble::scrobble_threshold_reached(position_secs, runtime_secs)
+    }
+
     /// Start (or restart) the background heartbeat scheduler.
     ///
     /// Every `interval_secs` seconds (capped at 10 s — Jellyfin's server-side
@@ -1247,6 +1328,23 @@ impl LyrebirdCore {
 }
 
 impl LyrebirdCore {
+    /// Read the stored ListenBrainz token, mapping "absent or blank" to a
+    /// clean [`LyrebirdError::InvalidInput`] so submit paths share one guard.
+    ///
+    /// Deliberately **not** part of the `#[uniffi::export]` block: the raw
+    /// token must never cross the FFI boundary. Platform code learns *whether*
+    /// a token is set via [`Self::is_scrobble_configured`], never its value.
+    fn scrobble_token(&self) -> std::result::Result<String, LyrebirdError> {
+        self.inner
+            .lock()
+            .db
+            .get_setting(SCROBBLE_TOKEN_KEY)
+            .ok()
+            .flatten()
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| LyrebirdError::InvalidInput("scrobble token not configured".into()))
+    }
+
     /// Run `f` with a reference to the live HTTP client, releasing the
     /// `Inner` mutex before the closure executes.
     ///
