@@ -50,6 +50,13 @@ struct CommandPalette: View {
     /// last-known `libraryResults` underneath.
     @State private var isSearching: Bool = false
 
+    /// Set when the most recent library search threw (network / auth /
+    /// transient). Drives an inline error row distinct from the "No matches"
+    /// empty state so a failed round-trip isn't silently indistinguishable
+    /// from a genuinely empty result. Cleared on the next keystroke and on a
+    /// successful search. See audit CommandPalette.swift:427.
+    @State private var searchError: String?
+
     @FocusState private var searchFocused: Bool
 
     /// Debounce window before a library search fires. 80ms is snappy enough
@@ -120,6 +127,7 @@ struct CommandPalette: View {
                 debouncedQuery = ""
                 libraryResults = nil
                 isSearching = false
+                searchError = nil
                 selectedIndex = 0
                 return
             }
@@ -221,20 +229,32 @@ struct CommandPalette: View {
     @ViewBuilder
     private var resultsScroll: some View {
         if visibleRows.isEmpty {
-            VStack(spacing: 6) {
-                Text("No matches")
-                    .font(Theme.font(13, weight: .semibold))
-                    .foregroundStyle(Theme.ink2)
-                Text("Try a different query or ⌘1..5 to filter by category.")
-                    .font(Theme.font(11, weight: .medium))
-                    .foregroundStyle(Theme.ink3)
+            if let searchError {
+                // Distinct from "No matches": a thrown search means we don't
+                // actually know whether results exist, so don't claim "none".
+                searchErrorView(searchError)
+            } else {
+                VStack(spacing: 6) {
+                    Text("No matches")
+                        .font(Theme.font(13, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                    Text("Try a different query or ⌘1..5 to filter by category.")
+                        .font(Theme.font(11, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 48)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 48)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
+                        if searchError != nil {
+                            // Non-fatal badge above retained rows: the rows may
+                            // be stale (kept from a prior keystroke), so flag
+                            // that the latest search didn't land.
+                            searchErrorBanner
+                        }
                         ForEach(Array(visibleRows.enumerated()), id: \.offset) { idx, row in
                             PaletteRow(
                                 row: row,
@@ -265,11 +285,50 @@ struct CommandPalette: View {
         }
     }
 
+    /// Full-height error state shown when a search threw and there are no
+    /// rows to fall back on. Visually distinct from the "No matches" empty
+    /// state so the user can tell a failure from a genuinely empty result.
+    private func searchErrorView(_ message: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(Theme.ink2)
+            Text("Search failed")
+                .font(Theme.font(13, weight: .semibold))
+                .foregroundStyle(Theme.ink2)
+            Text(message)
+                .font(Theme.font(11, weight: .medium))
+                .foregroundStyle(Theme.ink3)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
+        .padding(.horizontal, 24)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Slim inline badge drawn above retained (possibly stale) rows when the
+    /// latest search threw but earlier results are still on screen.
+    private var searchErrorBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 11, weight: .semibold))
+            Text("Search couldn’t refresh — showing earlier results.")
+                .font(Theme.font(11, weight: .medium))
+                .lineLimit(1)
+            Spacer()
+        }
+        .foregroundStyle(Theme.ink3)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .accessibilityElement(children: .combine)
+    }
+
     private var hintsRow: some View {
         HStack(spacing: 18) {
             hint("\u{2191}\u{2193}", "navigate")
             hint("\u{21A9}", "select")
-            hint("\u{2318}\u{21A9}", "new window")
             hint("Esc", "close")
             Spacer()
         }
@@ -297,14 +356,25 @@ struct CommandPalette: View {
         case artist(Artist)
         case album(Album)
         case track(Track)
-        case action(String) // PaletteAction.id
+        // Carries the resolved `PaletteAction` so the row renders its
+        // (localized) title + authoritative symbol straight off the model —
+        // no parallel id→title/symbol tables to drift. Identity is the
+        // action's `id`, so `PaletteAction` need not itself be `Hashable`.
+        case action(AppModel.PaletteAction)
+
+        /// The action id for a `.action` row, else `nil`. Used by the pin
+        /// affordances and the commit dispatcher.
+        var actionId: String? {
+            if case .action(let a) = self { return a.id }
+            return nil
+        }
 
         func hash(into hasher: inout Hasher) {
             switch self {
             case .artist(let a): hasher.combine(0); hasher.combine(a.id)
             case .album(let a): hasher.combine(1); hasher.combine(a.id)
             case .track(let t): hasher.combine(2); hasher.combine(t.id)
-            case .action(let id): hasher.combine(3); hasher.combine(id)
+            case .action(let a): hasher.combine(3); hasher.combine(a.id)
             }
         }
 
@@ -313,7 +383,7 @@ struct CommandPalette: View {
             case (.artist(let a), .artist(let b)): return a.id == b.id
             case (.album(let a), .album(let b)): return a.id == b.id
             case (.track(let a), .track(let b)): return a.id == b.id
-            case (.action(let a), .action(let b)): return a == b
+            case (.action(let a), .action(let b)): return a.id == b.id
             default: return false
             }
         }
@@ -344,7 +414,7 @@ struct CommandPalette: View {
         }
 
         if actionsVisible {
-            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 // #308: empty query surfaces Pinned first, then Recent, then
                 // the remaining roster — each action exactly once. Both the
@@ -354,17 +424,32 @@ struct CommandPalette: View {
                 // the live ids drops those stale entries silently.
                 rows.append(contentsOf: orderedActionRows())
             } else {
-                for action in model.paletteActions {
-                    // Action matching is intentionally prefix-only so typing
-                    // "play" shows "Play" / "Play Next" but not unrelated
-                    // verbs.
-                    if actionTitleString(action).lowercased().hasPrefix(trimmed) {
-                        rows.append(.action(action.id))
-                    }
+                for action in model.paletteActions
+                where CommandPalette.actionMatches(action.searchTitle, query: trimmed) {
+                    rows.append(.action(action))
                 }
             }
         }
         return rows
+    }
+
+    /// Whether a palette action whose title is `title` should surface for the
+    /// user's `query`. Matching is substring-first (so "preferences",
+    /// "shuffle", "queue", "favorites", "library" all hit), with a
+    /// whitespace-token prefix pass so a query like "fav" also matches the
+    /// "Favorites" token inside "Go to Favorites". Both sides are lowercased
+    /// for case-insensitivity. Pure + static so the contract is unit-testable
+    /// without constructing the view.
+    static func actionMatches(_ title: String, query: String) -> Bool {
+        let needle = query
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !needle.isEmpty else { return true }
+        let haystack = title.lowercased()
+        if haystack.contains(needle) { return true }
+        return haystack
+            .split(whereSeparator: { $0.isWhitespace })
+            .contains { $0.hasPrefix(needle) }
     }
 
     /// Empty-query action ordering: Pinned → Recent → the rest, deduped, in
@@ -373,27 +458,32 @@ struct CommandPalette: View {
     /// `paletteActions`) never appears even if its id lingers in a persisted
     /// pinned/recent list. See #308.
     private func orderedActionRows() -> [Row] {
-        let rosterIds = model.paletteActions.map(\.id)
-        let rosterSet = Set(rosterIds)
+        let roster = model.paletteActions
+        let rosterIds = roster.map(\.id)
+        // Resolve ids back to live actions so the row carries the model
+        // (title + symbol) rather than just an id. A persisted pinned/recent
+        // id with no live action (capability flag off) resolves to nil and is
+        // dropped — same silent-skip contract as before.
+        let byId = Dictionary(uniqueKeysWithValues: roster.map { ($0.id, $0) })
 
-        var ordered: [String] = []
+        var ordered: [Row] = []
         var seen = Set<String>()
         func push(_ ids: [String]) {
-            for id in ids where rosterSet.contains(id) && seen.insert(id).inserted {
-                ordered.append(id)
+            for id in ids where seen.insert(id).inserted {
+                if let action = byId[id] { ordered.append(.action(action)) }
             }
         }
         push(model.palettePinnedActionIds)
         push(model.paletteRecentActionIds)
         push(rosterIds) // the remainder, in the roster's own order
-        return ordered.map(Row.action)
+        return ordered
     }
 
     /// Whether `row` is a currently-pinned action. Library rows can't be
     /// pinned (pin/unpin is an action-only affordance for #308), so they
     /// always report `false`.
     private func isPinned(_ row: Row) -> Bool {
-        guard case .action(let id) = row else { return false }
+        guard let id = row.actionId else { return false }
         return model.isPaletteActionPinned(id: id)
     }
 
@@ -403,7 +493,7 @@ struct CommandPalette: View {
     /// See #308.
     @ViewBuilder
     private func pinContextMenu(for row: Row) -> some View {
-        if case .action(let id) = row {
+        if let id = row.actionId {
             let pinned = model.isPaletteActionPinned(id: id)
             Button {
                 model.togglePaletteActionPin(id: id)
@@ -424,12 +514,16 @@ struct CommandPalette: View {
             }.value
             guard runId == searchRunId else { return }
             libraryResults = results
+            searchError = nil
         } catch {
-            // Silent on error — the palette stays on the last-known results
-            // (or empty state) rather than surfacing an error banner over
-            // what is already an ephemeral overlay.
+            // Surface the failure: a thrown search (network / auth / transient)
+            // must be distinguishable from a genuinely empty result, so we
+            // log it and badge an inline error row (see `searchError`). Keep
+            // the last-known `libraryResults` rather than clearing to nil so a
+            // single flaky round-trip mid-typing doesn't wipe good rows.
             guard runId == searchRunId else { return }
-            libraryResults = nil
+            Log.app.error("CommandPalette search failed query=\(query, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            searchError = error.localizedDescription
         }
     }
 
@@ -458,8 +552,8 @@ struct CommandPalette: View {
         case .track(let track):
             model.play(tracks: [track], startIndex: 0)
             close()
-        case .action(let id):
-            model.executePaletteAction(id: id)
+        case .action(let action):
+            model.executePaletteAction(id: action.id)
             // executePaletteAction flips isCommandPaletteOpen itself, but
             // belt-and-suspenders: ensure close fires so the transition
             // animation kicks off even if the action closure errors out.
@@ -471,27 +565,12 @@ struct CommandPalette: View {
         model.isCommandPaletteOpen = false
     }
 
-    private func actionTitleString(_ action: AppModel.PaletteAction) -> String {
-        // `LocalizedStringKey` doesn't expose its raw string directly. The
-        // titles we ship are fixed English literals (no localization tables
-        // registered yet), so bridging via `String(describing:)` retrieves
-        // the underlying key string which is also the display string.
-        // Swap for proper localization once a strings catalog lands.
-        let mirror = Mirror(reflecting: action.title)
-        for child in mirror.children {
-            if child.label == "key", let key = child.value as? String {
-                return key
-            }
-        }
-        return ""
-    }
-
     // MARK: - Keyboard
 
     /// Invisible button overlay that binds the palette's non-text shortcuts.
     /// Return is handled by the TextField's `.onSubmit`, and Esc is handled
     /// by the scrim button's `.cancelAction`; both are intentionally absent
-    /// from this block so ⌘-Return and Esc reach one handler apiece rather
+    /// from this block so Return and Esc reach one handler apiece rather
     /// than racing with the TextField. Arrow keys need this channel because
     /// SwiftUI's `onKeyPress` doesn't reach through a focused TextField on
     /// macOS 14 reliably. `.opacity(0)` + `.allowsHitTesting(false)` keep
@@ -503,8 +582,6 @@ struct CommandPalette: View {
                 .keyboardShortcut(.downArrow, modifiers: [])
             Button("Up", action: { moveSelection(by: -1) })
                 .keyboardShortcut(.upArrow, modifiers: [])
-            Button("New Window", action: commitInNewWindow)
-                .keyboardShortcut(.return, modifiers: .command)
             Button("All", action: { category = .all })
                 .keyboardShortcut("1", modifiers: .command)
             Button("Artists", action: { category = .artists })
@@ -538,15 +615,6 @@ struct CommandPalette: View {
             selectedIndex = next
         }
     }
-
-    /// ⌘↩ placeholder — issue #309 calls out "open in new window" as a
-    /// future affordance. For now it falls through to the standard commit
-    /// so the keybinding lands on something and the user isn't stuck. Swap
-    /// to the real per-row new-window dispatcher when that ships.
-    private func commitInNewWindow() {
-        // TODO(#309): wire a real "open in new window" path.
-        commitSelection()
-    }
 }
 
 // MARK: - Row
@@ -568,7 +636,7 @@ struct PaletteRow: View {
                 .foregroundStyle(Theme.ink2)
                 .frame(width: 22, height: 22, alignment: .center)
             VStack(alignment: .leading, spacing: 1) {
-                Text(primaryText)
+                primaryTextView
                     .font(Theme.font(13, weight: .semibold))
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
@@ -610,21 +678,23 @@ struct PaletteRow: View {
         case .artist: return "person"
         case .album: return "square.stack"
         case .track: return "music.note"
-        case .action(let id):
-            // Pulling the symbol off `paletteActions` in the parent and
-            // passing it in would mean threading an extra parameter — the
-            // id → symbol map below stays in one place so the row doesn't
-            // need to reach back into AppModel.
-            return PaletteRow.actionSymbolById[id] ?? "bolt"
+        // Symbol comes straight off the resolved `PaletteAction` so it can't
+        // drift from the model and isn't gated on a parallel lookup table.
+        case .action(let a): return a.symbol
         }
     }
 
-    private var primaryText: String {
+    /// Primary label. Library rows render plain (server-provided) names;
+    /// action rows render the model's `LocalizedStringKey` `title` so the
+    /// label localizes once a strings catalog is registered — no hardcoded
+    /// English mirror that bypasses localization or falls back to a raw id.
+    @ViewBuilder
+    private var primaryTextView: some View {
         switch row {
-        case .artist(let a): return a.name
-        case .album(let a): return a.name
-        case .track(let t): return t.name
-        case .action(let id): return PaletteRow.actionTitleById[id] ?? id
+        case .artist(let a): Text(a.name)
+        case .album(let a): Text(a.name)
+        case .track(let t): Text(t.name)
+        case .action(let a): Text(a.title)
         }
     }
 
@@ -654,40 +724,4 @@ struct PaletteRow: View {
         case .action: return "Run"
         }
     }
-
-    // Static maps so the row can label/icon itself without needing a
-    // reference to `AppModel`. Kept in sync with `AppModel.paletteActions`
-    // by hand — the set is small and stable. When the registry grows
-    // faster, fold this back into a computed lookup off AppModel.
-    static let actionTitleById: [String: String] = [
-        "playback.play": "Play",
-        "playback.pause": "Pause",
-        "playback.playNext": "Play Next",
-        "playback.addToQueue": "Add to Queue",
-        "nav.library": "Go to Library",
-        "nav.home": "Go to Home",
-        "nav.discover": "Go to Discover",
-        "nav.favorites": "Go to Favorites",
-        "app.openPreferences": "Open Preferences",
-        "playback.toggleShuffle": "Toggle Shuffle",
-        "playback.toggleRepeat": "Toggle Repeat",
-        "queue.clear": "Clear Queue",
-        "download.current": "Download Current",
-    ]
-
-    static let actionSymbolById: [String: String] = [
-        "playback.play": "play.fill",
-        "playback.pause": "pause.fill",
-        "playback.playNext": "text.line.first.and.arrowtriangle.forward",
-        "playback.addToQueue": "text.badge.plus",
-        "nav.library": "music.note.list",
-        "nav.home": "house",
-        "nav.discover": "sparkles",
-        "nav.favorites": "heart",
-        "app.openPreferences": "gearshape",
-        "playback.toggleShuffle": "shuffle",
-        "playback.toggleRepeat": "repeat",
-        "queue.clear": "trash",
-        "download.current": "arrow.down.circle",
-    ]
 }

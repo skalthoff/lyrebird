@@ -782,7 +782,14 @@ final class AppModel {
     /// through view code. See #307.
     struct PaletteAction: Identifiable {
         let id: String
+        /// Display title, localized when a strings catalog is registered.
         let title: LocalizedStringKey
+        /// Stable, owned plain-text title used for command-palette search
+        /// matching. Held separately from `title` because `LocalizedStringKey`
+        /// has no public way to recover its underlying string — matching off a
+        /// real `String` keeps search working across OS updates instead of
+        /// depending on the key's private layout. Keep in sync with `title`.
+        let searchTitle: String
         let symbol: String
         let run: () -> Void
     }
@@ -803,6 +810,7 @@ final class AppModel {
                 actions.append(PaletteAction(
                     id: "playback.pause",
                     title: "Pause",
+                    searchTitle: "Pause",
                     symbol: "pause.fill",
                     run: { [weak self] in self?.pause() }
                 ))
@@ -810,6 +818,7 @@ final class AppModel {
                 actions.append(PaletteAction(
                     id: "playback.play",
                     title: "Play",
+                    searchTitle: "Play",
                     symbol: "play.fill",
                     run: { [weak self] in self?.togglePlayPause() }
                 ))
@@ -822,6 +831,7 @@ final class AppModel {
             actions.append(PaletteAction(
                 id: "playback.play",
                 title: "Play",
+                searchTitle: "Play",
                 symbol: "play.fill",
                 run: { [weak self] in self?.togglePlayPause() }
             ))
@@ -829,6 +839,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "playback.playNext",
             title: "Play Next",
+            searchTitle: "Play Next",
             symbol: "text.line.first.and.arrowtriangle.forward",
             run: { [weak self] in
                 guard let track = self?.status.currentTrack else { return }
@@ -838,6 +849,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "playback.addToQueue",
             title: "Add to Queue",
+            searchTitle: "Add to Queue",
             symbol: "text.badge.plus",
             run: { [weak self] in
                 guard let track = self?.status.currentTrack else { return }
@@ -849,24 +861,28 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "nav.library",
             title: "Go to Library",
+            searchTitle: "Go to Library",
             symbol: "music.note.list",
             run: { [weak self] in self?.selectTab(.library) }
         ))
         actions.append(PaletteAction(
             id: "nav.home",
             title: "Go to Home",
+            searchTitle: "Go to Home",
             symbol: "house",
             run: { [weak self] in self?.selectTab(.home) }
         ))
         actions.append(PaletteAction(
             id: "nav.discover",
             title: "Go to Discover",
+            searchTitle: "Go to Discover",
             symbol: "sparkles",
             run: { [weak self] in self?.goToDiscover() }
         ))
         actions.append(PaletteAction(
             id: "nav.favorites",
             title: "Go to Favorites",
+            searchTitle: "Go to Favorites",
             symbol: "heart",
             run: { [weak self] in self?.selectTab(.favorites) }
         ))
@@ -878,6 +894,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "app.openPreferences",
             title: "Open Preferences",
+            searchTitle: "Open Preferences",
             symbol: "gearshape",
             run: {
                 // `showSettingsWindow:` is the documented selector for
@@ -907,6 +924,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "playback.toggleShuffle",
             title: "Toggle Shuffle",
+            searchTitle: "Toggle Shuffle",
             symbol: "shuffle",
             run: { [weak self] in
                 guard let self else { return }
@@ -916,6 +934,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "playback.toggleRepeat",
             title: "Toggle Repeat",
+            searchTitle: "Toggle Repeat",
             symbol: "repeat",
             run: { [weak self] in
                 guard let self else { return }
@@ -937,6 +956,7 @@ final class AppModel {
         actions.append(PaletteAction(
             id: "queue.clear",
             title: "Clear Queue",
+            searchTitle: "Clear Queue",
             symbol: "trash",
             run: { [weak self] in
                 // #282: wipe the queue but keep the currently playing track
@@ -951,6 +971,7 @@ final class AppModel {
             actions.append(PaletteAction(
                 id: "download.current",
                 title: "Download Current",
+                searchTitle: "Download Current",
                 symbol: "arrow.down.circle",
                 run: { [weak self] in
                     guard self?.status.currentTrack != nil else { return }
