@@ -190,7 +190,11 @@ impl Scrobbler {
     /// the user their token is wrong; everything else surfaces as
     /// [`LyrebirdError::Server`].
     async fn submit(&self, body: Value) -> Result<()> {
-        let url = format!("{}{}", self.api_root.trim_end_matches('/'), SUBMIT_LISTENS_PATH);
+        let url = format!(
+            "{}{}",
+            self.api_root.trim_end_matches('/'),
+            SUBMIT_LISTENS_PATH
+        );
         let resp = self
             .http
             .post(&url)

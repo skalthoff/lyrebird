@@ -8150,8 +8150,7 @@ async fn scrobble_submit_single_posts_to_listenbrainz() {
         .await;
 
     let track = scrobble_track("item-1", "Yona", "Saloli", Some("The Deep End"));
-    let scrobbler =
-        crate::scrobble::Scrobbler::with_root(server.uri(), "lb-secret-token").unwrap();
+    let scrobbler = crate::scrobble::Scrobbler::with_root(server.uri(), "lb-secret-token").unwrap();
     scrobbler
         .submit_listen(&track, 1_700_000_000)
         .await
@@ -8228,7 +8227,8 @@ fn scrobble_token_persistence_and_configured_flag() {
     assert!(!core.is_scrobble_configured());
 
     // Set a token -> configured.
-    core.set_scrobble_token(Some("lb-user-token".into())).unwrap();
+    core.set_scrobble_token(Some("lb-user-token".into()))
+        .unwrap();
     assert!(core.is_scrobble_configured());
 
     // Blank/whitespace token clears it (treated as disconnect).
@@ -8236,7 +8236,8 @@ fn scrobble_token_persistence_and_configured_flag() {
     assert!(!core.is_scrobble_configured());
 
     // Set again, then explicit None clears.
-    core.set_scrobble_token(Some("lb-user-token".into())).unwrap();
+    core.set_scrobble_token(Some("lb-user-token".into()))
+        .unwrap();
     assert!(core.is_scrobble_configured());
     core.set_scrobble_token(None).unwrap();
     assert!(!core.is_scrobble_configured());
@@ -8264,10 +8265,13 @@ fn scrobble_token_survives_clear_user_data() {
     // Logout must NOT wipe the scrobble token (account-independent pref).
     let dir = tempfile::tempdir().unwrap();
     let db = Database::open(dir.path().join("lb.db")).unwrap();
-    db.set_setting("scrobble_listenbrainz_token", "keep-me").unwrap();
+    db.set_setting("scrobble_listenbrainz_token", "keep-me")
+        .unwrap();
     db.clear_user_data().unwrap();
     assert_eq!(
-        db.get_setting("scrobble_listenbrainz_token").unwrap().as_deref(),
+        db.get_setting("scrobble_listenbrainz_token")
+            .unwrap()
+            .as_deref(),
         Some("keep-me")
     );
 }
