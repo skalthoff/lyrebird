@@ -8,11 +8,12 @@ import SwiftUI
 ///
 /// Keyboard navigation (#105): rows are `.focusable()`, expose their id via
 /// `model.focusedTrackId`, and handle Up / Down / Return / Space exactly like
-/// `TrackListRow`. Callers that want arrow navigation between siblings must
-/// pass a `siblings` array so the row can compute the previous / next id;
-/// callers that don't (e.g. a one-off row) can leave it empty and only
-/// Return / Space will work. See also the TODO on type-ahead in
-/// `TrackListRow`.
+/// `TrackListRow`. Callers thread the full ordered `tracks` array plus this
+/// row's `index` so Up / Down can move the shared focus cursor to the
+/// previous / next row; when a move isn't possible (list bounds, or a
+/// caller that left `tracks` empty) the arrow key is declined so the OS
+/// default focus-ring traversal still works. See also the TODO on
+/// type-ahead in `TrackListRow`.
 struct TrackRow: View {
     @Environment(AppModel.self) private var model
     // Contrast-adaptive accent for foreground text/icons (active-track title,
@@ -24,16 +25,16 @@ struct TrackRow: View {
     let track: Track
     let number: Int
     var onPlay: (() -> Void)? = nil
-    /// Ordered list of sibling tracks this row belongs to, used to compute
-    /// the previous / next focus target on arrow keys. Empty means "no
-    /// siblings for nav" — the row will still be focusable and will still
-    /// handle Return / Space, but Up / Down become no-ops.
-    var siblings: [Track] = []
-    /// Position of this row inside `siblings`. When `siblings` is empty
-    /// this is ignored. Kept as an explicit argument so callers that
-    /// already have `idx` from a `ForEach(enumerated)` don't have to pay
-    /// for a linear scan through `siblings`.
-    var siblingIndex: Int = 0
+    /// Ordered list of tracks this row belongs to, used to compute the
+    /// previous / next focus target on arrow keys. Mirrors
+    /// `TrackListRow.tracks`. Empty means "no siblings for nav" — the row
+    /// stays focusable and still handles Return / Space, but Up / Down are
+    /// declined (`.ignored`) so default focus traversal takes over.
+    var tracks: [Track] = []
+    /// Position of this row inside `tracks`. When `tracks` is empty this is
+    /// ignored. Kept as an explicit argument so callers that already have
+    /// `idx` from a `ForEach(enumerated)` don't pay for a linear scan.
+    var index: Int = 0
     /// When non-nil, the row is being rendered inside a playlist detail
     /// view; forwarded to `TrackContextMenu` so the right-click menu can
     /// surface a "Remove from Playlist" entry (#789).
@@ -177,18 +178,25 @@ struct TrackRow: View {
             }
         }
         .onKeyPress(.upArrow) {
-            moveFocus(by: -1)
-            return .handled
+            // Only claim the key if we actually moved focus; otherwise
+            // decline so SwiftUI's default focus-ring traversal runs.
+            moveFocus(by: -1) ? .handled : .ignored
         }
         .onKeyPress(.downArrow) {
-            moveFocus(by: 1)
-            return .handled
+            moveFocus(by: 1) ? .handled : .ignored
         }
         .onKeyPress(.return) {
             onPlay?()
             return .handled
         }
         .onKeyPress(.space) {
+            // Space toggles global transport, but only from the row that is
+            // the current player target. From any other row we decline so
+            // the event isn't trapped and default Space behaviour (e.g.
+            // scrolling, button activation) still works.
+            guard TrackRowKeyboard.spaceTogglesTransport(isActive: isActive) else {
+                return .ignored
+            }
             model.togglePlayPause()
             return .handled
         }
@@ -210,14 +218,40 @@ struct TrackRow: View {
         track.playCount == 1 ? "1 play" : "\(track.playCount) plays"
     }
 
-    /// Move focus by `delta` within `siblings`. No-op when siblings wasn't
-    /// provided — the row just stops responding to arrow keys, which is
-    /// the same behaviour as any non-list focusable control.
-    private func moveFocus(by delta: Int) {
-        guard !siblings.isEmpty else { return }
-        let target = siblingIndex + delta
-        guard target >= 0, target < siblings.count else { return }
-        model.focusedTrackId = siblings[target].id
+    /// Move the shared focus cursor by `delta` within `tracks`. Returns
+    /// `true` when focus actually moved (the caller marks the key handled),
+    /// `false` when there's nowhere to go — no siblings, or already at a
+    /// list edge — so the caller can decline the key and let the OS take
+    /// over default focus traversal.
+    private func moveFocus(by delta: Int) -> Bool {
+        guard let targetId = TrackRowKeyboard.focusTarget(tracks: tracks, index: index, delta: delta) else {
+            return false
+        }
+        model.focusedTrackId = targetId
+        return true
+    }
+}
+
+/// Pure decision logic for `TrackRow`'s keyboard handling, extracted so the
+/// focus-traversal bounds and the Space-transport scoping can be unit-tested
+/// without realizing a SwiftUI view or a live window server. Mirrors the
+/// extract-the-decision pattern used by `MenuBarNowPlaying`.
+enum TrackRowKeyboard {
+    /// The id of the track `delta` positions away from `index` inside
+    /// `tracks`, or `nil` when that lands outside the list (or `tracks` is
+    /// empty). A `nil` result means the arrow key should be declined.
+    static func focusTarget(tracks: [Track], index: Int, delta: Int) -> String? {
+        guard !tracks.isEmpty else { return nil }
+        let target = index + delta
+        guard target >= 0, target < tracks.count else { return nil }
+        return tracks[target].id
+    }
+
+    /// Whether a Space press on this row should toggle global transport.
+    /// Only the active (currently-playing-target) row claims Space; every
+    /// other row declines it so the event isn't trapped.
+    static func spaceTogglesTransport(isActive: Bool) -> Bool {
+        isActive
     }
 }
 

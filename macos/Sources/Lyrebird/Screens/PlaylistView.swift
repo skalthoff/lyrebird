@@ -358,6 +358,8 @@ struct PlaylistView: View {
                         track: track,
                         number: idx + 1,
                         onPlay: { model.play(tracks: tracks, startIndex: idx) },
+                        tracks: tracks,
+                        index: idx,
                         playlistScope: playlist
                     )
                     // BATCH-06b (#73 / #235): drag-to-reorder. The modifier

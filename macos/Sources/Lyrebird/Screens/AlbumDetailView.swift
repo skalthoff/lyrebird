@@ -381,14 +381,19 @@ struct AlbumDetailView: View {
                         discHeader(number: group.disc)
                     }
                     ForEach(Array(group.tracks.enumerated()), id: \.element.id) { localIdx, track in
+                        // Arrow-key focus navigation walks the full (disc-
+                        // flattened) `tracks` list, so resolve this row's
+                        // absolute index once and reuse it for both nav and
+                        // tap-to-play.
+                        let absoluteIdx = tracks.firstIndex(where: { $0.id == track.id }) ?? 0
                         TrackRow(
                             track: track,
                             number: discLocalNumber(fallback: localIdx + 1, track: track),
                             onPlay: {
-                                if let absoluteIdx = tracks.firstIndex(where: { $0.id == track.id }) {
-                                    model.play(tracks: tracks, startIndex: absoluteIdx)
-                                }
-                            }
+                                model.play(tracks: tracks, startIndex: absoluteIdx)
+                            },
+                            tracks: tracks,
+                            index: absoluteIdx
                         )
                     }
                 }

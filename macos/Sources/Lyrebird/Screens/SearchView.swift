@@ -688,16 +688,23 @@ private struct SearchPageTrackRow: View {
     let queue: [Track]
 
     var body: some View {
+        // Resolve this row's position in the shared queue once; reuse it for
+        // both tap-to-play and arrow-key focus navigation. A track absent
+        // from `queue` (shouldn't happen — every Tracks-section row is built
+        // from it) falls back to a one-track queue and disables nav.
+        let queueIndex = queue.firstIndex(where: { $0.id == track.id })
         TrackRow(
             track: track,
             number: number,
             onPlay: {
-                guard let idx = queue.firstIndex(where: { $0.id == track.id }) else {
+                guard let idx = queueIndex else {
                     model.play(tracks: [track], startIndex: 0)
                     return
                 }
                 model.play(tracks: queue, startIndex: idx)
-            }
+            },
+            tracks: queueIndex == nil ? [] : queue,
+            index: queueIndex ?? 0
         )
     }
 }
