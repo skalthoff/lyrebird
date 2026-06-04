@@ -499,40 +499,47 @@ struct AlbumDetailView: View {
     @ViewBuilder
     private func aboutBody(overview: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // The visible text and an off-screen unclamped copy are overlaid in
-            // a ZStack so they share the same proposed width; each reports its
-            // rendered height through a preference key. The full copy is
-            // `.hidden()` + non-interactive so it never paints or hit-tests —
-            // it exists only to measure the un-truncated height.
-            ZStack(alignment: .topLeading) {
-                Text(overview)
-                    .font(Theme.font(14, weight: .regular))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .hidden()
-                    .accessibilityHidden(true)
-                    .allowsHitTesting(false)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: FullOverviewHeightKey.self,
-                                value: proxy.size.height)
-                        }
+            // The visible 4-line-clamped text drives layout; an off-screen
+            // unclamped copy of the same text is attached as a `.background`
+            // so it measures the full height *without* expanding the visible
+            // text's footprint. A ZStack sibling would size the stack to the
+            // max of both children — the full height — leaving a large blank
+            // gap above "Read more" exactly when the overview is truncated
+            // (#475). Background/overlay content is proposed the host's size
+            // but never grows it, so the clamped text keeps its 4-line height
+            // while the hidden copy overflows freely to report the full height.
+            Text(overview)
+                .font(Theme.font(14, weight: .regular))
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .background(alignment: .topLeading) {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ClampedOverviewHeightKey.self,
+                            value: proxy.size.height)
                     }
-
-                Text(overview)
-                    .font(Theme.font(14, weight: .regular))
-                    .foregroundStyle(Theme.ink2)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
-                    .background {
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: ClampedOverviewHeightKey.self,
-                                value: proxy.size.height)
+                }
+                .background(alignment: .topLeading) {
+                    // Unclamped measuring copy. `.hidden()` + non-interactive
+                    // so it never paints or hit-tests; `fixedSize` vertical so
+                    // it reports its full multi-line height at the host's
+                    // proposed width.
+                    Text(overview)
+                        .font(Theme.font(14, weight: .regular))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: FullOverviewHeightKey.self,
+                                    value: proxy.size.height)
+                            }
                         }
-                    }
-            }
+                }
             if isOverviewTruncated {
                 Button {
                     isAboutExpanded = true
