@@ -1030,6 +1030,9 @@ final class AppModel {
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
+        ambientPaletteCache.removeAll()
+        ambientPaletteTasks.values.forEach { $0.cancel() }
+        ambientPaletteTasks.removeAll()
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -1098,6 +1101,9 @@ final class AppModel {
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
+        ambientPaletteCache.removeAll()
+        ambientPaletteTasks.values.forEach { $0.cancel() }
+        ambientPaletteTasks.removeAll()
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -3588,6 +3594,55 @@ final class AppModel {
         }
         imageURLCache[key] = result
         return result
+    }
+
+    // MARK: - Ambient palette (#271)
+
+    /// Per-album ambient-wash palette, memoized for the session. Keyed by
+    /// album id (or track id when an album-less track is playing) so the
+    /// Core Image sample runs **once** per cover, never per render pass —
+    /// gap pattern #2: sampling artwork on every Now Playing repaint would
+    /// burn the GPU and re-decode the image needlessly.
+    ///
+    /// Stored as the opaque `AmbientPalette.encoded` string rather than the
+    /// `Color`-bearing struct so the entry is a plain value type and survives
+    /// any future move to a persistent cache without a bespoke codable surface.
+    private var ambientPaletteCache: [String: String] = [:]
+
+    /// In-flight palette samples, so two `NowPlayingView.task` invocations for
+    /// the same id (e.g. a fast tab toggle) coalesce onto one Nuke decode +
+    /// CIAreaAverage pass instead of racing two.
+    private var ambientPaletteTasks: [String: Task<AmbientPalette?, Never>] = [:]
+
+    /// Resolve the ambient palette for a now-playing item — cache-first, then
+    /// a single off-main Nuke decode + Core Image average (`PaletteSampler`).
+    ///
+    /// Returns `nil` when there's no artwork URL or extraction fails; callers
+    /// (`NowPlayingView`) treat that as "no palette" and `AmbientWash` falls
+    /// back to the theme wash, so the player is never bare. The decode itself
+    /// runs off the MainActor inside `PaletteSampler.sample` (it `await`s
+    /// Nuke's pipeline), so this never blocks the main thread.
+    func ambientPalette(forItemId itemId: String, imageTag: String?) async -> AmbientPalette? {
+        if let encoded = ambientPaletteCache[itemId] {
+            return AmbientPalette(encoded: encoded)
+        }
+        if let existing = ambientPaletteTasks[itemId] {
+            return await existing.value
+        }
+        guard let url = imageURL(for: itemId, tag: imageTag, maxWidth: 512) else {
+            return nil
+        }
+
+        let task = Task<AmbientPalette?, Never> {
+            await PaletteSampler.sample(from: url)
+        }
+        ambientPaletteTasks[itemId] = task
+        let palette = await task.value
+        ambientPaletteTasks[itemId] = nil
+        if let palette {
+            ambientPaletteCache[itemId] = palette.encoded
+        }
+        return palette
     }
 
     // MARK: - Playback

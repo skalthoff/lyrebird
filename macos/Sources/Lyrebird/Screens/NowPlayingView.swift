@@ -29,6 +29,12 @@ struct NowPlayingView: View {
     @State private var tab: Tab = .queue
     @State private var resolvedAlbum: Album?
 
+    /// Artwork-derived ambient wash behind the hero (#271). `nil` until the
+    /// current cover is sampled (or when sampling fails / there's no art), in
+    /// which case `AmbientWash` falls back to the theme gradient. Memoized in
+    /// `AppModel`, so re-opening the player on the same album is a cache hit.
+    @State private var ambientPalette: AmbientPalette?
+
     enum Tab: String, CaseIterable, Identifiable {
         case queue = "Queue"
         case lyrics = "Lyrics"
@@ -46,13 +52,31 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bg)
+        // Ambient wash sampled from the current cover (#271). Sits behind the
+        // whole player; falls back to the theme gradient when `ambientPalette`
+        // is nil (pre-sample / no art / extraction failed).
+        .background(AmbientWash(palette: ambientPalette))
         // Re-fetch the People array + lyrics on open and on track change.
         // The polling loop in AppModel already handles mid-session
         // transitions; this keeps the open-from-cold path honest too.
         .task(id: model.status.currentTrack?.id) {
             await model.fetchCurrentTrackDetails()
             await model.fetchCurrentTrackLyrics()
+        }
+        // Sample the ambient palette off the current cover. Keyed on the same
+        // identity the hero artwork uses (`albumId ?? id`) so a track change
+        // within the same album doesn't re-sample, and so the sample reuses
+        // the cover Nuke already decoded for the hero. The work is memoized in
+        // AppModel and runs off the main actor, so this never beach-balls.
+        .task(id: ambientArtworkKey) {
+            guard let track = model.status.currentTrack else {
+                ambientPalette = nil
+                return
+            }
+            ambientPalette = await model.ambientPalette(
+                forItemId: track.albumId ?? track.id,
+                imageTag: track.imageTag
+            )
         }
         // Honor a one-shot tab request (#91): the inline lyrics snippet in
         // the Queue Inspector taps `openLyrics()`, which sets
@@ -74,6 +98,16 @@ struct NowPlayingView: View {
             tab = resolved
         }
         model.requestedNowPlayingTab = nil
+    }
+
+    /// Stable identity for the ambient-palette `.task` — the album id when the
+    /// current track belongs to one, else the track id, mirroring the hero
+    /// artwork's own `albumId ?? id` keying. `nil` when nothing is playing so
+    /// the task clears the wash. Re-keying only when this string changes means
+    /// skipping from track to track inside one album won't re-sample.
+    private var ambientArtworkKey: String? {
+        guard let track = model.status.currentTrack else { return nil }
+        return track.albumId ?? track.id
     }
 
     // MARK: - Main content
