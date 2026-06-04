@@ -489,8 +489,31 @@ final class AppModel {
     /// source (e.g. a single track picked from "All Tracks").
     var currentContext: QueueContext?
     /// Show / hide the right-side queue inspector panel. Toggled by the
-    /// Cmd+Opt+Q shortcut (#79).
+    /// Cmd+Opt+Q shortcut (#79) and the View ▸ "Show Queue" menu item.
+    /// `toggleQueueInspector()` lives in the Queue-inspector section below.
     var isQueueInspectorOpen: Bool = false
+
+    /// Mirror of `MainShell`'s `NavigationSplitView` column visibility, exposed
+    /// so the View ▸ "Show Sidebar" menu item can render a checkmark that
+    /// tracks the real rail state. `MainShell` is the source of truth — it owns
+    /// the `@State columnVisibility` plus the width-driven auto-hide reducer —
+    /// and writes this on every change (toolbar toggle, separator drag, restore).
+    /// `true` whenever the sidebar column is showing (`.all` / `.doubleColumn`).
+    var isSidebarVisible: Bool = true
+
+    /// One-shot, monotonic request to flip the sidebar. The menu can't write
+    /// `MainShell`'s private `columnVisibility` directly, and driving it through
+    /// a plain `Bool` would fight the auto-hide reducer's own writes, so the
+    /// menu bumps this counter and `MainShell` observes it and runs its
+    /// existing `toggleSidebarManually()` (which records the manual override so
+    /// width-driven auto-hide steps aside). Counter so a second request with the
+    /// rail already in the requested state still produces an observable change.
+    private(set) var sidebarToggleRequest: Int = 0
+
+    /// Ask `MainShell` to toggle the sidebar. See `sidebarToggleRequest`.
+    func requestSidebarToggle() {
+        sidebarToggleRequest += 1
+    }
 
     /// Tracks played earlier in *this app session*, most-recent first. The
     /// full-page Play Queue view (⌘U, #81) renders this above Now Playing as

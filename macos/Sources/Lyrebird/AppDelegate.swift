@@ -172,14 +172,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Binding
 
-    /// Hand the delegate a live reference to the `AppModel`. Called once
-    /// from the root SwiftUI view as soon as the scene mounts. Idempotent;
-    /// re-binding replaces the previous pointer.
+    /// Hand the delegate a live reference to the `AppModel`. Called from the
+    /// root SwiftUI view's `.task` as soon as the scene mounts.
     ///
-    /// Also (re-)starts the `dockBadgeTask` observation loop so the Dock
-    /// badge always reflects the current playback state. See #322.
+    /// Idempotent **and** stable: binding the *same* model again is a no-op so a
+    /// re-run of the WindowGroup content's `.task` (view-identity churn, a
+    /// second window) does not tear down and rebuild the `dockBadgeTask`
+    /// observer. Only a genuinely new model re-points the reference and restarts
+    /// the observation loop. See #322 and audit L45.
     @MainActor
     func bind(appModel: AppModel) {
+        // Same model already bound → nothing to do. Restarting the observer
+        // here would cancel a healthy loop and rebuild it for no reason.
+        if self.appModel === appModel { return }
         self.appModel = appModel
         dockBadgeTask?.cancel()
         dockBadgeTask = startDockBadgeObserver(model: appModel)

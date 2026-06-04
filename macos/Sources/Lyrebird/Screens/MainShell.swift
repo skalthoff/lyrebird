@@ -229,9 +229,19 @@ struct MainShell: View {
         }
         // Persist the sidebar column visibility on every change — the toolbar
         // toggle, the native separator drag/collapse, and ⌘⌃S all write
-        // `columnVisibility`, so observing it here captures every path.
+        // `columnVisibility`, so observing it here captures every path. Also
+        // mirror the showing/hidden state into `AppModel` so the View ▸ "Show
+        // Sidebar" menu item renders an accurate checkmark (audit L251).
         .onChange(of: columnVisibility) { _, newValue in
             persistedSidebarRaw = newValue.persistedRawValue
+            model.isSidebarVisible = (newValue != .detailOnly)
+        }
+        // View ▸ "Show Sidebar" (⌘⌥S) routes through `AppModel` because the menu
+        // can't reach this view's private `columnVisibility`. Each request bumps
+        // a counter; run the same manual-toggle path the toolbar button uses so
+        // the auto-hide override bookkeeping stays consistent (audit L251).
+        .onChange(of: model.sidebarToggleRequest) { _, _ in
+            toggleSidebarManually()
         }
         // Persist the queue inspector visibility (#79 surface) so it reopens
         // with the window if the user left it open.
@@ -248,19 +258,10 @@ struct MainShell: View {
             guard newId != nil, let track = model.status.currentTrack else { return }
             model.announceTrackChange(to: track)
         }
-        // Cmd+Opt+Q toggles the queue inspector (#79). Hung off a zero-sized
-        // hidden button so the shortcut is global to `MainShell` without
-        // requiring a visible chrome affordance — the visible toggle will
-        // land in PlayerBar in BATCH-07b. `.hidden()` alone is not enough
-        // (SwiftUI elides hidden buttons from the responder chain), so the
-        // button has a 1×1 clear frame that stays non-interactive.
-        .background(
-            Button("menu.view.toggle_queue") { model.toggleQueueInspector() }
-                .keyboardShortcut("q", modifiers: [.command, .option])
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-        )
+        // Cmd+Opt+Q toggles the queue inspector (#79). The shortcut now lives
+        // on the View ▸ "Show Queue" menu `Toggle` (audit L251), so the former
+        // hidden 1×1 button that also bound ⌘⌥Q has been removed to avoid a
+        // duplicate key-equivalent registration racing the menu item.
         // First-run feature tour (coach marks) — see #113. Auto-appears once
         // on the first launch after connect (`!hasSeenFeatureTour`) and can be
         // replayed any time via Help ▸ "Show Tour"
@@ -395,6 +396,9 @@ struct MainShell: View {
             persistedRaw: persistedSidebarRaw,
             preferenceRaw: sidebarPreferenceRaw
         )
+        // Seed the menu mirror so View ▸ "Show Sidebar" shows the right
+        // checkmark from the first frame (audit L251).
+        model.isSidebarVisible = (columnVisibility != .detailOnly)
 
         let restoredInspector = WindowStateStore.restoredInspectorVisible(persistedRaw: persistedInspectorRaw)
         if model.isQueueInspectorOpen != restoredInspector {

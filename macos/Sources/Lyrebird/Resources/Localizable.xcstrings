@@ -2065,6 +2065,126 @@
           }
         }
       }
+    },
+    "core_failure.body" : {
+      "comment" : "Explanation on the core-init failure recovery screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lyrebird’s local data couldn’t be opened. This is usually fixable: reset the local data to start fresh, or export a diagnostics bundle to share with a bug report."
+          }
+        }
+      }
+    },
+    "core_failure.export" : {
+      "comment" : "Button on the failure screen that writes a sanitized diagnostics bundle.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Diagnostics…"
+          }
+        }
+      }
+    },
+    "core_failure.export.done" : {
+      "comment" : "Confirmation after a diagnostics bundle was written from the failure screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diagnostics exported."
+          }
+        }
+      }
+    },
+    "core_failure.export.failed" : {
+      "comment" : "Shown when exporting diagnostics failed; %@ is the error.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t export diagnostics: %@"
+          }
+        }
+      }
+    },
+    "core_failure.quit" : {
+      "comment" : "Button that quits the app from the failure screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
+          }
+        }
+      }
+    },
+    "core_failure.reset" : {
+      "comment" : "Button that moves the corrupt local data aside so the next launch starts clean.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset Local Data"
+          }
+        }
+      }
+    },
+    "core_failure.reset.done" : {
+      "comment" : "Confirmation after the local data was moved aside; %@ is the backup path.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Local data was moved to:\n%@\nPlease quit and reopen Lyrebird."
+          }
+        }
+      }
+    },
+    "core_failure.reset.failed" : {
+      "comment" : "Shown when resetting the local data failed; %@ is the error.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t reset local data: %@"
+          }
+        }
+      }
+    },
+    "core_failure.reset.nothing" : {
+      "comment" : "Shown when there was no local data directory to reset.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No local data was found to reset. Try exporting diagnostics instead."
+          }
+        }
+      }
+    },
+    "core_failure.title" : {
+      "comment" : "Title of the recovery screen shown when the core fails to start.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lyrebird couldn’t start"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

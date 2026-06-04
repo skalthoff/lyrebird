@@ -4,7 +4,13 @@ import UniformTypeIdentifiers
 
 @main
 struct LyrebirdApp: App {
-    @State private var model: AppModel
+    /// The live view model, or the error that prevented its construction.
+    /// `AppModel()` boots the Rust core, which can fail on a corrupt local
+    /// database. Rather than `fatalError` (which bricks the app on a
+    /// recoverable problem), we hold the failure and render a dedicated
+    /// recovery scene with "Reset Local Data" / "Export Diagnostics"
+    /// affordances. See `CoreInitFailureView` (audit L31).
+    @State private var modelResult: Result<AppModel, Error>
 
     /// Sparkle 2 auto-update handle. Owned here so the controller's
     /// scheduled-update timer starts at launch and the "Check for Updates…"
@@ -25,19 +31,136 @@ struct LyrebirdApp: App {
 
     init() {
         FontRegistration.register()
-        do {
-            _model = State(wrappedValue: try AppModel())
-        } catch {
-            fatalError("Failed to initialize Lyrebird core: \(error)")
-        }
+        // Capture success or failure instead of crashing. A failed core init
+        // (e.g. a corrupt on-disk DB) is recoverable, so the body renders
+        // `CoreInitFailureView` rather than calling `fatalError`.
+        _modelResult = State(wrappedValue: Result { try AppModel() })
     }
 
     private var preferredColorScheme: ColorScheme? {
         (AppearanceMode(rawValue: modeRaw) ?? .dark).preferredColorScheme
     }
 
+    /// The successfully-constructed model, or `nil` if core init failed.
+    /// `SceneBuilder` can't branch (no `buildEither`), so rather than swap whole
+    /// scene trees we keep one flat tree: the primary window branches *in its
+    /// View body* between the app shell and the recovery screen, and the
+    /// model-backed secondary windows / commands guard on this optional. See
+    /// audit L31.
+    private var model: AppModel? {
+        if case .success(let m) = modelResult { return m }
+        return nil
+    }
+
+    /// The error from a failed `AppModel()` / core construction, if any.
+    private var initError: Error? {
+        if case .failure(let e) = modelResult { return e }
+        return nil
+    }
+
     var body: some Scene {
+        // Primary window. The scene is always declared; only its *content*
+        // branches — the full shell when the core came up, or the recovery
+        // screen (reset / diagnostics) when it didn't, replacing the old
+        // `fatalError`. Keeping the scenes unconditional (and guarding inside
+        // their View/Commands closures, which can branch) sidesteps
+        // `SceneBuilder`'s lack of conditional support. See `CoreInitFailureView`
+        // (audit L31).
         WindowGroup("Lyrebird") {
+            primaryWindowContent
+        }
+        .defaultSize(width: 1280, height: 820)
+        // Hide the system title bar so the sidebar runs edge-to-edge under the
+        // traffic lights. `.hiddenTitleBar` flips `titlebarAppearsTransparent`
+        // and adds `.fullSizeContentView`, letting content flow into the
+        // title-bar strip; the unified toolbar style keeps `.toolbar {}` content
+        // in the right strip.
+        .windowStyle(.hiddenTitleBar)
+        .windowToolbarStyle(.unifiedCompact)
+        .commands {
+            // The app menus only make sense with a live model; on the failure
+            // path they're omitted and the recovery window keeps the standard
+            // system menus. `CommandsBuilder` supports this `if let`.
+            if let model {
+                LyrebirdCommands(model: model, updater: updater)
+            }
+        }
+
+        // Native Preferences scene. macOS wires up ⌘, and the menu item for
+        // free. On macOS 14+ `WindowGroup` + `Settings` handle size/position
+        // persistence, so we don't persist a frame manually. See #17.
+        Settings {
+            if let model {
+                PreferencesView()
+                    .environment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        }
+        .windowResizability(.contentSize)
+
+        // Detached Mini Player. A single-instance `Window` (not a `WindowGroup`)
+        // so ⌘⌥P toggles exactly one mini player rather than spawning
+        // duplicates. The borderless / vibrancy / rounded / always-on-top chrome
+        // is applied by `MiniPlayerView`'s embedded
+        // `MiniPlayerWindowConfigurator` since `Scene` modifiers can't reach
+        // those `NSWindow` knobs. `.contentSize` honours the 280–480pt band.
+        Window("mini_player.window.title", id: MiniPlayerScene.id) {
+            if let model {
+                MiniPlayerView()
+                    .environment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        }
+        .windowResizability(.contentSize)
+        .defaultSize(width: 320, height: 120)
+        .windowStyle(.hiddenTitleBar)
+        .defaultPosition(.topTrailing)
+
+        // Keyboard Shortcuts help window. A single-instance `Window` so Help >
+        // Keyboard Shortcuts / ⌘? toggles exactly one panel. It renders the
+        // static `AppShortcuts.all` catalog, so it stays useful even signed out
+        // and on the core-init failure path (no `AppModel` needed).
+        Window("shortcuts.window.title", id: AppShortcuts.windowID) {
+            KeyboardShortcutsView()
+                .preferredColorScheme(preferredColorScheme)
+        }
+        .defaultSize(width: 480, height: 560)
+        .windowResizability(.contentSize)
+
+        // Dedicated About window (#25). `AboutView` reads version / credits from
+        // `AboutInfo` and the connected-server host from the live `AppModel`, so
+        // it needs the model in its environment.
+        Window("about.window.title", id: AboutView.windowID) {
+            if let model {
+                AboutView()
+                    .environment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+
+        // Status-bar "Now Playing" extra. Stays reachable even when every
+        // Lyrebird window is closed or the app is hidden. The `.window` style
+        // renders artwork + a rich transport cluster; the label reflects play
+        // state. "Open Lyrebird" routes through `returnToFullWindow`, which
+        // activates the app and raises the main window.
+        MenuBarExtra {
+            if let model {
+                MenuBarNowPlaying()
+                    .environment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        } label: {
+            menuBarExtraLabel
+        }
+        .menuBarExtraStyle(.window)
+    }
+
+    /// The primary window's content, branching on whether the core constructed.
+    @ViewBuilder
+    private var primaryWindowContent: some View {
+        if let model {
             RootView()
                 .environment(model)
                 .frame(minWidth: 960, minHeight: 640)
@@ -47,100 +170,29 @@ struct LyrebirdApp: App {
                 // already opted in, so track-change banners work without
                 // re-toggling. No-ops when the preference is off.
                 .task { NotificationManager.shared.requestAuthorizationIfNeeded() }
-                // Publish the current window's `AppModel` as a focused
-                // scene value so `@FocusedValue(\.appModel)` readers
-                // (e.g. future menu commands that live outside the
-                // WindowGroup body) can resolve against whichever window
-                // is key. Single-window apps only need this to be ready
-                // for a multi-window future. See `FocusedValueKey+AppModel`.
+                // Publish the current window's `AppModel` as a focused scene
+                // value so `@FocusedValue(\.appModel)` readers resolve against
+                // whichever window is key. See `FocusedValueKey+AppModel`.
                 .focusedSceneValue(\.appModel, model)
-        }
-        .defaultSize(width: 1280, height: 820)
-        // Hide the system title bar so the sidebar runs edge-to-edge
-        // under the traffic lights (Apple Music / Music for Classical /
-        // Reeder / Spark layout). `.hiddenTitleBar` flips
-        // `titlebarAppearsTransparent` and adds `.fullSizeContentView`
-        // to the window's `styleMask`, letting our content flow into
-        // the title-bar strip. The unified toolbar style stays in place
-        // so any `.toolbar {}` content still lands in the right strip.
-        .windowStyle(.hiddenTitleBar)
-        .windowToolbarStyle(.unifiedCompact)
-        .commands {
-            LyrebirdCommands(model: model, updater: updater)
-        }
-
-        // Native Preferences scene. macOS wires up ⌘, and menu item for free.
-        // Window restoration: on macOS 14+ `WindowGroup` + `Settings`
-        // handle size/position persistence for us, so we intentionally do
-        // not register a `SceneStorage` or persist a frame manually. See #17.
-        Settings {
-            PreferencesView()
-                .environment(model)
+        } else if let initError {
+            // Recoverable core-init failure: show the reset / diagnostics
+            // recovery screen instead of crashing (audit L31).
+            CoreInitFailureView(error: initError)
+                .frame(minWidth: 480, minHeight: 420)
                 .preferredColorScheme(preferredColorScheme)
         }
-        .windowResizability(.contentSize)
+    }
 
-        // Detached Mini Player. A dedicated single-instance `Window`
-        // (not a `WindowGroup`) so ⌘⌥P toggles exactly one mini player rather
-        // than spawning duplicates. The window's borderless / vibrancy /
-        // rounded / always-on-top chrome is applied by `MiniPlayerView`'s
-        // embedded `MiniPlayerWindowConfigurator` since `Scene` modifiers
-        // can't reach those `NSWindow` knobs. `.contentSize` resizability
-        // honours the view's 280–480pt width band.
-        Window("mini_player.window.title", id: MiniPlayerScene.id) {
-            MiniPlayerView()
-                .environment(model)
-                .preferredColorScheme(preferredColorScheme)
-        }
-        .windowResizability(.contentSize)
-        .defaultSize(width: 320, height: 120)
-        .windowStyle(.hiddenTitleBar)
-        .defaultPosition(.topTrailing)
-
-        // Keyboard Shortcuts help window. A dedicated single-instance
-        // `Window` (not a `WindowGroup`) so Help > Keyboard Shortcuts / ⌘?
-        // toggles exactly one panel rather than spawning duplicates. It renders
-        // the `AppShortcuts.all` catalog — the same map the menu bar mirrors —
-        // as a searchable two-column list. No `AppModel` needed: the catalog is
-        // static data, so the window stays open and useful even signed out.
-        Window("shortcuts.window.title", id: AppShortcuts.windowID) {
-            KeyboardShortcutsView()
-                .preferredColorScheme(preferredColorScheme)
-        }
-        .defaultSize(width: 480, height: 560)
-        .windowResizability(.contentSize)
-
-        // Dedicated About window (#25). A single-instance `Window` (not a
-        // `WindowGroup`) so the app-menu "About Lyrebird" item — rebound via
-        // `CommandGroup(replacing: .appInfo)` above — summons exactly one
-        // panel. `AboutView` reads version / credits from the shared
-        // `AboutInfo` and the connected-server host from the live `AppModel`,
-        // so it needs the model in its environment. `.contentSize` lets the
-        // fixed-width column size itself to its content.
-        Window("about.window.title", id: AboutView.windowID) {
-            AboutView()
-                .environment(model)
-                .preferredColorScheme(preferredColorScheme)
-        }
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-
-        // Status-bar "Now Playing" extra. A `MenuBarExtra` lives in the system
-        // menu bar, so this transport surface stays reachable even when every
-        // Lyrebird window is closed or the app is hidden. The `.window`
-        // style lets the panel render artwork + a rich transport cluster rather
-        // than a flat text menu; the label reflects play state at a glance.
-        // Clicking "Open Lyrebird" routes through `returnToFullWindow`, which
-        // activates the app and raises the main window.
-        MenuBarExtra {
-            MenuBarNowPlaying()
-                .environment(model)
-                .preferredColorScheme(preferredColorScheme)
-        } label: {
+    /// Label for the status-bar extra. Falls back to the plain "playing" glyph
+    /// on the failure path so the menu-bar item still has a sensible label.
+    @ViewBuilder
+    private var menuBarExtraLabel: some View {
+        if let model {
             MenuBarNowPlayingLabel()
                 .environment(model)
+        } else {
+            Image(systemName: "music.note")
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
@@ -248,21 +300,30 @@ struct LyrebirdCommands: Commands {
         CommandGroup(after: .sidebar) {
             Divider()
 
-            Button("menu.view.show_sidebar") {
-                // TODO(#5): bind to a published `isSidebarVisible` flag on
-                // AppModel and have `MainShell` conditionally mount `Sidebar()`.
-                // The menu item is reserved now so the shortcut exists.
-            }
+            // Show Sidebar (⌘⌥S). A `Toggle` so AppKit draws a checkmark
+            // tracking the real rail state. `MainShell` owns the
+            // `NavigationSplitView` column visibility (and the width-driven
+            // auto-hide reducer), so the menu mirrors its state via
+            // `model.isSidebarVisible` and drives changes through
+            // `requestSidebarToggle()`, which `MainShell` observes and routes to
+            // its existing `toggleSidebarManually()`. See audit L251.
+            Toggle("menu.view.show_sidebar", isOn: Binding(
+                get: { model.isSidebarVisible },
+                set: { _ in model.requestSidebarToggle() }
+            ))
             .keyboardShortcut("s", modifiers: [.command, .option])
-            .disabled(true)
+            .disabled(model.session == nil)
 
-            Button("menu.view.show_queue") {
-                // TODO(#272): the queue drawer lands with BATCH-07's rich
-                // inspector. Menu item reserved so ⌘⌥Q resolves to something
-                // discoverable once the panel exists.
-            }
+            // Show Queue (⌘⌥Q). Toggles the right-side Queue Inspector (#79),
+            // checkmark tracking `isQueueInspectorOpen`. This menu item owns the
+            // ⌘⌥Q shortcut; `MainShell` no longer needs its hidden duplicate.
+            // See audit L251.
+            Toggle("menu.view.show_queue", isOn: Binding(
+                get: { model.isQueueInspectorOpen },
+                set: { _ in model.toggleQueueInspector() }
+            ))
             .keyboardShortcut("q", modifiers: [.command, .option])
-            .disabled(true)
+            .disabled(model.session == nil)
 
             Divider()
 
@@ -364,7 +425,12 @@ struct LyrebirdCommands: Commands {
             // window's `willCloseNotification` observer (see `RootView`).
             Toggle("menu.view.mini_player", isOn: Binding(
                 get: { model.isMiniPlayerVisible },
-                set: { _ in model.toggleMiniPlayer() }
+                // Drive to the value SwiftUI requests rather than blindly
+                // toggling, so the action can't desync from the checkbox state
+                // (audit L365). `RootView.onChange(of: isMiniPlayerVisible)`
+                // opens / closes the window from the flag, so setting it is
+                // sufficient.
+                set: { model.isMiniPlayerVisible = $0 }
             ))
             .keyboardShortcut("p", modifiers: [.command, .option])
             .disabled(model.session == nil)
@@ -377,10 +443,18 @@ struct LyrebirdCommands: Commands {
         // Bluetooth AVRCP events hit the same `AppModel` methods via
         // `MediaSession` — see file header for why they aren't re-registered.
         CommandMenu("menu.playback") {
+            // Play / Pause. The bare-Space shortcut is intentionally NOT bound
+            // as a menu key equivalent: SwiftUI registers `CommandMenu`
+            // shortcuts as `NSMenuItem` key equivalents, which fire ahead of the
+            // first responder and so swallowed Space even while a text field was
+            // focused (audit L383). The ⎵ binding now lives on an app-wide
+            // `NSEvent` monitor (`RootView.playPauseSpaceMonitor`) that passes
+            // the event through to focused text editors. The menu item itself
+            // stays (clickable, and showing the Play/Pause state) — the label
+            // notes ⎵ so the shortcut is still discoverable.
             Button(playPauseLabelKey) {
                 model.togglePlayPause()
             }
-            .keyboardShortcut(.space, modifiers: [])
             .disabled(model.status.currentTrack == nil)
 
             Divider()
@@ -445,18 +519,21 @@ struct LyrebirdCommands: Commands {
         // Bring All to Front, and (on macOS 14+) the tiling entries. We add
         // an explicit Tile Window action so the command is discoverable
         // even when the system hasn't surfaced the OS-level tiling item.
+        // `NSApp.keyWindow` is not an `@Observable` value, so gating
+        // `.disabled` on it left the items' enabled state stale — SwiftUI never
+        // re-evaluated the body on `didBecomeKey` / `didResignKey` (audit L453).
+        // `tileCurrentWindow` already guards on `NSApp.keyWindow` and is a safe
+        // no-op when there is none, so the gate is dropped entirely.
         CommandGroup(after: .windowArrangement) {
             Button("menu.window.tile_left") {
                 tileCurrentWindow(edge: .left)
             }
             .keyboardShortcut(.leftArrow, modifiers: [.control, .option, .command])
-            .disabled(NSApp.keyWindow == nil)
 
             Button("menu.window.tile_right") {
                 tileCurrentWindow(edge: .right)
             }
             .keyboardShortcut(.rightArrow, modifiers: [.control, .option, .command])
-            .disabled(NSApp.keyWindow == nil)
         }
 
         // MARK: - Help menu (replace default "Lyrebird Help" placeholder)
@@ -657,6 +734,14 @@ struct RootView: View {
             // re-entry, so a `.task` firing on every scene rebuild is safe.
             await model.attemptRestoreSession()
         }
+        // App-wide bare-Space Play/Pause (audit L383). Installed here on the
+        // always-mounted root so it covers every screen, and routed through a
+        // first-responder check so Space still types into focused text fields
+        // instead of toggling playback. Replaces the old menu-level ⎵ shortcut.
+        .playPauseSpaceMonitor(
+            { model.togglePlayPause() },
+            hasCurrentTrack: { model.status.currentTrack != nil }
+        )
         // Bridge the Mini Player flag to the actual scene. Driving the
         // window from a single `@Observable` flag keeps the ⌘⌥P checkmark,
         // the settings-menu "return", and the open window from ever drifting
