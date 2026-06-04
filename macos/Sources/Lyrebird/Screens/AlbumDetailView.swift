@@ -33,6 +33,17 @@ struct AlbumDetailView: View {
     /// Whether the full editorial blurb popover is open (#68). Mirrors the
     /// artist About section's "Read more" affordance.
     @State private var isAboutExpanded = false
+    /// Whether the editorial overview actually overflows its 4-line clamp
+    /// (#475). Driven by comparing the clamped vs. full rendered height; the
+    /// "Read more" button is shown only when this is true so a short overview
+    /// that already fits doesn't get a no-op "Read more".
+    @State private var isOverviewTruncated = false
+    /// Rendered height of the visible 4-line-clamped overview, captured via a
+    /// background `GeometryReader`. Compared against `fullOverviewHeight`.
+    @State private var clampedOverviewHeight: CGFloat = 0
+    /// Rendered height of an off-screen, unclamped copy of the same overview.
+    /// When it exceeds the clamped height the visible text is truncated (#475).
+    @State private var fullOverviewHeight: CGFloat = 0
     /// Whether the right-side liner-notes drawer is presented (#221). The
     /// liner-note fields + credits also live inline at the bottom of the page
     /// (#65); the drawer surfaces the same structured data without a scroll to
@@ -66,6 +77,16 @@ struct AlbumDetailView: View {
         .overlay(alignment: .trailing) { linerNotesDrawer }
         .task(id: albumID) {
             isLoading = true
+            // Reset every album-scoped @State before the awaits so a prior
+            // album's data can't paint during this album's reload window
+            // (#67). Without this the stat strip, liner notes, and "More by
+            // artist" shelf flash the previous album until each fetch
+            // resolves — and a new album with no artist would inherit the old
+            // album's `moreByArtist` entirely (#83).
+            tracks = []
+            detail = AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
+            moreByArtist = []
+            fetchedAlbum = nil
             // Reset the editorial-blurb popover so a prior album's expanded
             // "About this album" never bleeds into this page (#68).
             isAboutExpanded = false
@@ -79,7 +100,9 @@ struct AlbumDetailView: View {
             isLoading = false
             detail = await model.loadAlbumDetail(albumId: albumID)
             // Load "More by Artist" in parallel with detail — non-blocking for
-            // the tracklist which is already visible at this point.
+            // the tracklist which is already visible at this point. When the
+            // album has no resolvable artist, clear the shelf so a prior
+            // album's "More by artist" can't persist under the new header (#83).
             if let artistId = album?.artistId, !artistId.isEmpty {
                 let all = await model.loadArtistAlbums(artistId: artistId)
                 moreByArtist = Array(
@@ -88,6 +111,8 @@ struct AlbumDetailView: View {
                         .sorted { ($0.year ?? 0) > ($1.year ?? 0) }
                         .prefix(10)
                 )
+            } else {
+                moreByArtist = []
             }
         }
     }
@@ -173,7 +198,7 @@ struct AlbumDetailView: View {
     private func statStrip(album: Album) -> some View {
         HStack(spacing: 28) {
             stat(value: "\(album.trackCount)", label: "Tracks")
-            stat(value: formatMinutes(album.runtimeTicks), label: "Minutes")
+            stat(value: formatMinutes(totalRuntimeTicks(album: album)), label: "Minutes")
             stat(value: detail.label ?? "—", label: "Label")
             stat(value: formatSummary(tracks: tracks), label: "Format")
         }
@@ -468,29 +493,87 @@ struct AlbumDetailView: View {
     /// button that opens the full text in a popover. The popover is driven by
     /// a plain SwiftUI `Button`, so it's focusable and Return-activatable for
     /// free — the same affordance as the artist About section.
+    ///
+    /// "Read more" is shown only when the overview actually overflows the
+    /// 4-line clamp (#475): the clamped `Text` measures its rendered height
+    /// via a background `GeometryReader`, while an off-screen copy of the same
+    /// text with no line limit measures the full height. When the clamp is
+    /// shorter than the full text the overview is truncated and the button
+    /// appears; for a short overview that fits in ≤4 lines the heights match
+    /// and the no-op button is omitted.
     @ViewBuilder
     private func aboutBody(overview: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            // The visible 4-line-clamped text drives layout; an off-screen
+            // unclamped copy of the same text is attached as a `.background`
+            // so it measures the full height *without* expanding the visible
+            // text's footprint. A ZStack sibling would size the stack to the
+            // max of both children — the full height — leaving a large blank
+            // gap above "Read more" exactly when the overview is truncated
+            // (#475). Background/overlay content is proposed the host's size
+            // but never grows it, so the clamped text keeps its 4-line height
+            // while the hidden copy overflows freely to report the full height.
             Text(overview)
                 .font(Theme.font(14, weight: .regular))
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
-            Button {
-                isAboutExpanded = true
-            } label: {
-                Text("Read more")
-                    .font(Theme.font(12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Read full description for \(album?.name ?? "this album")")
-            .accessibilityHint("Opens the complete album description in a popover")
-            .popover(isPresented: $isAboutExpanded, arrowEdge: .top) {
-                aboutPopover(overview: overview)
+                .background(alignment: .topLeading) {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ClampedOverviewHeightKey.self,
+                            value: proxy.size.height)
+                    }
+                }
+                .background(alignment: .topLeading) {
+                    // Unclamped measuring copy. `.hidden()` + non-interactive
+                    // so it never paints or hit-tests; `fixedSize` vertical so
+                    // it reports its full multi-line height at the host's
+                    // proposed width.
+                    Text(overview)
+                        .font(Theme.font(14, weight: .regular))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: FullOverviewHeightKey.self,
+                                    value: proxy.size.height)
+                            }
+                        }
+                }
+            if isOverviewTruncated {
+                Button {
+                    isAboutExpanded = true
+                } label: {
+                    Text("Read more")
+                        .font(Theme.font(12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Read full description for \(album?.name ?? "this album")")
+                .accessibilityHint("Opens the complete album description in a popover")
+                .popover(isPresented: $isAboutExpanded, arrowEdge: .top) {
+                    aboutPopover(overview: overview)
+                }
             }
         }
+        .onPreferenceChange(ClampedOverviewHeightKey.self) { clampedOverviewHeight = $0 }
+        .onPreferenceChange(FullOverviewHeightKey.self) { fullOverviewHeight = $0 }
+        .onChange(of: clampedOverviewHeight) { _, _ in recomputeOverviewTruncation() }
+        .onChange(of: fullOverviewHeight) { _, _ in recomputeOverviewTruncation() }
+    }
+
+    /// Re-derive the truncation flag from the latest clamped / full heights.
+    /// Called whenever either measurement changes so "Read more" appears only
+    /// once the overview is confirmed to overflow its 4-line clamp (#475).
+    private func recomputeOverviewTruncation() {
+        isOverviewTruncated = AboutOverviewTruncation.isTruncated(
+            clamped: clampedOverviewHeight,
+            full: fullOverviewHeight)
     }
 
     /// Full-description popover. Scrolls when the text is long so the popover
@@ -761,6 +844,18 @@ struct AlbumDetailView: View {
 
     // MARK: - Formatting helpers
 
+    /// Authoritative album runtime in ticks, shared by the hero "Minutes"
+    /// stat and the liner-note "Runtime" row so the two can never disagree
+    /// (#176). Sums the cached track runtimes when they're loaded — which
+    /// also keeps the hero from reading "0" when the server reports no
+    /// album-level runtime — and falls back to the album's `runtime_ticks`
+    /// only before the tracks resolve.
+    private func totalRuntimeTicks(album: Album) -> UInt64 {
+        tracks.isEmpty
+            ? album.runtimeTicks
+            : tracks.reduce(0) { $0 + $1.runtimeTicks }
+    }
+
     /// Minutes-only duration string for the hero stat. The older
     /// implementation returned an integer minute count; we keep the same
     /// shape so the "Minutes" stat reads as a clean number.
@@ -774,9 +869,7 @@ struct AlbumDetailView: View {
     /// so re-ripped albums with trimmed tails stay accurate; falls back to
     /// the album's `runtime_ticks` otherwise.
     private func runtimeSummary(album: Album) -> String {
-        let ticks: UInt64 = tracks.isEmpty
-            ? album.runtimeTicks
-            : tracks.reduce(0) { $0 + $1.runtimeTicks }
+        let ticks = totalRuntimeTicks(album: album)
         let totalSeconds = Int(Double(ticks) / 10_000_000.0)
         if totalSeconds >= 3600 {
             let h = totalSeconds / 3600
@@ -844,6 +937,49 @@ struct AlbumDetailView: View {
             }
         }
         return ordered.joined(separator: " · ")
+    }
+}
+
+// MARK: - About overview truncation (#475)
+
+/// Pure decision for whether the editorial "About this album" overview
+/// overflows its 4-line clamp and therefore warrants a "Read more" button
+/// (#475). Hoisted out of the view — mirroring `LinerNotesDrawerPresentation`
+/// — so the height comparison can be unit-tested without booting a scene.
+///
+/// SwiftUI measures both the clamped and the full (unclamped) rendered height
+/// of the same text; this type owns the comparison so the view only flips a
+/// boolean. A small epsilon absorbs sub-point rounding so a text that exactly
+/// fills four lines doesn't grow a phantom "Read more".
+enum AboutOverviewTruncation {
+    /// Sub-point slack so float rounding between the two measurements can't
+    /// register a fits-exactly overview as truncated.
+    static let epsilon: CGFloat = 1.0
+
+    /// `true` when the full text is meaningfully taller than the clamped text,
+    /// i.e. the visible overview is cut off. Returns `false` until both heights
+    /// have been measured (non-zero) so the button never flashes in during the
+    /// first layout pass before measurement settles.
+    static func isTruncated(clamped: CGFloat, full: CGFloat) -> Bool {
+        guard clamped > 0, full > 0 else { return false }
+        return full > clamped + epsilon
+    }
+}
+
+/// Rendered height of the visible, 4-line-clamped overview text (#475).
+private struct ClampedOverviewHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Rendered height of the off-screen, unclamped copy of the overview text,
+/// used to detect truncation against the clamped height (#475).
+private struct FullOverviewHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
