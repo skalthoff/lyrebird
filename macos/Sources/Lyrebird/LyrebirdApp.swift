@@ -312,6 +312,17 @@ struct LyrebirdCommands: Commands {
             .keyboardShortcut("k", modifiers: .command)
             .disabled(model.session == nil)
 
+            // New Instant Mix… (#327). Opens the seed-picker sheet so the
+            // user can search for and pick any track / album / artist /
+            // genre to seed a radio station, rather than relying on the
+            // implicit "currently playing" seed the Discover/Home CTAs use.
+            // ⌘⌥M keeps it adjacent to ⌘K's palette in the home-row cluster.
+            Button("menu.nav.instant_mix") {
+                model.presentInstantMixPicker()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .option])
+            .disabled(model.session == nil)
+
             Divider()
 
             // Mini Player. ⌘⌥P toggles the detached, borderless

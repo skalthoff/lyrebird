@@ -57,10 +57,27 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Ambient wash sampled from the current cover (#271). Sits behind the
-        // whole player; falls back to the theme gradient when `ambientPalette`
-        // is nil (pre-sample / no art / extraction failed).
-        .background(AmbientWash(palette: ambientPalette))
+        // Immersive background behind the whole player.
+        //
+        // Two layers compose here (#271 + #21):
+        //   1. `AmbientWash` — opaque `Theme.bg` base + the artwork-derived
+        //      palette gradient. This is the fallback surface and is always
+        //      present.
+        //   2. `NowPlayingBackdrop` — the large, heavily-blurred, dimmed
+        //      current cover, layered *over* the wash but *under* the content.
+        //      It renders nothing under Reduce Transparency or when there's no
+        //      art, so the wash beneath shows through unchanged. Its single dim
+        //      scrim is the only darkening over the cover, so the two layers
+        //      never double-darken.
+        .background {
+            ZStack {
+                AmbientWash(palette: ambientPalette)
+                NowPlayingBackdrop(
+                    url: backdropArtworkURL,
+                    seed: model.status.currentTrack?.name ?? ""
+                )
+            }
+        }
         // Re-fetch the People array + lyrics on open and on track change.
         // The polling loop in AppModel already handles mid-session
         // transitions; this keeps the open-from-cold path honest too.
@@ -113,6 +130,24 @@ struct NowPlayingView: View {
     private var ambientArtworkKey: String? {
         guard let track = model.status.currentTrack else { return nil }
         return track.albumId ?? track.id
+    }
+
+    /// Size-hinted URL for the blurred-artwork backdrop (#21). Resolves the
+    /// same cover the hero shows (`albumId ?? id` identity, matching
+    /// `ambientArtworkKey`) so the backdrop reuses the cover Nuke already
+    /// decoded — a 1024px hint gives the heavy blur enough source detail
+    /// without re-fetching a higher resolution than the screen can use.
+    /// `imageURL` is memoized in `AppModel`, so reading this each body pass is
+    /// a dictionary hit, not a per-render FFI crossing (gap pattern #2).
+    /// `nil` when nothing is playing or the track has no art, in which case
+    /// `NowPlayingBackdrop` stays transparent and the ambient wash shows.
+    private var backdropArtworkURL: URL? {
+        guard let track = model.status.currentTrack else { return nil }
+        return model.imageURL(
+            for: track.albumId ?? track.id,
+            tag: track.imageTag,
+            maxWidth: 1024
+        )
     }
 
     // MARK: - Main content

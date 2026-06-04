@@ -8,8 +8,8 @@ import SwiftUI
 /// dim scrim behind the centered 640pt column keeps the rest of the UI legible
 /// and hints at the modal nature of the palette.
 ///
-/// Issues: #305 (shell + ⌘K), #306 (library results), #307 (actions), #309
-/// (keyboard-only UX). #308 (recent + pinned) is a follow-up.
+/// Issues: #305 (shell + ⌘K), #306 (library results), #307 (actions), #308
+/// (recent + pinned actions), #309 (keyboard-only UX).
 struct CommandPalette: View {
     @Environment(AppModel.self) private var model
 
@@ -239,6 +239,7 @@ struct CommandPalette: View {
                             PaletteRow(
                                 row: row,
                                 isSelected: idx == selectedIndex,
+                                isPinned: isPinned(row),
                                 onActivate: { activate(at: idx) }
                             )
                             .id(idx)
@@ -246,6 +247,7 @@ struct CommandPalette: View {
                             .onHover { hovering in
                                 if hovering { selectedIndex = idx }
                             }
+                            .contextMenu { pinContextMenu(for: row) }
                         }
                     }
                     .padding(.vertical, 6)
@@ -343,16 +345,73 @@ struct CommandPalette: View {
 
         if actionsVisible {
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            for action in model.paletteActions {
-                // Action matching is intentionally prefix-only so typing
-                // "play" shows "Play" / "Play Next" but not unrelated
-                // verbs. Empty query always shows the full list.
-                if trimmed.isEmpty || actionTitleString(action).lowercased().hasPrefix(trimmed) {
-                    rows.append(.action(action.id))
+            if trimmed.isEmpty {
+                // #308: empty query surfaces Pinned first, then Recent, then
+                // the remaining roster — each action exactly once. Both the
+                // pinned and recents lists are persisted id lists that may
+                // reference actions not in the current roster (a
+                // capability-gated verb whose flag is off); intersecting with
+                // the live ids drops those stale entries silently.
+                rows.append(contentsOf: orderedActionRows())
+            } else {
+                for action in model.paletteActions {
+                    // Action matching is intentionally prefix-only so typing
+                    // "play" shows "Play" / "Play Next" but not unrelated
+                    // verbs.
+                    if actionTitleString(action).lowercased().hasPrefix(trimmed) {
+                        rows.append(.action(action.id))
+                    }
                 }
             }
         }
         return rows
+    }
+
+    /// Empty-query action ordering: Pinned → Recent → the rest, deduped, in
+    /// roster order within the trailing group. Computed off the live roster so
+    /// an action whose capability flag is off (and thus absent from
+    /// `paletteActions`) never appears even if its id lingers in a persisted
+    /// pinned/recent list. See #308.
+    private func orderedActionRows() -> [Row] {
+        let rosterIds = model.paletteActions.map(\.id)
+        let rosterSet = Set(rosterIds)
+
+        var ordered: [String] = []
+        var seen = Set<String>()
+        func push(_ ids: [String]) {
+            for id in ids where rosterSet.contains(id) && seen.insert(id).inserted {
+                ordered.append(id)
+            }
+        }
+        push(model.palettePinnedActionIds)
+        push(model.paletteRecentActionIds)
+        push(rosterIds) // the remainder, in the roster's own order
+        return ordered.map(Row.action)
+    }
+
+    /// Whether `row` is a currently-pinned action. Library rows can't be
+    /// pinned (pin/unpin is an action-only affordance for #308), so they
+    /// always report `false`.
+    private func isPinned(_ row: Row) -> Bool {
+        guard case .action(let id) = row else { return false }
+        return model.isPaletteActionPinned(id: id)
+    }
+
+    /// Right-click affordance for palette rows. Only action rows expose a
+    /// Pin/Unpin toggle; library rows return an empty menu (so the
+    /// right-click is a no-op rather than surfacing an irrelevant item).
+    /// See #308.
+    @ViewBuilder
+    private func pinContextMenu(for row: Row) -> some View {
+        if case .action(let id) = row {
+            let pinned = model.isPaletteActionPinned(id: id)
+            Button {
+                model.togglePaletteActionPin(id: id)
+            } label: {
+                Label(pinned ? "Unpin" : "Pin",
+                      systemImage: pinned ? "pin.slash" : "pin")
+            }
+        }
     }
 
     // MARK: - Actions
@@ -495,6 +554,11 @@ struct CommandPalette: View {
 struct PaletteRow: View {
     let row: CommandPalette.Row
     let isSelected: Bool
+    /// Whether this row is a pinned action. Drives the small pin glyph shown
+    /// before the ↩ hint so the user can tell at a glance which actions are
+    /// pinned (and that the right-click "Unpin" applies). Always `false` for
+    /// library rows. See #308.
+    var isPinned: Bool = false
     let onActivate: () -> Void
 
     var body: some View {
@@ -516,6 +580,14 @@ struct PaletteRow: View {
                 }
             }
             Spacer()
+            if isPinned {
+                // Persistent pin marker — drawn whether or not the row is
+                // selected, unlike the ↩ hint which only shows on selection.
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Theme.ink3)
+                    .accessibilityLabel("Pinned")
+            }
             HStack(spacing: 4) {
                 Text("\u{21A9}")
                     .font(Theme.font(10, weight: .bold))

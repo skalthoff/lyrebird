@@ -280,6 +280,13 @@ final class AppModel {
     /// section, so the two never drift. Hidden in the Home layout when
     /// empty — a fresh user with no favorited artists sees no shelf.
     var favoriteArtists: [Artist] = []
+    /// "Rediscover" — albums the user has never played, for the Home shelf
+    /// of the same name (#57). Backed by an `/Items` query filtered to
+    /// `IsUnplayed` and sorted `Random` so the row surfaces a fresh,
+    /// varied handful each session (the same shuffle-for-freshness shape
+    /// as the Favorites carousel). Up to 12 albums. Hidden when empty so a
+    /// fully-played library renders no shelf rather than a blank band.
+    var rediscover: [Album] = []
     /// Server-curated "You might like" tracks for the Home discovery row
     /// (#145). Backed by `core.suggestions()`, which hits Jellyfin's
     /// `/Items/Suggestions` endpoint. Up to 20 tracks. Hidden until data
@@ -433,6 +440,15 @@ final class AppModel {
     /// polling started. Lets the first poll apply the icon on a resume-into-
     /// playing launch instead of waiting for a pause/resume transition. See #266.
     private var didApplyMenuBarPlayingState = false
+
+    // MARK: - Scrobbling (#46)
+    /// Decides when to fire a `playing_now` vs a durable `single` listen. Driven
+    /// from the 1 Hz status poll; the actual POSTs go to the Rust core off the
+    /// main actor. Pure value type — see `ScrobbleGate`.
+    private var scrobbleGate = ScrobbleGate()
+    /// Mirrors `core.isScrobbleConfigured()` for the Preferences pane to read
+    /// without a per-render FFI. Refreshed when the token changes and at launch.
+    var scrobbleConnected: Bool = false
 
     // MARK: - Queue inspector (BATCH-07a, #79 / #80 / #282)
     //
@@ -694,6 +710,21 @@ final class AppModel {
     /// #307 / #309.
     var isCommandPaletteOpen: Bool = false
 
+    /// Whether the Instant Mix seed-picker sheet is presented. Flipped by
+    /// the "New Instant Mix…" menu command (`presentInstantMixPicker`) and
+    /// cleared when the sheet dismisses or a mix is generated. Mounted on
+    /// `MainShell` so the picker floats over whichever screen is active.
+    /// The engine behind it (`playInstantMix` / `startGenreRadio`) was
+    /// already wired; this flag only drives the seed-picker UI. See #327.
+    var isShowingInstantMixPicker: Bool = false
+
+    /// Display name of the most recently generated Instant Mix seed (e.g.
+    /// "Radiohead", "OK Computer", "Jazz"). Surfaced as the sheet's
+    /// "Last mix" hint so a re-open offers a one-tap regenerate without
+    /// re-searching. `nil` until the first mix is generated this session.
+    /// See #327.
+    var instantMixSeedLabel: String?
+
     /// A single verb entry in the command palette's action list. See
     /// `paletteActions` for the live roster and `executePaletteAction(id:)`
     /// for the dispatcher. Actions are intentionally held by id + closure
@@ -885,11 +916,139 @@ final class AppModel {
     /// Look up a palette action by id and run it. Called by `CommandPalette`
     /// on ↩ commit. Also closes the palette on success, mirroring the
     /// "execute and dismiss" behavior users expect from Spotlight-style
-    /// launchers. See #307.
+    /// launchers. Records the run in the recents list so the next empty-query
+    /// open surfaces it under "Recent". See #307 / #308.
     func executePaletteAction(id: String) {
         guard let action = paletteActions.first(where: { $0.id == id }) else { return }
+        recordPaletteActionUsage(id: id)
         action.run()
         isCommandPaletteOpen = false
+    }
+
+    // MARK: - Command Palette recents + pinned (#308)
+    //
+    // The empty-query palette shows Pinned actions first, then the most
+    // recently run actions, then the remaining static roster. Both lists are
+    // persisted as JSON `[String]` (action ids) in `UserDefaults` — the same
+    // `@Observable` → UserDefaults bridge the mini-player flag (above) and the
+    // recent-searches list use, since `@Observable` can't reach `@AppStorage`
+    // directly. Storing ids (not the `PaletteAction` structs) keeps the store
+    // decoupled from the live roster: an id that no longer resolves (e.g. a
+    // capability-gated action whose flag is now off) is simply skipped when
+    // the palette rebuilds its rows, and the persisted entry is harmless.
+
+    /// UserDefaults key for the JSON-encoded recent-action-id list.
+    private static let paletteRecentActionIdsKey = "palette.recentActionIds"
+
+    /// UserDefaults key for the JSON-encoded pinned-action-id list.
+    private static let palettePinnedActionIdsKey = "palette.pinnedActionIds"
+
+    /// How many recently-run actions to retain. Five keeps the empty-query
+    /// "Recent" group short enough to scan at a glance without pushing the
+    /// full roster below the fold of the 360pt results scroll.
+    static let paletteRecentActionsCap = 5
+
+    /// Most-recently-run palette action ids, newest first. Mirrored into
+    /// `UserDefaults` through `recordPaletteActionUsage(id:)`; initialised
+    /// from the persisted JSON so recents survive relaunch.
+    private(set) var paletteRecentActionIds: [String] =
+        AppModel.decodePaletteActionIds(
+            UserDefaults.standard.string(forKey: AppModel.paletteRecentActionIdsKey) ?? "[]"
+        )
+
+    /// Pinned palette action ids, in user-pin order (newest pin first).
+    /// Mirrored into `UserDefaults` through `pinPaletteAction` /
+    /// `unpinPaletteAction`; initialised from the persisted JSON.
+    private(set) var palettePinnedActionIds: [String] =
+        AppModel.decodePaletteActionIds(
+            UserDefaults.standard.string(forKey: AppModel.palettePinnedActionIdsKey) ?? "[]"
+        )
+
+    /// Record that `id` was just run: dedupe, insert at the front, cap to
+    /// `paletteRecentActionsCap`, and persist. Mirrors `addRecentSearch`'s
+    /// dedupe/cap/insert-at-0 contract so the most-recent action is always
+    /// first and a re-run promotes (rather than duplicates) an entry.
+    func recordPaletteActionUsage(id: String) {
+        paletteRecentActionIds = AppModel.appendPaletteRecent(
+            id,
+            into: paletteRecentActionIds,
+            cap: AppModel.paletteRecentActionsCap
+        )
+        persist(paletteRecentActionIds, forKey: AppModel.paletteRecentActionIdsKey)
+    }
+
+    /// Whether `id` is currently pinned. Cheap membership test for the row
+    /// context menu's "Pin"/"Unpin" label and the empty-query grouping.
+    func isPaletteActionPinned(id: String) -> Bool {
+        palettePinnedActionIds.contains(id)
+    }
+
+    /// Pin `id` (no-op if already pinned). New pins go to the front so the
+    /// most-recently-pinned action leads the "Pinned" group, matching the
+    /// recents ordering.
+    func pinPaletteAction(id: String) {
+        guard !palettePinnedActionIds.contains(id) else { return }
+        palettePinnedActionIds.insert(id, at: 0)
+        persist(palettePinnedActionIds, forKey: AppModel.palettePinnedActionIdsKey)
+    }
+
+    /// Unpin `id` (no-op if not pinned).
+    func unpinPaletteAction(id: String) {
+        guard palettePinnedActionIds.contains(id) else { return }
+        palettePinnedActionIds.removeAll { $0 == id }
+        persist(palettePinnedActionIds, forKey: AppModel.palettePinnedActionIdsKey)
+    }
+
+    /// Toggle the pin state of `id`. Wired to the palette row's right-click
+    /// "Pin"/"Unpin" affordance.
+    func togglePaletteActionPin(id: String) {
+        if isPaletteActionPinned(id: id) {
+            unpinPaletteAction(id: id)
+        } else {
+            pinPaletteAction(id: id)
+        }
+    }
+
+    /// Append a run to the recent-action-id list: drop any existing copy,
+    /// insert at the front, cap to `cap`. Pure + static so the cap / dedupe /
+    /// ordering contract is unit-testable without booting an `AppModel`,
+    /// mirroring `addRecentSearch`. Action ids are exact-match (not
+    /// case-insensitive) since they're internal identifiers, not user text.
+    static func appendPaletteRecent(_ id: String, into list: [String], cap: Int) -> [String] {
+        guard !id.isEmpty else { return list }
+        var next = list
+        next.removeAll { $0 == id }
+        next.insert(id, at: 0)
+        if next.count > cap {
+            next = Array(next.prefix(cap))
+        }
+        return next
+    }
+
+    /// Decode a persisted JSON `[String]` of action ids. Returns `[]` on
+    /// malformed data so a stale shape from a prior build can't wedge the
+    /// palette — same defensive decode as `decodeRecentSearches`.
+    static func decodePaletteActionIds(_ json: String) -> [String] {
+        guard let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    /// Encode an action-id list back to the JSON string persisted in
+    /// `UserDefaults`. Returns `"[]"` on failure so a write never stores a
+    /// half-baked value.
+    static func encodePaletteActionIds(_ list: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(list),
+              let s = String(data: data, encoding: .utf8)
+        else { return "[]" }
+        return s
+    }
+
+    /// Persist an action-id list under `key` via the JSON-in-UserDefaults
+    /// bridge.
+    private func persist(_ list: [String], forKey key: String) {
+        UserDefaults.standard.set(AppModel.encodePaletteActionIds(list), forKey: key)
     }
 
     init() throws {
@@ -917,6 +1076,9 @@ final class AppModel {
         // pane to mount. An empty/absent value means "follow system default".
         let savedDeviceUID = UserDefaults.standard.string(forKey: AudioOutputDevices.preferenceKey) ?? ""
         self.audio.outputDeviceUID = savedDeviceUID.isEmpty ? nil : savedDeviceUID
+        // Seed the scrobble-connected flag from the core's persisted token so
+        // the Preferences pane shows the right state on first open.
+        self.scrobbleConnected = core.isScrobbleConfigured()
     }
 
     // MARK: - Network
@@ -1052,6 +1214,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        rediscover = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1124,6 +1287,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        rediscover = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1285,6 +1449,7 @@ final class AppModel {
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
         await refreshFavoriteArtists()
+        await refreshRediscover()
         await refreshSuggestions()
     }
 
@@ -1772,6 +1937,24 @@ final class AppModel {
     /// the server.
     func reshuffleFavoriteAlbumsVisible() {
         self.favoriteAlbumsVisible = Array(favoriteAlbumsAll.shuffled().prefix(12))
+    }
+
+    /// Refresh the "Rediscover" carousel (#57). Fetches up to 12 albums the
+    /// user has never played, filtered to `IsUnplayed` and sorted `Random`
+    /// server-side so the row surfaces a different corner of the library on
+    /// each cold launch / refresh rather than the same alphabetically-first
+    /// dozen. Reuses `fetchAlbumsViaItemsQuery` — the `Descending` sort order
+    /// it hardcodes is a no-op for `Random`. Best-effort: an empty result
+    /// (a fully-played library) just leaves the shelf hidden.
+    func refreshRediscover() async {
+        let albums = await fetchAlbumsViaItemsQuery(
+            sortBy: "Random",
+            filters: "IsUnplayed",
+            limit: 12,
+            extraFields: [],
+            minDateLastSaved: nil
+        )
+        self.rediscover = albums
     }
 
     /// Refresh the "Artists You Love" carousel (#207). Reuses
@@ -3176,6 +3359,67 @@ final class AppModel {
         }
     }
 
+    /// Present the Instant Mix seed-picker sheet (#327). The sheet lets the
+    /// user search for and pick any track / album / artist / genre to seed a
+    /// fresh radio station, rather than relying on the implicit "currently
+    /// playing" seed that `startInstantMix` uses. Mounted on `MainShell`
+    /// driven by `isShowingInstantMixPicker`; wired to the View ▸ "New
+    /// Instant Mix…" menu command.
+    func presentInstantMixPicker() {
+        isShowingInstantMixPicker = true
+    }
+
+    /// Generate an Instant Mix from an explicitly chosen seed (#327). The
+    /// seed-picker sheet hands back a heterogeneous `SearchItem`; we dispatch
+    /// on its case because the seed id semantics differ:
+    ///
+    /// - Tracks / albums / artists carry a real Jellyfin UUID, so they feed
+    ///   `playInstantMix` directly.
+    /// - Genres surfaced by search only carry the display name as their id
+    ///   (`Genre.init(name:)`), so they route through `startGenreRadio`,
+    ///   which resolves the name → real UUID before seeding. Playlists aren't
+    ///   offered as a seed by the picker today, but fall through to the
+    ///   direct path should the picker ever surface one.
+    ///
+    /// Records the seed's display name in `instantMixSeedLabel` so a re-open
+    /// of the picker can offer a one-tap regenerate, then dismisses the sheet.
+    func generateInstantMix(seed: SearchItem) {
+        switch seed {
+        case .track(let t):
+            instantMixSeedLabel = t.name
+            playInstantMix(seedId: t.id)
+        case .album(let a):
+            instantMixSeedLabel = a.name
+            playInstantMix(seedId: a.id)
+        case .artist(let a):
+            instantMixSeedLabel = a.name
+            playInstantMix(seedId: a.id)
+        case .playlist(let p):
+            instantMixSeedLabel = p.name
+            playInstantMix(seedId: p.id)
+        case .genre(let g):
+            instantMixSeedLabel = g.name
+            startGenreRadio(genre: g)
+        }
+        isShowingInstantMixPicker = false
+    }
+
+    /// Read-only search used by the Instant Mix seed picker (#327). Returns a
+    /// raw `SearchResults` without touching any of the page-level search
+    /// state (`searchResults`, `searchPageResults`, …) so opening the picker
+    /// never disturbs the standalone Search screen the user may have set up.
+    /// The FFI hop runs off the MainActor per CLAUDE.md gap pattern #2;
+    /// errors collapse to `nil` because the picker treats "no matches" and
+    /// "search failed" identically (an empty candidate list), and a flaky
+    /// keystroke shouldn't raise an error banner mid-typing.
+    func searchSeeds(query: String, limit: UInt32 = 20) async -> SearchResults? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return await Task.detached(priority: .userInitiated) { [core] in
+            try? core.search(query: trimmed, offset: 0, limit: limit)
+        }.value
+    }
+
     /// Common driver for every "Start Radio" entry point. `core.instantMix`
     /// is polymorphic — any item id (track, album, artist, genre, playlist)
     /// works. Wraps the FFI hop in `Task.detached` so the main actor doesn't
@@ -4367,10 +4611,10 @@ final class AppModel {
         Task { await duplicatePlaylist(id: playlist.id) }
     }
 
-    /// Present a save panel and write the playlist to disk as an `.m3u8` file.
-    /// Fetches the playlist's tracks via `playlist_tracks` FFI, then builds an
-    /// extended M3U file with `#EXTINF` metadata per track. Stream URLs are
-    /// written without auth tokens so the file is safe to share (#76).
+    /// Present a save panel and write the playlist to disk as an extended-M3U
+    /// (`.m3u8`) file. Fetches the playlist's tracks via `playlist_tracks` FFI,
+    /// then delegates the string-building to `PlaylistExport.m3u8`. Stream URLs
+    /// are written without auth tokens so the file is safe to share (#76 / #237).
     func exportPlaylist(playlist: Playlist) {
         Task {
             // Fetch tracks before opening the panel so we know the export
@@ -4380,39 +4624,74 @@ final class AppModel {
                 errorMessage = "No tracks to export for \"\(playlist.name)\"."
                 return
             }
+            let content = PlaylistExport.m3u8(
+                playlistName: playlist.name,
+                tracks: tracks,
+                serverURL: serverURL
+            )
+            writeExport(
+                content,
+                suggestedName: "\(playlist.name).m3u8",
+                fileExtension: "m3u8",
+                panelTitle: "Export Playlist as .m3u8"
+            )
+        }
+    }
 
-            // Build the extended M3U content. runtimeTicks is in 100-nanosecond
-            // units; divide by 10_000_000 to get whole seconds for #EXTINF.
-            var lines: [String] = ["#EXTM3U"]
-            let base = serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL
-            for track in tracks {
-                let durationSec = Int(track.runtimeTicks / 10_000_000)
-                let inf = "#EXTINF:\(durationSec),\(track.artistName) - \(track.name)"
-                // Use the auth-free universal-stream path: no query parameters,
-                // no api_key. Works with servers that allow unauthenticated
-                // download (many local setups), and is safe to share even when
-                // that's not the case.
-                let streamPath = "\(base)/Audio/\(track.id)/universal"
-                lines.append(inf)
-                lines.append(streamPath)
+    /// Present a save panel and write the playlist to disk as a JSON manifest
+    /// (`.json`). Fetches the playlist's tracks via `playlist_tracks` FFI, then
+    /// delegates serialization to `PlaylistExport.json`. The manifest is a
+    /// stable, self-contained projection (id + ordered tracks) suitable for
+    /// backup / re-import / scripting (#237).
+    func exportPlaylistJSON(playlist: Playlist) {
+        Task {
+            let tracks = await loadPlaylistTracks(playlist: playlist)
+            guard !tracks.isEmpty else {
+                errorMessage = "No tracks to export for \"\(playlist.name)\"."
+                return
             }
-            let m3u8Content = lines.joined(separator: "\n") + "\n"
-
-            // Present the save panel on the main actor.
-            let panel = NSSavePanel()
-            panel.title = "Export Playlist as .m3u8"
-            panel.nameFieldStringValue = "\(playlist.name).m3u8"
-            panel.allowedContentTypes = [.init(filenameExtension: "m3u8") ?? .plainText]
-            panel.canCreateDirectories = true
-
-            let response = panel.runModal()
-            guard response == .OK, let url = panel.url else { return }
-
+            let content: String
             do {
-                try m3u8Content.write(to: url, atomically: true, encoding: .utf8)
+                content = try PlaylistExport.json(
+                    playlistId: playlist.id,
+                    playlistName: playlist.name,
+                    tracks: tracks
+                )
             } catch {
                 errorMessage = "Export failed: \(error.localizedDescription)"
+                return
             }
+            writeExport(
+                content,
+                suggestedName: "\(playlist.name).json",
+                fileExtension: "json",
+                panelTitle: "Export Playlist as JSON"
+            )
+        }
+    }
+
+    /// Shared `NSSavePanel` IO for the playlist export formats. Presents the
+    /// panel on the main actor and writes `content` to the chosen URL, routing
+    /// any failure to `errorMessage`. A user cancel is a silent no-op.
+    private func writeExport(
+        _ content: String,
+        suggestedName: String,
+        fileExtension: String,
+        panelTitle: String
+    ) {
+        let panel = NSSavePanel()
+        panel.title = panelTitle
+        panel.nameFieldStringValue = suggestedName
+        panel.allowedContentTypes = [.init(filenameExtension: fileExtension) ?? .plainText]
+        panel.canCreateDirectories = true
+
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            errorMessage = "Export failed: \(error.localizedDescription)"
         }
     }
 
@@ -4704,10 +4983,12 @@ final class AppModel {
     /// Jellyfin web URL for a playlist, e.g.
     /// `https://server.example.com/web/#/details?id=<playlistId>`. The Jellyfin
     /// web UI uses the same `details` route for albums, artists, and playlists.
+    ///
+    /// Routes through `PlaylistExport.webURL`, which strips any embedded
+    /// credentials / query / fragment from the stored server URL so a copied
+    /// "Copy Link" never leaks a password or token (#237).
     func webURL(for playlist: Playlist) -> URL? {
-        guard !serverURL.isEmpty else { return nil }
-        let base = serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL
-        return URL(string: "\(base)/web/#/details?id=\(playlist.id)")
+        PlaylistExport.webURL(serverURL: serverURL, itemId: playlist.id)
     }
 
     /// Copy the playlist's web URL to the system pasteboard.
@@ -5408,6 +5689,66 @@ final class AppModel {
     }
     #endif
 
+    // MARK: - Scrobbling (#46)
+
+    /// Persist a ListenBrainz token through the core and refresh the connected
+    /// flag. Passing `nil` / blank disconnects. The token never lives in
+    /// `UserDefaults` — only the core's settings table — so it stays out of the
+    /// diagnostic bundle. Surfaces failures via `errorMessage`.
+    func connectScrobbler(token: String?) {
+        do {
+            try core.setScrobbleToken(token: token)
+            scrobbleConnected = core.isScrobbleConfigured()
+        } catch {
+            errorMessage = LyrebirdErrorPresenter.message(for: error, context: .generic)
+        }
+    }
+
+    /// Clear the stored token and reset the in-flight gate so a re-connect
+    /// starts clean.
+    func disconnectScrobbler() {
+        scrobbleGate.reset()
+        connectScrobbler(token: nil)
+    }
+
+    /// Drive the scrobble gate from one status-poll observation and perform
+    /// whichever action it returns. Called once per poll tick.
+    ///
+    /// Both submit paths hop off the main actor via `Task.detached` — they take
+    /// the core's `parking_lot` mutex and make a network call, neither of which
+    /// belongs on the main thread (gap pattern #2). The threshold *decision*
+    /// stays on the main actor: `core.scrobbleThresholdReached` is side-effect
+    /// free (no mutex, no I/O), so calling it per tick is cheap.
+    ///
+    /// Submit errors are swallowed by design — a failed scrobble must never
+    /// interrupt playback or surface a toast. A genuinely bad token shows up
+    /// in the pane (the connect call validates it); transient network blips
+    /// are simply skipped.
+    private func driveScrobble() {
+        let track = status.currentTrack
+        let enabled = ScrobblePreference.enabled && scrobbleConnected
+        let action = scrobbleGate.noteTrack(
+            track,
+            position: status.positionSeconds,
+            duration: (track?.runtimeTicks).map { Double($0) / 10_000_000.0 } ?? 0,
+            enabled: enabled,
+            thresholdReached: { [core] pos, dur in
+                core.scrobbleThresholdReached(positionSecs: pos, runtimeSecs: dur)
+            }
+        )
+
+        switch action {
+        case .none:
+            break
+        case .nowPlaying(let t):
+            let core = self.core
+            Task.detached { try? core.scrobbleNowPlaying(track: t) }
+        case .submitListen(let t, let listenedAt):
+            let core = self.core
+            Task.detached { try? core.scrobbleSubmitListen(track: t, listenedAt: listenedAt) }
+        }
+    }
+
     private func handleTrackEnded() {
         // Advance to the next track in the queue if there is one. Arm the
         // gapless pre-load for the track *after* this new one so the next
@@ -5605,6 +5946,10 @@ final class AppModel {
                 // time. The controller throttles its own redraws to ≤1 Hz, so
                 // calling it on every 1 s poll tick is the right cadence.
                 AppDelegate.shared?.refreshDockTile()
+                // Feed the scrobble gate the fresh status. Fires a ListenBrainz
+                // `playing_now` on track change and a durable listen once the
+                // current track passes the threshold — both off the main actor.
+                self.driveScrobble()
                 // Trigger a details refetch when the track changes. Scoped
                 // to the polling loop so skipping via the PlayerBar,
                 // media keys, or end-of-track auto-advance all get it
