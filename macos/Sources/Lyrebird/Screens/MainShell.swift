@@ -19,6 +19,18 @@ struct MainShell: View {
     /// column collapse / reveal for us when this changes.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
+    /// Auto-hide bookkeeping (#318). Tracks whether the current collapse was
+    /// width-driven so it (and only it) is eligible for auto-restore when the
+    /// window widens again. `userDidOverride` mirrors the persisted flag below
+    /// so the reducer can read both in one value.
+    @State private var sidebarAutoHide = SidebarAutoHide.State()
+
+    /// Persisted manual-override flag (#318). Set once the user clicks the
+    /// `Toggle Sidebar` toolbar button, after which width-driven auto-hide
+    /// stops overriding their choice. Survives relaunch via `@AppStorage`.
+    @AppStorage(SidebarDefaults.userDidOverrideAutoHideKey)
+    private var userDidOverrideAutoHide: Bool = false
+
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
@@ -47,10 +59,11 @@ struct MainShell: View {
                     // (sidebar first) is read off the inner element and the
                     // container falls back to default priority.
                     .accessibilitySortPriority(100)
-                    // Pin the sidebar to the existing 252pt design width so
-                    // NavigationSplitView's auto-sizing doesn't expand the
-                    // column past what the brand mark + nav rows assume.
-                    .navigationSplitViewColumnWidth(252)
+                    // Drag-resizable sidebar (#318). The 252pt design width is
+                    // the ideal; users can drag the separator between a 200pt
+                    // floor (brand mark + nav rows stay legible) and a 360pt
+                    // ceiling (so the rail can't swallow the detail column).
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 252, max: 360)
             } detail: {
                 HStack(spacing: 0) {
                     NavigationStack(path: $model.navPath) {
@@ -72,9 +85,7 @@ struct MainShell: View {
                             .toolbar {
                                 ToolbarItem(placement: .navigation) {
                                     Button {
-                                        columnVisibility = (columnVisibility == .all)
-                                            ? .detailOnly
-                                            : .all
+                                        toggleSidebarManually()
                                     } label: {
                                         Image(systemName: "sidebar.left")
                                     }
@@ -162,6 +173,22 @@ struct MainShell: View {
                 .accessibilitySortPriority(50)
         }
         .background(Theme.bg)
+        // Width-driven sidebar auto-hide (#318). A zero-cost GeometryReader in
+        // the background reports the shell's width; `onChange` runs the pure
+        // `SidebarAutoHide` reducer to collapse the rail on narrow windows and
+        // restore it when they widen. The reducer no-ops once the user has
+        // manually toggled the sidebar, so auto-hide never fights an explicit
+        // choice. Driven off the *outer* VStack so the measured width spans the
+        // whole window (sidebar + detail), matching the threshold's intent.
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { applySidebarAutoHide(width: proxy.size.width) }
+                    .onChange(of: proxy.size.width) { _, newWidth in
+                        applySidebarAutoHide(width: newWidth)
+                    }
+            }
+        )
         // Announce track changes to VoiceOver (#342). Keyed on the track id
         // so it fires for user skips and autoplay alike but not for
         // non-identity status churn (position / volume polls). The stop
@@ -229,6 +256,36 @@ struct MainShell: View {
             // explainer on the next line.
             Text(verbatim: "\u{201C}\(playlist.name)\u{201D}\n")
                 + Text("playlist.delete.message")
+        }
+    }
+
+    /// Toolbar `Toggle Sidebar` handler (#318). Flips `columnVisibility` and
+    /// records that the user has taken explicit control, so width-driven
+    /// auto-hide stops overriding their choice. The override is persisted via
+    /// `@AppStorage` so the rail stays where they put it across relaunches.
+    private func toggleSidebarManually() {
+        columnVisibility = (columnVisibility == .all) ? .detailOnly : .all
+        sidebarAutoHide = SidebarAutoHide.registeringManualToggle(sidebarAutoHide)
+        userDidOverrideAutoHide = true
+    }
+
+    /// Runs the pure `SidebarAutoHide` reducer for the latest window `width`
+    /// and applies its decision (#318). Seeds the reducer's `userDidOverride`
+    /// from the persisted `@AppStorage` flag so a manual choice from a prior
+    /// launch is honoured. Only assigns `columnVisibility` when the reducer
+    /// asks for a transition, so a redundant write never stomps an in-flight
+    /// collapse / reveal animation.
+    private func applySidebarAutoHide(width: CGFloat) {
+        var state = sidebarAutoHide
+        state.userDidOverride = userDidOverrideAutoHide
+        let decision = SidebarAutoHide.decide(
+            width: width,
+            visibility: columnVisibility,
+            state: state
+        )
+        sidebarAutoHide = decision.state
+        if let newVisibility = decision.visibility, newVisibility != columnVisibility {
+            columnVisibility = newVisibility
         }
     }
 
