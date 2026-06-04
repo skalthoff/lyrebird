@@ -1099,6 +1099,16 @@ enum LibraryDefaults {
     static let sidebarShowAlbumsKey = "library.sidebar.showAlbums"
     static let sidebarShowArtistsKey = "library.sidebar.showArtists"
     static let sidebarShowPlaylistsKey = "library.sidebar.showPlaylists"
+    /// `Bool` — collapse (hide the rows of) the sidebar Playlists section via
+    /// its disclosure chevron, keeping the header visible. Defaults to expanded.
+    /// See #317.
+    static let sidebarPlaylistsCollapsedKey = "library.sidebar.playlistsCollapsed"
+    /// `String` — comma-separated playlist ids capturing the user's manual
+    /// drag-reorder of the sidebar Playlists list. The live `model.playlists`
+    /// array is sorted by this on every render; new ids append and deleted ids
+    /// prune. Empty default = server order. Encoded via `PlaylistSidebarOrder`.
+    /// See #317.
+    static let sidebarPlaylistOrderKey = "library.sidebar.playlistOrder"
 }
 
 /// Persisted selection for the Library list/grid toggle. Stored via
