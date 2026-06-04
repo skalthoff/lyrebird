@@ -47,6 +47,10 @@ final class AppModel {
         case album(String)
         case artist(String)
         case playlist(String)
+        /// A client-side smart playlist (#77 / #238), addressed by its local
+        /// `SmartPlaylist.id`. The track set is evaluated live from the
+        /// library snapshot rather than fetched, so this carries no server id.
+        case smartPlaylist(UUID)
         case genre(Genre)
         case nowPlaying
         case fullQueue
@@ -178,6 +182,13 @@ final class AppModel {
     /// here on navigation so a subsequent `.playlist(id)` doesn't have to
     /// re-fetch. See #234.
     var playlists: [Playlist] = []
+    /// Client-side smart playlists (#77 / #238). Rule-driven playlists that
+    /// the app evaluates live over the in-memory library snapshot — no server
+    /// round-trip. Persisted locally as JSON in Application Support by the
+    /// store itself; all CRUD goes through it so disk stays in sync. The
+    /// sidebar renders `smartPlaylists.playlists`; `SmartPlaylistDetailView`
+    /// evaluates the selected one via `SmartPlaylistEvaluator`.
+    let smartPlaylists = SmartPlaylistStore()
     var albumTracks: [String: [Track]] = [:]          // albumID → tracks
     /// Per-playlist track caches, mirroring `albumTracks`. Populated by
     /// `loadPlaylistTracks(playlist:)`; held for the session; cleared on
@@ -3378,6 +3389,26 @@ final class AppModel {
         navPath.append(Route.playlist(playlist.id))
     }
 
+    /// Drill into a saved smart playlist's detail page (#77 / #238). The
+    /// detail view evaluates the rules live from the library snapshot, so
+    /// there's nothing to pre-fetch here.
+    func goToSmartPlaylist(_ playlist: SmartPlaylist) {
+        navPath.append(Route.smartPlaylist(playlist.id))
+    }
+
+    /// Create a new smart playlist from the sidebar's "New Smart Playlist…"
+    /// entry: seed a draft, persist it immediately so it appears in the
+    /// sidebar, and drill into its detail page (where the builder sheet can
+    /// be opened to refine the rules). Returns the created playlist's id so
+    /// callers / tests can address it.
+    @discardableResult
+    func createSmartPlaylist() -> UUID {
+        let draft = SmartPlaylist.newDraft()
+        smartPlaylists.add(draft)
+        navPath.append(Route.smartPlaylist(draft.id))
+        return draft.id
+    }
+
 
     /// Switch to the Search screen and request keyboard focus in the search
     /// field. Called from the ⌘F menu command. Writes both the legacy
@@ -3396,7 +3427,7 @@ final class AppModel {
     /// top-of-stack route, and exposed for tests.
     var scopedSearchRoute: Route? {
         switch navPath.last {
-        case .artist, .playlist: return navPath.last
+        case .artist, .playlist, .smartPlaylist: return navPath.last
         default: return nil
         }
     }
