@@ -2,18 +2,22 @@ import SwiftUI
 
 /// Playback preferences pane.
 ///
-/// Exposes streaming quality, download quality, preferred audio codec, and
-/// the behavioural knobs covered by issue #116 — crossfade, gapless, replay-
-/// gain normalization, pre-gain, and "stop after current track". Quality and
-/// codec live here historically; the Audio pane (#117) also surfaces quality
-/// pickers, so the two sections overlap intentionally — the values are the
-/// same `@AppStorage` keys behind the scenes.
+/// Exposes the behavioural knobs covered by issue #116 — gapless joins,
+/// crossfade, ReplayGain normalization, pre-gain, and "stop after current
+/// track". Streaming/download quality and preferred codec used to live here
+/// too, but they share their `@AppStorage` keys with the Audio pane (#117),
+/// which is their canonical home; the duplicates were removed here so each
+/// setting has exactly one editing surface.
 ///
-/// These are UI-only knobs today — wiring into the AVPlayer source URL,
-/// Jellyfin transcoding profile, and the audio engine's crossfade/replay-gain
-/// paths lives in follow-up work (see TODOs below). Persisting the selection
-/// now means the eventual implementation can read the current choice on day
-/// one without a migration.
+/// What's live vs. coming soon:
+/// - **Gapless** and **Stop after current track** are wired into the engine /
+///   queue (`AppModel.armNextTrackPreload` reads `gaplessEnabled`;
+///   `handleTrackEnded` consumes `stopAfterCurrent`).
+/// - **Normalization** and **Pre-gain** route through `AppModel.setNormalization`
+///   onto the live ReplayGain path (#42).
+/// - **Crossfade** has no engine support yet (no overlapping-playback path in
+///   `AudioEngine`), so its slider is gated behind `supportsCrossfade` and
+///   shown disabled rather than persisting a value nothing honours.
 ///
 /// Design: matches the native Preferences aesthetic inside the Lyrebird shell.
 /// Sections sit on `Theme.surface` with `Theme.border` outlines; labels use
@@ -22,9 +26,6 @@ import SwiftUI
 /// the display labels.
 ///
 /// Preference keys (user-facing `@AppStorage`):
-/// - `playback.streamingQuality`     — `PlaybackQuality`
-/// - `playback.downloadQuality`      — `PlaybackQuality`
-/// - `playback.preferredCodec`       — `PreferredAudioCodec`
 /// - `playback.crossfadeSeconds`     — `Double` (0 = off, 1…12)
 /// - `playback.gaplessEnabled`       — `Bool` (default true)
 /// - `playback.normalization`        — `NormalizationMode`
@@ -35,14 +36,12 @@ import SwiftUI
 struct PreferencesPlayback: View {
     @Environment(AppModel.self) private var model
 
-    @AppStorage("playback.streamingQuality") private var streamingQuality: PlaybackQuality = .automatic
-    @AppStorage("playback.downloadQuality") private var downloadQuality: PlaybackQuality = .lossless
-    @AppStorage("playback.preferredCodec") private var preferredCodec: PreferredAudioCodec = .automatic
-
-    // #116 gap-fill knobs. All UI-only until the audio engine grows the
-    // corresponding hooks. Raw types are chosen so the key names survive any
-    // later enum/struct refactor — a Double for the slider is portable and the
-    // Bool toggles are the obvious shape.
+    // #116 gap-fill knobs. Gapless / stop-after-current / normalization /
+    // pre-gain are wired; crossfade is gated behind `model.supportsCrossfade`
+    // until the engine grows an overlapping-playback path. Raw types are
+    // chosen so the key names survive any later enum/struct refactor — a
+    // Double for the slider is portable and the Bool toggles are the obvious
+    // shape.
     @AppStorage("playback.crossfadeSeconds") private var crossfadeSeconds: Double = 0
     @AppStorage("playback.gaplessEnabled") private var gaplessEnabled: Bool = true
     @AppStorage("playback.normalization") private var normalizationRaw: String = NormalizationMode.off.rawValue
@@ -83,47 +82,8 @@ struct PreferencesPlayback: View {
             header
 
             PreferenceSection(
-                title: "Streaming",
-                footnote: "Applies when playing over the network. \"Automatic\" lets Lyrebird pick based on your connection."
-            ) {
-                PreferenceRow(
-                    label: "Quality",
-                    help: streamingQuality.subtitle
-                ) {
-                    QualityPicker(selection: $streamingQuality)
-                        .accessibilityLabel("Streaming quality")
-                }
-            }
-
-            PreferenceSection(
-                title: "Downloads",
-                footnote: "Quality used for offline copies. Higher settings use more disk space."
-            ) {
-                PreferenceRow(
-                    label: "Quality",
-                    help: downloadQuality.subtitle
-                ) {
-                    QualityPicker(selection: $downloadQuality)
-                        .accessibilityLabel("Download quality")
-                }
-            }
-
-            PreferenceSection(
-                title: "Audio Codec",
-                footnote: "Preferred codec when transcoding is required. \"Automatic\" trusts the server."
-            ) {
-                PreferenceRow(
-                    label: "Preferred codec",
-                    help: preferredCodec.subtitle
-                ) {
-                    CodecPicker(selection: $preferredCodec)
-                        .accessibilityLabel("Preferred audio codec")
-                }
-            }
-
-            PreferenceSection(
                 title: "Transitions",
-                footnote: "Gapless joins tracks with no silence when the source supports it. Crossfade overlaps the last and next track by the selected number of seconds."
+                footnote: transitionsFootnote
             ) {
                 PreferenceRow(
                     label: "Gapless playback",
@@ -143,10 +103,15 @@ struct PreferencesPlayback: View {
 
                 PreferenceRow(
                     label: "Crossfade",
-                    help: crossfadeHelp
+                    help: model.supportsCrossfade ? crossfadeHelp : "Coming soon."
                 ) {
                     CrossfadeSlider(seconds: $crossfadeSeconds)
+                        .disabled(!model.supportsCrossfade)
                 }
+                // Dim the whole row when crossfade isn't available so it reads
+                // as not-yet-functional rather than broken — matching the
+                // disabled Last.fm row in `PreferencesScrobbling`.
+                .opacity(model.supportsCrossfade ? 1 : 0.55)
             }
 
             PreferenceSection(
@@ -199,10 +164,21 @@ struct PreferencesPlayback: View {
             Text("Playback")
                 .font(Theme.font(28, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
-            Text("Streaming, downloads, transitions, and normalization.")
+            Text("Transitions, normalization, and queue behaviour.")
                 .font(Theme.font(13, weight: .medium))
                 .foregroundStyle(Theme.ink3)
         }
+    }
+
+    /// Footnote under the Transitions section. Describes gapless always, and
+    /// crossfade only when the engine actually supports it — otherwise the
+    /// section would promise a working crossfade feature that doesn't exist.
+    private var transitionsFootnote: String {
+        let gapless = "Gapless joins tracks with no silence when the source supports it."
+        if model.supportsCrossfade {
+            return gapless + " Crossfade overlaps the last and next track by the selected number of seconds."
+        }
+        return gapless + " Crossfade is planned and isn't available in this build yet."
     }
 
     /// Subtitle under the crossfade row. Reads "Off" when the slider is at
@@ -342,41 +318,9 @@ enum PreferredAudioCodec: String, CaseIterable, Identifiable {
 
 // MARK: - Pickers
 
-/// Segmented control for the 5-option quality tiers. Uses a native
-/// `SegmentedPickerStyle` so keyboard/accessibility comes for free, then
-/// restyles the surround with theme tokens so it matches the rest of the
-/// Preferences pane.
-private struct QualityPicker: View {
-    @Binding var selection: PlaybackQuality
-
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(PlaybackQuality.allCases) { q in
-                Text(q.label).tag(q)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .frame(maxWidth: 420)
-    }
-}
-
-/// Inline menu picker for codec. Four short options fit comfortably in a
-/// dropdown; a segmented control would feel noisy next to the quality row.
-private struct CodecPicker: View {
-    @Binding var selection: PreferredAudioCodec
-
-    var body: some View {
-        Picker("", selection: $selection) {
-            ForEach(PreferredAudioCodec.allCases) { c in
-                Text(c.label).tag(c)
-            }
-        }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(width: 140)
-    }
-}
+// Note: the streaming/download `QualityPicker` and the `CodecPicker` that used
+// to live here moved to the Audio pane (#117) — the single home for quality and
+// codec selection now that the duplicate sections were removed from this pane.
 
 /// Segmented picker for the three-option normalization mode. Off / Track /
 /// Album — a segmented control reads best for a mutually-exclusive short

@@ -42,4 +42,23 @@ extension AppModel {
     /// `supportsMarkPlayed` / `supportsArtistPlayShuffle` for the same
     /// pattern.
     var supportsGenreActions: Bool { true }
+
+    /// Streaming / download quality + preferred-codec selection (#260).
+    /// Gates the quality and codec pickers in the Audio pane. These need
+    /// the core to thread `MaxStreamingBitrate` + a `DeviceProfile`
+    /// (audio codec / container) into the Jellyfin `PlaybackInfo`
+    /// request; `core/src/client.rs` has no such parameter yet, so the
+    /// pickers would write a preference nothing reads. Disabled until the
+    /// core FFI lands rather than presenting controls that don't affect
+    /// playback.
+    var supportsStreamQualitySelection: Bool { false }
+
+    /// Crossfade between tracks (#116). Gates the crossfade slider in the
+    /// Playback pane. Overlapping the tail of one track with the head of
+    /// the next needs a second player / mixer in `AudioEngine`; the
+    /// engine has no crossfade path today, so the slider would persist a
+    /// value nothing honours. Disabled until the engine supports
+    /// overlapping playback. Gapless (no-overlap joins) is a separate,
+    /// already-wired feature — see `armNextTrackPreload`.
+    var supportsCrossfade: Bool { false }
 }

@@ -3986,6 +3986,10 @@ final class AppModel {
     // MARK: - Playback
 
     func play(tracks: [Track], startIndex: Int = 0) {
+        // Starting a fresh queue disarms any leftover "Stop after current
+        // track" one-shot — "Resets to off the next time you start
+        // playback" (#116).
+        AppModel.resetStopAfterCurrent()
         do {
             _ = try core.setQueue(tracks: tracks, startIndex: UInt32(startIndex))
             guard let first = tracks[safe: startIndex] else { return }
@@ -5769,9 +5773,61 @@ final class AppModel {
     /// track. A no-op when the queue holds nothing further (end of queue), in
     /// which case the engine simply has no item to splice ahead. Single source
     /// of truth shared by the normal advance and stall recovery (#931).
+    ///
+    /// Gated on the user's "Gapless playback" preference (#116): when off, the
+    /// engine is never handed a queued-ahead item, so each track ends cleanly
+    /// before `handleTrackEnded` rebuilds the next via `play(track:)` — the
+    /// gap-prone path becomes the *intended* behaviour rather than a fallback.
     private func armNextTrackPreload() {
+        guard AppModel.gaplessEnabled else { return }
         guard let next = nextTrackForPreload else { return }
         audio.preloadNextTrack(next)
+    }
+
+    // MARK: - Playback behaviour preferences (#116)
+
+    /// UserDefaults key for the "Gapless playback" toggle in the Playback
+    /// pane. Kept in sync with `PreferencesPlayback`'s `@AppStorage`.
+    private static let gaplessEnabledKey = "playback.gaplessEnabled"
+
+    /// UserDefaults key for the "Stop after current track" toggle in the
+    /// Playback pane. Kept in sync with `PreferencesPlayback`'s `@AppStorage`.
+    private static let stopAfterCurrentKey = "playback.stopAfterCurrent"
+
+    /// Resolve the persisted gapless flag, defaulting to `true` when the key
+    /// has never been written. `UserDefaults.bool(forKey:)` returns `false`
+    /// for a missing key, which would silently invert this feature's
+    /// "default on" contract (the toggle ships on), so probe for the object
+    /// first — same pattern as `autoplayWhenQueueEndsDefault`.
+    static var gaplessEnabled: Bool {
+        guard UserDefaults.standard.object(forKey: gaplessEnabledKey) != nil else {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: gaplessEnabledKey)
+    }
+
+    /// Read **and clear** the "Stop after current track" one-shot. Returns
+    /// `true` exactly once per arming: `handleTrackEnded` calls this, and a
+    /// `true` result both halts the advance and disarms the toggle so the
+    /// next end-of-track transition behaves normally. Defaults to `false`
+    /// for an unset key (the toggle ships off), which `bool(forKey:)` already
+    /// returns, so no object-probe is needed here.
+    static func consumeStopAfterCurrent() -> Bool {
+        let armed = UserDefaults.standard.bool(forKey: stopAfterCurrentKey)
+        if armed {
+            UserDefaults.standard.set(false, forKey: stopAfterCurrentKey)
+        }
+        return armed
+    }
+
+    /// Disarm "Stop after current track" when a fresh playback session
+    /// begins. Honours the toggle's documented contract — "Resets to off the
+    /// next time you start playback" — so an arming left over from a previous
+    /// session can never silently stop the user one track into a new queue.
+    private static func resetStopAfterCurrent() {
+        if UserDefaults.standard.bool(forKey: stopAfterCurrentKey) {
+            UserDefaults.standard.set(false, forKey: stopAfterCurrentKey)
+        }
     }
 
     #if DEBUG
@@ -5860,6 +5916,14 @@ final class AppModel {
     }
 
     private func handleTrackEnded() {
+        // "Stop after current track" (#116): when armed, halt at this
+        // track's end instead of advancing, and disarm the one-shot so the
+        // queue resumes normally afterwards. Checked before `skipNext()` so
+        // the playhead never moves past the track the user wanted to stop on.
+        if AppModel.consumeStopAfterCurrent() {
+            stop()
+            return
+        }
         // Advance to the next track in the queue if there is one. Arm the
         // gapless pre-load for the track *after* this new one so the next
         // end-of-track transition is seamless — without this the freshly
