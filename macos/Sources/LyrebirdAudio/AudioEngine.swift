@@ -50,12 +50,15 @@ public protocol AudioEngineDelegate: AnyObject {
     /// affordance — the engine will NOT retry again on its own.
     func audioEngineDidFail(_ message: String)
 
-    /// Called when an `AVPlayerItem` reports a transient network failure
+    /// Called when an `AVPlayerItem` transient network failure
     /// (`NSURLErrorNetworkConnectionLost` / `Timeout` /
-    /// `NotConnectedToInternet`). The engine has already cancelled the
-    /// blind stall watchdog and triggered a queue advance via
-    /// `onTrackEnded`; the owner only needs to surface a transient toast
-    /// (e.g. "Connection lost — skipping"). See issue #806.
+    /// `NotConnectedToInternet`) has *exhausted* the engine's bounded retry
+    /// budget. Up to `maxAutoRetries`, the engine first rebuilds and retries
+    /// the current track (surfacing `audioEngineDidStall` / `audioEngineDidRecover`,
+    /// the same as a buffering stall); this hook only fires once retries are
+    /// spent, at which point the engine has triggered a queue advance via
+    /// `onTrackEnded`. The owner only needs to surface a transient toast
+    /// (e.g. "Connection lost — skipping"). See issue #806 / audit L863.
     func audioEngineDidEncounterTransientError(_ message: String)
 
     /// Called after a stall recovery has rebuilt the current `AVPlayerItem`
@@ -119,8 +122,17 @@ public final class AudioEngine: NSObject {
     private var stallWorkItem: DispatchWorkItem?
 
     /// How many silent restart attempts we've made on the *current* stream.
-    /// Reset to 0 every time `play(_:)` loads a brand-new track.
+    /// Reset to 0 every time `play(_:)` loads a brand-new track, and on a
+    /// genuine queue auto-advance — but NOT on an in-place stall recovery.
     private var stallRetryCount: Int = 0
+
+    /// Set around `recoverFromStall`'s `replaceCurrentItem` swap so the
+    /// `currentItem` KVO observer can tell an in-place stall rebuild apart
+    /// from a genuine gapless queue advance. Without this, the rebuild's
+    /// `currentItem` change would reset `stallRetryCount` to 0 and defeat the
+    /// `maxAutoRetries` cap, letting a permanently-stalled stream retry-loop
+    /// forever instead of surfacing "Couldn't play, tap to retry." (#439).
+    private var isRecoveringFromStall: Bool = false
 
     /// Monotonically-increasing counter used to detect stale seek completions
     /// (#582). Each call to `seek(toSeconds:)` increments this; the completion
@@ -235,6 +247,37 @@ public final class AudioEngine: NSObject {
         guard let player else { return }
         recoverFromStall(player: player, url: url)
     }
+
+    /// Test seam: the number of silent restart attempts charged against the
+    /// current stream. Lets a test assert that an in-place stall recovery
+    /// does *not* reset the budget (which would defeat `maxAutoRetries`). See
+    /// audit L752 / #439.
+    var stallRetryCountForTesting: Int { stallRetryCount }
+
+    /// Test seam: seed the URL `recoverFromStall` / `handleItemFailure` rebuild
+    /// from, without a live `play(_:)`.
+    func setCurrentStreamURLForTesting(_ url: URL?) {
+        currentStreamURL = url
+    }
+
+    /// Test seam: drive the transient-item-failure path directly with a
+    /// synthesized `NSError`, so the bounded retry-then-skip behaviour (audit
+    /// L863/L879) can be verified without a real network blip.
+    func handleItemFailureForTesting(_ error: NSError) {
+        handleItemFailure(error)
+    }
+
+    /// Test seam: invoke the production give-up path
+    /// (`quiesceAfterTerminalFailure`) directly so the audit-L974 quiescing
+    /// (player paused, watchdog cancelled, heartbeat stopped, delegate
+    /// notified) is asserted against the *real* code, not a copy.
+    func failTerminallyForTesting() {
+        quiesceAfterTerminalFailure()
+    }
+
+    /// Test seam: whether a stall watchdog is currently armed. Lets a test
+    /// confirm the give-up path actually cancels it.
+    var hasPendingStallWatchdogForTesting: Bool { stallWorkItem != nil }
     #endif
 
     // MARK: - Private helpers
@@ -309,35 +352,58 @@ public final class AudioEngine: NSObject {
             isPaused: false,
             isMuted: false
         )
-        try? core.reportPlaybackStarted(info: info)
+        // Set the reporting triple synchronously on the actor so a later
+        // `reportStopped` (which also dispatches off-main) reads the matching
+        // itemId + source + session. The `POST /Sessions/Playing` FFI itself
+        // blocks on a network round-trip, so it runs off the main actor.
         reportingItemId = trackId
         reportingMediaSourceId = mediaSourceId
         reportingPlaySessionId = playSessionId
+        let core = self.core
+        Task.detached { try? core.reportPlaybackStarted(info: info) }
     }
 
     /// Fire `POST /Sessions/Playing/Stopped` for the previously-reported
     /// session, then clear the reporting triple. Safe to call when nothing
     /// is active — it no-ops when `reportingItemId` is `nil`.
-    private func reportStopped() {
+    ///
+    /// `positionTicks` defaults to the live player's current position, but the
+    /// caller may pass an explicit value when the player is about to be (or has
+    /// already been) replaced — e.g. on a track change `play(_:)` swaps
+    /// `self.player` to the *new* item before this runs, so reading the live
+    /// position here would report the new item's position (0) for the old
+    /// track's stop. See the capture at the top of `play(_:)`.
+    ///
+    /// The `POST /Sessions/Playing/Stopped` FFI blocks on a network round-trip
+    /// (`runtime.block_on` in Rust), so it's dispatched off the main actor.
+    /// Clearing the reporting triple stays on the actor and happens
+    /// synchronously so a follow-up `reportStarted` can't race it.
+    private func reportStopped(positionTicks explicitPosition: Int64? = nil) {
         guard let itemId = reportingItemId else { return }
         let info = PlaybackStopInfo(
             itemId: itemId,
             failed: false,
-            positionTicks: positionTicks(),
+            positionTicks: explicitPosition ?? positionTicks(),
             mediaSourceId: reportingMediaSourceId,
             playSessionId: reportingPlaySessionId,
             sessionId: nil
         )
-        try? core.reportPlaybackStopped(info: info)
         reportingItemId = nil
         reportingMediaSourceId = nil
         reportingPlaySessionId = nil
+        let core = self.core
+        Task.detached { try? core.reportPlaybackStopped(info: info) }
     }
 
     /// Fire a single `PlaybackProgressInfo` report — used on pause / resume /
     /// seek transitions so the server sees state changes promptly rather
     /// than waiting for the next heartbeat tick. Best-effort: swallow
     /// errors, the periodic heartbeat (if running) will catch up.
+    ///
+    /// `core.reportPlaybackProgress` blocks on a network round-trip
+    /// (`runtime.block_on` in Rust), so the FFI is dispatched off the main
+    /// actor. The position snapshot is read on the actor first so it reflects
+    /// the player state at call time, not whenever the detached task runs.
     private func reportProgressSnapshot(isPaused: Bool) {
         guard let itemId = reportingItemId else { return }
         let info = PlaybackProgressInfo(
@@ -354,7 +420,8 @@ public final class AudioEngine: NSObject {
             audioStreamIndex: nil,
             sessionId: nil
         )
-        try? core.reportPlaybackProgress(info: info)
+        let core = self.core
+        Task.detached { try? core.reportPlaybackProgress(info: info) }
     }
 
     /// Pin (or unpin) the given player to the selected Core Audio output
@@ -437,6 +504,12 @@ public final class AudioEngine: NSObject {
     // MARK: - Public
 
     public func play(track: Track) async throws {
+        // A stall watchdog scheduled for the *old* track would otherwise fire
+        // mid-load of the new one and kick a perfectly healthy fresh stream.
+        // `removePlayerObservers()` below tears down the KVO observers but does
+        // not touch the pending `stallWorkItem`, so cancel it explicitly here.
+        cancelStallWatchdog()
+
         // Resolve media source + play session id via PlaybackInfo so the
         // server picks the right source for multi-version items and can
         // correlate subsequent /Sessions/Playing* reports with the stream.
@@ -462,6 +535,15 @@ public final class AudioEngine: NSObject {
             ]
         )
         let item = AVPlayerItem(asset: asset)
+
+        // Capture the *outgoing* track's playback position while `self.player`
+        // still points at the old item (it's reassigned just below). The
+        // matching Stopped report further down must carry where the previous
+        // track actually stopped — reading the position after
+        // `self.player = newPlayer` would report the new item's position (0)
+        // for the old track. `positionTicks()` no-ops to 0 when nothing's
+        // loaded, so the first-ever play reports 0 correctly.
+        let previousPositionTicks = positionTicks()
 
         // Tear down the old player cleanly before switching.
         removePlayerObservers()
@@ -491,10 +573,16 @@ public final class AudioEngine: NSObject {
 
         // Any previous session needs a matching Stopped report before we
         // start the new one — Jellyfin keys sessions by PlaySessionId and
-        // leaks a transcode job otherwise.
-        reportStopped()
+        // leaks a transcode job otherwise. Pass the position captured from
+        // the *old* player just before the swap; `self.player` already points
+        // at the new item by now, so the default live read would report 0.
+        reportStopped(positionTicks: previousPositionTicks)
 
-        core.markTrackStarted(track: track)
+        // `markTrackStarted` does a synchronous `db.record_play` SQLite write
+        // in Rust; keep it off the main thread (fire-and-forget — the play
+        // history row isn't read back synchronously by anything on this path).
+        let core = self.core
+        Task.detached { core.markTrackStarted(track: track) }
         core.markState(state: .playing)
         newPlayer.play()
         // Publish the new track to MPNowPlayingInfoCenter. `MediaSession`
@@ -640,7 +728,12 @@ public final class AudioEngine: NSObject {
         // preload has superseded this one.
         preloadGeneration &+= 1
         let generation = preloadGeneration
-        Task.detached {
+        // `[weak self]` so an engine torn down mid-resolve (track change,
+        // stop) doesn't get pinned alive for the duration of the network FFI —
+        // matches `applyReplayGain`. The network work below only touches the
+        // locally-captured `core`, so it runs regardless; the marshal-back bails
+        // if `self` is gone.
+        Task.detached { [weak self] in
             do {
                 let info = try? core.playbackInfo(itemId: track.id, opts: opts)
                 let mediaSourceId = info?.mediaSources.first?.id
@@ -666,6 +759,7 @@ public final class AudioEngine: NSObject {
                 let nextItem = AVPlayerItem(asset: asset)
 
                 await MainActor.run {
+                    guard let self else { return }
                     guard generation == self.preloadGeneration else { return }
                     guard let player = self.player else { return }
                     // Remove any previously queued (not-yet-playing) items so we never
@@ -734,6 +828,15 @@ public final class AudioEngine: NSObject {
             // Guard: only act when the item actually changed (not on initial
             // attachment where old == new == firstItem).
             guard change.oldValue != change.newValue else { return }
+            // Capture the recovery flag *synchronously*. KVO on `currentItem`
+            // fires inline on the main thread during `replaceCurrentItem`, so
+            // reading `isRecoveringFromStall` here sees the value set by
+            // `recoverFromStall` before it clears it — the deferred `Task`
+            // below would always observe the cleared (false) value and so
+            // can't be used to gate the retry-count reset. `assumeIsolated`
+            // is sound: this engine is `@MainActor` and the callback only
+            // ever runs on the main thread.
+            let wasStallRecovery = MainActor.assumeIsolated { self?.isRecoveringFromStall ?? false }
             Task { @MainActor in
                 guard let self else { return }
                 // Re-register end-of-item notification for the newly-current item.
@@ -749,7 +852,15 @@ public final class AudioEngine: NSObject {
                 if let urlAsset = player.currentItem?.asset as? AVURLAsset {
                     self.currentStreamURL = urlAsset.url
                 }
-                self.stallRetryCount = 0
+                // Only a genuine queue advance gets a fresh retry budget. An
+                // in-place stall rebuild (`replaceCurrentItem`) also fires this
+                // observer, but resetting here would defeat `maxAutoRetries`
+                // and let a permanently-stalled stream retry-loop forever
+                // (#439). `play(_:)` still resets the count for brand-new
+                // tracks, so the legitimate-advance case stays covered.
+                if !wasStallRecovery {
+                    self.stallRetryCount = 0
+                }
             }
         }
 
@@ -806,9 +917,10 @@ public final class AudioEngine: NSObject {
     /// -1009 path described in the issue). `.status` covers items that
     /// flip to `.failed` before they ever reach `.readyToPlay` (early-
     /// track death — same root causes, different surface). Both call
-    /// through to `handleItemFailure(_:)` which inspects the error and
-    /// either short-circuits to fail-fast or no-ops for unrelated codes
-    /// (which the existing stall watchdog still handles).
+    /// through to `handleItemFailure(_:)` which inspects the error and, for
+    /// transient codes, drives the same bounded rebuild-and-retry the stall
+    /// watchdog uses before skipping; unrelated codes are left to the 5s
+    /// stall watchdog.
     private func attachItemFailureObservers(to item: AVPlayerItem) {
         itemErrorObservation?.invalidate()
         itemErrorObservation = item.observe(\.error, options: [.new]) { [weak self] item, _ in
@@ -855,13 +967,50 @@ public final class AudioEngine: NSObject {
     }
 
     /// Branch on whether the failing item carries a transient network
-    /// error code. For transient codes we fail fast: cancel the blind
-    /// 5s stall watchdog, notify the delegate so the UI can surface a
-    /// transient toast, and signal `onTrackEnded` so AppModel advances
-    /// the queue (same contract as natural end-of-item). Non-transient
-    /// errors fall through to the existing stall path. See #806.
+    /// error code. Transient codes get the *same* bounded recovery the stall
+    /// watchdog uses: rebuild the current item from `currentStreamURL` /
+    /// `currentAuthHeader` and retry, up to `maxAutoRetries`, before giving
+    /// up. A brief connection blip then retries the current track instead of
+    /// instantly skipping it — matching the stall path's behaviour for an
+    /// equivalent condition (#806, audit L863/L879). Only after the shared
+    /// retry budget is exhausted do we surface the transient indicator and
+    /// advance the queue via `onTrackEnded` (the same contract as a natural
+    /// end-of-item). Non-transient errors fall through to the existing 5s
+    /// stall path.
     private func handleItemFailure(_ error: NSError) {
         guard isTransientNetworkError(error) else { return }
+        // Short-circuit the blind 5s watchdog — we drive recovery explicitly
+        // below, and letting the watchdog also fire would double-rebuild.
+        cancelStallWatchdog()
+
+        // Recovery needs a live player + a URL to rebuild from. If either is
+        // gone (engine torn down, or we never captured a stream), there's
+        // nothing to retry — skip straight to the queue advance.
+        guard let player = self.player, let url = self.currentStreamURL else {
+            skipAfterTransientFailure()
+            return
+        }
+
+        stallRetryCount += 1
+        if stallRetryCount > maxAutoRetries {
+            // Budget exhausted: this track is genuinely unreachable. Advance
+            // the queue rather than wedging on the dead item.
+            skipAfterTransientFailure()
+            return
+        }
+
+        // Within budget: rebuild + retry the current track. `recoverFromStall`
+        // re-attaches fresh failure observers to the rebuilt item, so a repeat
+        // transient failure re-enters here and counts against the same budget.
+        // It also fires `audioEngineDidRecover()` so the owner re-arms gapless.
+        delegate?.audioEngineDidStall()
+        recoverFromStall(player: player, url: url)
+    }
+
+    /// Terminal branch for a transient item failure whose retry budget is
+    /// spent (or that had nothing to retry): drop the per-item observers,
+    /// surface the transient indicator, and advance the queue.
+    private func skipAfterTransientFailure() {
         // Idempotent: invalidate the per-item observers so a follow-up
         // `.status` flip on the same dead item doesn't re-fire this path
         // before the queue advance lands.
@@ -869,9 +1018,6 @@ public final class AudioEngine: NSObject {
         itemErrorObservation = nil
         itemStatusObservation?.invalidate()
         itemStatusObservation = nil
-        // Short-circuit the 5s blind-rebuild path — rebuilding the same
-        // URL against the same broken connection would just refail.
-        cancelStallWatchdog()
         // Surface the transient indicator and advance the queue. The
         // delegate hook is best-effort; the `onTrackEnded` callback is
         // the same path natural end-of-item takes, so AppModel's queue
@@ -972,12 +1118,28 @@ public final class AudioEngine: NSObject {
 
         stallRetryCount += 1
         if stallRetryCount > maxAutoRetries {
-            delegate?.audioEngineDidFail("Couldn't play, tap to retry.")
+            quiesceAfterTerminalFailure()
             return
         }
 
         delegate?.audioEngineDidStall()
         recoverFromStall(player: player, url: url)
+    }
+
+    /// Stop everything and surface a terminal failure. Called when the stall
+    /// retry budget is exhausted (#439, audit L974). Leaving the player parked
+    /// in `.waitingToPlayAtSpecifiedRate` would keep CoreMedia spinning on the
+    /// dead stream and leave the UI / server believing playback is still
+    /// "live", so quiesce honestly: pause the player, drop the watchdog, mark
+    /// the core paused, and stop the heartbeat so the server's session goes
+    /// idle. The delegate hook lets the owner offer tap-to-retry.
+    private func quiesceAfterTerminalFailure() {
+        player?.pause()
+        cancelStallWatchdog()
+        core.markState(state: .paused)
+        core.stopHeartbeat()
+        mediaSession?.rateChanged(isPlaying: false)
+        delegate?.audioEngineDidFail("Couldn't play, tap to retry.")
     }
 
     /// Rebuild `AVPlayerItem` from the remembered URL + auth header and
@@ -1013,7 +1175,13 @@ public final class AudioEngine: NSObject {
         // 5s rebuild cycles.
         attachItemFailureObservers(to: item)
 
+        // Flag the in-place swap so the `currentItem` KVO observer (which
+        // fires synchronously inside `replaceCurrentItem`) doesn't mistake it
+        // for a genuine queue advance and reset `stallRetryCount`, which would
+        // defeat the `maxAutoRetries` cap (#439).
+        isRecoveringFromStall = true
         player.replaceCurrentItem(with: item)
+        isRecoveringFromStall = false
         // Re-apply ReplayGain to the rebuilt item — the swap drops the old
         // item's audioMix, so without this a normalized track would lose its
         // gain after a stall recovery (#42).
@@ -1028,7 +1196,27 @@ enum AudioEngineError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL(let s): return "Invalid stream URL: \(s)"
+        case .invalidURL(let s):
+            // The raw stream URL carries the Jellyfin access token in its
+            // `api_key` query parameter. Never surface it in a user-visible or
+            // loggable description — strip the query (and anything after it) so
+            // only the scheme + host + path remain. Falls back to a fully
+            // redacted placeholder when the string won't even parse as a URL.
+            return "Invalid stream URL: \(AudioEngineError.redactURL(s))"
         }
+    }
+
+    /// Drop the query string (which holds `api_key`) and fragment, keeping just
+    /// enough of the URL — scheme, host, path — to be diagnostically useful.
+    private static func redactURL(_ raw: String) -> String {
+        guard var components = URLComponents(string: raw) else { return "<redacted>" }
+        components.query = nil
+        components.fragment = nil
+        if let scrubbed = components.string, !scrubbed.isEmpty {
+            return scrubbed
+        }
+        // No scheme/host (e.g. a bare malformed path); fall back to the path
+        // alone, and to a placeholder if even that is empty.
+        return components.path.isEmpty ? "<redacted>" : components.path
     }
 }
