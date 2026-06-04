@@ -445,6 +445,8 @@ struct MainShell: View {
             ArtistDetailView(artistID: id)
         case .playlist(let id):
             PlaylistView(playlistID: id)
+        case .smartPlaylist(let id):
+            SmartPlaylistDetailView(playlistID: id)
         case .genre(let g):
             GenreDetailView(genre: g)
         case .nowPlaying:
@@ -573,6 +575,13 @@ struct MainShell: View {
             if model.screen != .library { segments.append("Library") }
             segments.append("Playlists")
             if let playlist = model.playlist(id: id) {
+                segments.append(playlist.name)
+            } else {
+                segments.append("…")
+            }
+        case .smartPlaylist(let id)?:
+            segments.append("Smart Playlists")
+            if let playlist = model.smartPlaylists.playlist(id: id) {
                 segments.append(playlist.name)
             } else {
                 segments.append("…")

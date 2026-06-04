@@ -133,6 +133,14 @@ struct Sidebar: View {
                     .padding(.top, 6)
             }
 
+            // Smart playlists (#77 / #238). A distinct, rule-driven section
+            // below the regular playlists. Always shown (even empty) so the
+            // "New Smart Playlist…" affordance is discoverable; the section
+            // is compact and self-contained.
+            smartPlaylistsSection
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+
             Spacer(minLength: 0)
 
             // Server footer
@@ -304,6 +312,104 @@ struct Sidebar: View {
             destination: destination
         )
         playlistOrderRaw = PlaylistSidebarOrder.encode(next)
+    }
+
+    // MARK: - Smart playlists section (#77 / #238)
+
+    @ViewBuilder
+    private var smartPlaylistsSection: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text("SMART PLAYLISTS")
+                    .font(Theme.font(10, weight: .bold))
+                    .foregroundStyle(Theme.ink3)
+                    .tracking(1.5)
+                Spacer()
+                Button { model.createSmartPlaylist() } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .help("New Smart Playlist")
+                .accessibilityLabel("New Smart Playlist")
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
+
+            if model.smartPlaylists.playlists.isEmpty {
+                // Discoverable empty-state row: a single tappable "New Smart
+                // Playlist…" entry, matching the issue's ask for a create
+                // affordance in the sidebar.
+                Button { model.createSmartPlaylist() } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "plus.circle")
+                            .foregroundStyle(Theme.ink3)
+                            .frame(width: 18)
+                        Text("New Smart Playlist…")
+                            .font(Theme.font(12, weight: .medium))
+                            .foregroundStyle(Theme.ink3)
+                            .lineLimit(labelLineLimit)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New Smart Playlist")
+            } else {
+                ForEach(model.smartPlaylists.playlists) { playlist in
+                    smartPlaylistRow(playlist)
+                }
+            }
+        }
+    }
+
+    /// A single smart-playlist row. Mirrors `playlistRow` styling but uses a
+    /// distinct gear glyph so smart (rule-driven) playlists read differently
+    /// from server playlists. Right-click offers delete; tap navigates.
+    @ViewBuilder
+    private func smartPlaylistRow(_ playlist: SmartPlaylist) -> some View {
+        let isActiveScreen: Bool = {
+            if case .smartPlaylist(let id) = model.navPath.last { return id == playlist.id }
+            return false
+        }()
+
+        HStack(spacing: 10) {
+            Image(systemName: "gearshape.2.fill")
+                .foregroundStyle(isActiveScreen ? a11yTheme.accent : Theme.ink2)
+                .frame(width: 18)
+            Text(playlist.name)
+                .font(Theme.font(12, weight: isActiveScreen ? .bold : .medium))
+                .foregroundStyle(isActiveScreen ? Theme.ink : Theme.ink2)
+                .lineLimit(labelLineLimit)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isActiveScreen ? Theme.surface2 : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { model.goToSmartPlaylist(playlist) }
+        .contextMenu {
+            Button { model.goToSmartPlaylist(playlist) } label: {
+                Label("Open", systemImage: "arrow.forward")
+            }
+            Divider()
+            Button(role: .destructive) {
+                model.smartPlaylists.remove(id: playlist.id)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .accessibilityLabel(playlist.name)
+        .accessibilityAddTraits(isActiveScreen ? .isSelected : [])
     }
 
     // MARK: - Playlist row (display + inline edit)
