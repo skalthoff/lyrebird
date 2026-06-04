@@ -373,6 +373,18 @@
         }
       }
     },
+    "error.certificate" : {
+      "comment" : "Banner copy for LyrebirdError.SelfSignedCertificate — the server's TLS certificate couldn't be verified (e.g. self-signed). The user may need to trust the server.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The server's certificate couldn't be verified. You may need to trust this server."
+          }
+        }
+      }
+    },
     "error.invalid_input" : {
       "comment" : "Banner copy for LyrebirdError.InvalidInput — user-supplied value was rejected.",
       "extractionState" : "manual",

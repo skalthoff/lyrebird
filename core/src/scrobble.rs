@@ -186,9 +186,12 @@ impl Scrobbler {
     /// POST a pre-built submission body to `/1/submit-listens`.
     ///
     /// On a non-2xx response the body is read for diagnostics but the token is
-    /// never logged. A 401 maps to [`LyrebirdError::Auth`] so the UI can tell
-    /// the user their token is wrong; everything else surfaces as
-    /// [`LyrebirdError::Server`].
+    /// never logged. The whole non-success path is routed through
+    /// [`LyrebirdError::from_status`] so 401/403/404/429 map to the same
+    /// concrete variants as the rest of the client — in particular a `429`
+    /// surfaces as [`LyrebirdError::RateLimit`] carrying the parsed
+    /// `Retry-After` instead of being flattened into a generic `Server`
+    /// error. (401 stays `LyrebirdError::Auth`, which `from_status` produces.)
     async fn submit(&self, body: Value) -> Result<()> {
         let url = format!(
             "{}{}",
@@ -208,29 +211,49 @@ impl Scrobbler {
         if status.is_success() {
             return Ok(());
         }
+        // Parse `Retry-After` (integer-seconds form) before consuming the body
+        // so a 429 can carry the server's backoff hint.
+        let retry_after = resp
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok());
         // Read the body for the error message but keep it short; never echo
         // the request (which carries the token).
         let snippet = resp.text().await.unwrap_or_default();
         let snippet: String = snippet.chars().take(500).collect();
-        if status.as_u16() == 401 {
-            return Err(LyrebirdError::Auth(
-                "ListenBrainz rejected the token".into(),
-            ));
-        }
-        Err(LyrebirdError::Server {
-            status: status.as_u16(),
-            body: snippet,
-        })
+        Err(LyrebirdError::from_status(
+            status.as_u16(),
+            snippet,
+            retry_after,
+        ))
     }
 
     /// Submit a `playing_now` for the given track.
     pub async fn submit_playing_now(&self, track: &Track) -> Result<()> {
+        validate_scrobble_track(track)?;
         self.submit(playing_now_payload(track)).await
     }
 
     /// Submit a durable `single` listen for the given track, keyed to the Unix
     /// `listened_at` start time.
     pub async fn submit_listen(&self, track: &Track, listened_at: i64) -> Result<()> {
+        validate_scrobble_track(track)?;
         self.submit(single_listen_payload(track, listened_at)).await
     }
+}
+
+/// Reject a track that can't form a valid ListenBrainz listen *before* we
+/// spend a round-trip on it. ListenBrainz requires both `artist_name` and
+/// `track_name` to be present and non-empty; a payload missing either is
+/// rejected server-side, so guard at the boundary and surface a clear
+/// [`LyrebirdError::InvalidInput`] the caller can swallow as "nothing to
+/// scrobble".
+fn validate_scrobble_track(track: &Track) -> Result<()> {
+    if track.name.trim().is_empty() || track.artist_name.trim().is_empty() {
+        return Err(LyrebirdError::InvalidInput(
+            "track missing name/artist for scrobble".into(),
+        ));
+    }
+    Ok(())
 }

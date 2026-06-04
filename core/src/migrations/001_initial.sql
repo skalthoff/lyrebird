@@ -18,16 +18,12 @@ CREATE TABLE IF NOT EXISTS users (
     FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS play_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id TEXT NOT NULL,
-    played_at INTEGER NOT NULL,
-    duration_seconds REAL,
-    completed INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX IF NOT EXISTS idx_play_history_track ON play_history(track_id);
-CREATE INDEX IF NOT EXISTS idx_play_history_at ON play_history(played_at);
+-- NOTE: a `play_history` table lived here in earlier builds. It was removed
+-- in the audit pass: the server is the authority on play counts (incremented
+-- via /Sessions/Playing*), so local play history was write-only dead storage
+-- that grew unbounded and ran a synchronous INSERT on the main-thread track
+-- load path. Existing installs may still carry an (empty) orphan table; that
+-- is harmless and intentionally not migrated away.
 
 CREATE TABLE IF NOT EXISTS track_cache (
     id TEXT PRIMARY KEY,

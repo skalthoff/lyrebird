@@ -69,6 +69,22 @@ enum LyrebirdErrorPresenter {
             return "error.auth.expired"
         }
 
+        // `LyrebirdError::RateLimit` renders as "rate limited (retry after
+        // …)" — it does NOT carry the "server returned an error:" prefix,
+        // so it must be matched at the top level. (A 429 that came back as
+        // `LyrebirdError::Server` is handled inside the block below.)
+        if description.contains("rate limited") || description.contains("rate limit") {
+            return "error.rate_limit"
+        }
+
+        // `LyrebirdError::SelfSignedCertificate` renders as "the server at
+        // '<host>' uses a certificate that could not be verified …". Route
+        // it to a cert-specific banner so the UI can offer a trust action
+        // rather than treating it as a generic network failure.
+        if description.contains("certificate") {
+            return "error.certificate"
+        }
+
         // `LyrebirdError::Server` renders as "server returned an error:
         // {status} {message}". Pattern-match the status digits embedded
         // in the Display so 403/404/429 get specialised banners even

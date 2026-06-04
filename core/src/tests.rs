@@ -36,6 +36,12 @@ fn test_credentials() -> (&'static str, &'static str) {
 /// Tests still need to pick distinct `(server_id, username)` pairs — the
 /// harness intentionally does NOT clear the map between tests because tearing
 /// it down is racy under `cargo test`'s default parallelism.
+/// Username substring that makes the mock keyring's `set_secret` fail
+/// deterministically (see `SharedMockCredential::set_secret`). Used by
+/// `login_keyring_write_is_not_silenced` to exercise the `KeyringWrite` error
+/// path without a process-global flag that would race parallel logins.
+const KEYRING_FAIL_SENTINEL: &str = "KEYRING_FAIL_SENTINEL";
+
 fn install_mock_keyring() {
     use keyring::credential::{
         Credential, CredentialApi, CredentialBuilder, CredentialBuilderApi, CredentialPersistence,
@@ -60,6 +66,17 @@ fn install_mock_keyring() {
 
     impl CredentialApi for SharedMockCredential {
         fn set_secret(&self, password: &[u8]) -> keyring::Result<()> {
+            // Deterministic failure injection for the keyring-write-not-silenced
+            // test: any entry whose key contains this sentinel fails the write,
+            // without a process-global flag that would race parallel logins.
+            // Only the test that logs in as a `KEYRING_FAIL_SENTINEL` user trips
+            // it.
+            if self.user.contains(KEYRING_FAIL_SENTINEL) {
+                return Err(keyring::Error::Invalid(
+                    "set_secret".into(),
+                    "injected keyring write failure".into(),
+                ));
+            }
             self.store
                 .lock()
                 .unwrap()
@@ -120,6 +137,20 @@ fn install_mock_keyring() {
         let builder: Box<CredentialBuilder> = Box::new(SharedMockBuilder);
         keyring::set_default_credential_builder(builder);
     });
+}
+
+/// Serialize the handful of tests that touch the *single, fixed* scrobble
+/// keyring entry (`scrobble/listenbrainz`). Unlike the per-`(server,user)`
+/// Jellyfin token entries, every scrobble test shares one key, so they'd race
+/// on the shared mock store under `cargo test`'s parallelism. Hold this guard
+/// for the duration of any scrobble-keyring test. Poisoning is ignored so one
+/// failing test doesn't cascade.
+fn scrobble_keyring_guard() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 #[tokio::test]
@@ -210,6 +241,20 @@ async fn album_tracks_parses() {
     assert!(t.is_favorite);
     assert_eq!(t.play_count, 7);
     assert!((t.duration_seconds() - 222.0).abs() < 0.001);
+    // album_tracks is the only Track-producing path that exercises these
+    // mappings end-to-end; lock them so a regression in the RawItem -> Track
+    // projection is caught (incl. ParentIndexNumber -> disc_number, which is
+    // otherwise untested across the whole suite).
+    assert_eq!(t.album_id.as_deref(), Some("a1"));
+    assert_eq!(t.album_name.as_deref(), Some("The Deep End"));
+    assert_eq!(t.index_number, Some(3));
+    assert_eq!(
+        t.disc_number,
+        Some(1),
+        "ParentIndexNumber must map to disc_number"
+    );
+    assert_eq!(t.year, Some(2020));
+    assert_eq!(t.image_tag.as_deref(), Some("abcd"));
 }
 
 /// Asserts the query parameters sent by `album_tracks` (#570, #571, rc7):
@@ -815,7 +860,7 @@ async fn instant_mix_builds_query_and_parses() {
                     "AlbumId": "a1", "Album": "Starter",
                     "AlbumArtist": "DJ Seed", "Artists": ["DJ Seed"],
                     "RunTimeTicks": 2000000000u64,
-                    "UserData": { "IsFavorite": false, "PlayCount": 0 },
+                    "UserData": { "IsFavorite": true, "PlayCount": 9 },
                     "ImageTags": { "Primary": "imgA" }
                 }
             ],
@@ -829,6 +874,14 @@ async fn instant_mix_builds_query_and_parses() {
     let tracks = client.instant_mix("seed-1", 25).await.unwrap();
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].name, "Radio One");
+    // The fixture populates the full UserData / album / artist / image
+    // projection, so verify the field mapping (not just len + name) — a
+    // regression dropping any of these from the InstantMix parse is caught.
+    assert_eq!(tracks[0].album_id.as_deref(), Some("a1"));
+    assert_eq!(tracks[0].artist_name, "DJ Seed");
+    assert_eq!(tracks[0].play_count, 9);
+    assert!(tracks[0].is_favorite);
+    assert_eq!(tracks[0].image_tag.as_deref(), Some("imgA"));
 
     let requests = server.received_requests().await.unwrap();
     let get = requests
@@ -872,9 +925,16 @@ async fn suggestions_builds_query_and_parses() {
                     "AlbumArtist": "New Artist", "Artists": ["New Artist"],
                     "RunTimeTicks": 1800000000u64,
                     "ImageTags": { "Primary": "img" }
+                },
+                // A non-Audio row the server slipped into the suggestions
+                // response. The client-side `kind == "Audio"` filter must drop
+                // it so a MusicAlbum never renders as a minute-long "track".
+                {
+                    "Id": "alb1", "Name": "Discover (Album)", "Type": "MusicAlbum",
+                    "ChildCount": 10
                 }
             ],
-            "TotalRecordCount": 1
+            "TotalRecordCount": 2
         })))
         .mount(&server)
         .await;
@@ -882,6 +942,9 @@ async fn suggestions_builds_query_and_parses() {
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
     let tracks = client.suggestions(12).await.unwrap();
+    // The MusicAlbum row is filtered out client-side — only the Audio track
+    // survives. This pins the response-side Audio filter (a regression that
+    // removes it would let the album through).
     assert_eq!(tracks.len(), 1);
     assert_eq!(tracks[0].name, "You Might Like");
 
@@ -1186,6 +1249,10 @@ async fn genres_builds_query_and_parses_counts() {
     assert!(
         include_types.split(',').any(|t| t == "MusicAlbum"),
         "IncludeItemTypes should include MusicAlbum, got: {include_types}"
+    );
+    assert!(
+        include_types.split(',').any(|t| t == "MusicArtist"),
+        "IncludeItemTypes should include MusicArtist (production sends all three), got: {include_types}"
     );
     let fields = get
         .url
@@ -1842,7 +1909,13 @@ async fn latest_albums_applies_offset_client_side() {
         .unwrap();
     let names: Vec<&str> = page.items.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, vec!["Five", "Six", "Seven"]);
-    assert_eq!(page.total_count, 7);
+    // total_count mirrors the returned page size (post-slice), not the
+    // pre-slice fetch window — /Items/Latest has no server total, and the old
+    // window-length value falsely implied more pages existed.
+    assert_eq!(
+        page.total_count, 3,
+        "total_count must equal the returned page size, not offset+limit"
+    );
 }
 
 #[tokio::test]
@@ -1938,64 +2011,11 @@ async fn user_playlists_returns_every_playlist_in_library_view() {
     assert!(page.items[1].user_data.is_none());
 }
 
-#[tokio::test]
-async fn public_playlists_mirrors_user_playlists_until_split_lands() {
-    // Until a real user-vs-public discriminator (e.g. CanDelete / OwnerId)
-    // is wired, `public_playlists` intentionally returns the same set as
-    // `user_playlists` so neither method silently drops rows based on a
-    // broken `Path` heuristic.
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/Users/AuthenticateByName"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
-            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/Items"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "Items": [
-                {
-                    "Id": "p1", "Name": "My Mix", "Type": "Playlist",
-                    "ChildCount": 12,
-                    "Path": "/config/data/users/u1/playlists/my-mix"
-                },
-                {
-                    "Id": "p2", "Name": "Community Top 40", "Type": "Playlist",
-                    "ChildCount": 40,
-                    "Path": "/media/playlists/community-top-40",
-                    "ImageTags": { "Primary": "tag-2" }
-                },
-                {
-                    "Id": "p3", "Name": "No Path Public", "Type": "Playlist",
-                    "ChildCount": 5
-                }
-            ],
-            "TotalRecordCount": 3
-        })))
-        .mount(&server)
-        .await;
-
-    let mut client = mock_client(&server.uri());
-    client.authenticate_by_name("n", "pw").await.unwrap();
-    let page = client
-        .public_playlists("lib-pl", Paging::new(0, 50))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        page.items.len(),
-        3,
-        "public_playlists mirrors user_playlists today"
-    );
-    assert_eq!(page.total_count, 3);
-    let ids: Vec<&str> = page.items.iter().map(|p| p.id.as_str()).collect();
-    assert!(ids.contains(&"p1"));
-    assert!(ids.contains(&"p2"));
-    assert!(ids.contains(&"p3"));
-}
+// NOTE: `public_playlists` (a stub that delegated to `user_playlists` with no
+// real public-vs-private filtering) was removed in the audit pass — the name
+// promised behavior the body never implemented and no caller used it. Callers
+// use `user_playlists` explicitly so the "community playlists" gap is visible
+// rather than disguised as green coverage. See client.rs `user_playlists`.
 
 #[tokio::test]
 async fn user_playlists_empty_when_server_returns_no_items() {
@@ -2022,14 +2042,8 @@ async fn user_playlists_empty_when_server_returns_no_items() {
         .user_playlists("lib-pl", Paging::new(0, 50))
         .await
         .unwrap();
-    let public = client
-        .public_playlists("lib-pl", Paging::new(0, 50))
-        .await
-        .unwrap();
     assert!(user.items.is_empty());
     assert_eq!(user.total_count, 0);
-    assert!(public.items.is_empty());
-    assert_eq!(public.total_count, 0);
 }
 
 #[tokio::test]
@@ -2037,14 +2051,6 @@ async fn playlists_require_authenticated_session() {
     let client = JellyfinClient::new("https://example.com", "dev".into(), "Dev".into()).unwrap();
     let err = client
         .user_playlists("lib-pl", Paging::new(0, 20))
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
-        "expected NotAuthenticated, got {err:?}"
-    );
-    let err = client
-        .public_playlists("lib-pl", Paging::new(0, 20))
         .await
         .unwrap_err();
     assert!(
@@ -2097,28 +2103,33 @@ async fn playlist_tracks_preserves_order_and_builds_query() {
                 .to_str()
                 .unwrap();
             assert!(auth.contains("Token=\"t\""), "auth header: {auth}");
+            // Deliberately return items in an order that is NOT sorted by id
+            // (t3 < t1 < t2 is false) NOR by name (Charlie/Alpha/Bravo is not
+            // alphabetical). If `playlist_tracks` re-sorted by either key the
+            // assertion below would fail — so this proves it preserves the
+            // server's stored playlist order rather than re-deriving one.
             ResponseTemplate::new(200).set_body_json(json!({
                 "Items": [
                     {
-                        "Id": "t1", "Name": "First", "Type": "Audio",
+                        "Id": "t3", "Name": "Charlie", "Type": "Audio",
+                        "AlbumId": "a3", "Album": "Album Three",
+                        "AlbumArtist": "Artist C", "Artists": ["Artist C"],
+                        "RunTimeTicks": 2000000000u64,
+                        "ImageTags": { "Primary": "img-3" }
+                    },
+                    {
+                        "Id": "t1", "Name": "Alpha", "Type": "Audio",
                         "AlbumId": "a1", "Album": "Album One",
                         "AlbumArtist": "Artist A", "Artists": ["Artist A"],
                         "RunTimeTicks": 1800000000u64,
                         "ImageTags": { "Primary": "img-1" }
                     },
                     {
-                        "Id": "t2", "Name": "Second", "Type": "Audio",
+                        "Id": "t2", "Name": "Bravo", "Type": "Audio",
                         "AlbumId": "a2", "Album": "Album Two",
                         "AlbumArtist": "Artist B", "Artists": ["Artist B"],
                         "RunTimeTicks": 2220000000u64,
                         "ImageTags": { "Primary": "img-2" }
-                    },
-                    {
-                        "Id": "t3", "Name": "Third", "Type": "Audio",
-                        "AlbumId": "a3", "Album": "Album Three",
-                        "AlbumArtist": "Artist C", "Artists": ["Artist C"],
-                        "RunTimeTicks": 2000000000u64,
-                        "ImageTags": { "Primary": "img-3" }
                     }
                 ],
                 "TotalRecordCount": 3
@@ -2135,15 +2146,16 @@ async fn playlist_tracks_preserves_order_and_builds_query() {
         .unwrap();
     let tracks = page.items;
 
-    // Server order must be preserved exactly.
+    // Server order (t3, t1, t2) must be preserved exactly — neither
+    // id-ascending nor name-ascending would reproduce this.
     assert_eq!(tracks.len(), 3);
     assert_eq!(page.total_count, 3);
-    assert_eq!(tracks[0].id, "t1");
-    assert_eq!(tracks[0].name, "First");
-    assert_eq!(tracks[1].id, "t2");
-    assert_eq!(tracks[1].name, "Second");
-    assert_eq!(tracks[2].id, "t3");
-    assert_eq!(tracks[2].name, "Third");
+    assert_eq!(tracks[0].id, "t3");
+    assert_eq!(tracks[0].name, "Charlie");
+    assert_eq!(tracks[1].id, "t1");
+    assert_eq!(tracks[1].name, "Alpha");
+    assert_eq!(tracks[2].id, "t2");
+    assert_eq!(tracks[2].name, "Bravo");
 }
 
 #[tokio::test]
@@ -2603,6 +2615,15 @@ async fn search_paginates_and_exposes_total_record_count() {
         results.tracks[0].name,
         "The Best Ever Death Metal Band Out Of Denton"
     );
+    // The fixture deliberately populates ProductionYear / ChildCount /
+    // ImageTags / AlbumId; assert the parsed-into-model fields so a regression
+    // in the search result mapping (not just bucketing) is caught.
+    assert_eq!(results.albums[0].year, Some(2002));
+    assert_eq!(results.albums[0].track_count, 14);
+    assert_eq!(results.albums[0].image_tag.as_deref(), Some("b1"));
+    assert_eq!(results.artists[0].image_tag.as_deref(), Some("a1"));
+    assert_eq!(results.tracks[0].album_id.as_deref(), Some("album-1"));
+    assert_eq!(results.tracks[0].image_tag.as_deref(), Some("c1"));
 }
 
 #[tokio::test]
@@ -2826,19 +2847,23 @@ async fn set_favorite_falls_back_to_legacy_route_on_404() {
     assert!(state.is_favorite);
     assert_eq!(state.play_count, Some(5));
 
+    // Assert ORDER, not just presence: the preferred route must be hit
+    // *before* the legacy route, proving the legacy call is a fallback from
+    // the 404 rather than an unordered coincidence.
     let requests = server.received_requests().await.unwrap();
-    assert!(
-        requests
-            .iter()
-            .any(|r| r.method.as_str() == "POST" && r.url.path() == "/UserFavoriteItems/item-xyz"),
-        "expected preferred route to be tried first"
-    );
-    assert!(
-        requests
-            .iter()
-            .any(|r| r.method.as_str() == "POST"
-                && r.url.path() == "/Users/u1/FavoriteItems/item-xyz"),
-        "expected fallback to legacy route after 404"
+    let fav_paths: Vec<&str> = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "POST")
+        .map(|r| r.url.path())
+        .filter(|p| *p == "/UserFavoriteItems/item-xyz" || *p == "/Users/u1/FavoriteItems/item-xyz")
+        .collect();
+    assert_eq!(
+        fav_paths,
+        vec![
+            "/UserFavoriteItems/item-xyz",
+            "/Users/u1/FavoriteItems/item-xyz",
+        ],
+        "preferred route must be tried first, then the legacy fallback"
     );
 }
 
@@ -2874,18 +2899,21 @@ async fn unset_favorite_falls_back_to_legacy_route_on_405() {
     assert!(!state.is_favorite);
     assert_eq!(state.play_count, Some(1));
 
+    // Assert ORDER, not just presence (see set_favorite test above).
     let requests = server.received_requests().await.unwrap();
-    assert!(
-        requests.iter().any(|r| r.method.as_str() == "DELETE"
-            && r.url.path() == "/UserFavoriteItems/item-xyz"),
-        "expected preferred route to be tried first"
-    );
-    assert!(
-        requests
-            .iter()
-            .any(|r| r.method.as_str() == "DELETE"
-                && r.url.path() == "/Users/u1/FavoriteItems/item-xyz"),
-        "expected fallback to legacy route after 405"
+    let fav_paths: Vec<&str> = requests
+        .iter()
+        .filter(|r| r.method.as_str() == "DELETE")
+        .map(|r| r.url.path())
+        .filter(|p| *p == "/UserFavoriteItems/item-xyz" || *p == "/Users/u1/FavoriteItems/item-xyz")
+        .collect();
+    assert_eq!(
+        fav_paths,
+        vec![
+            "/UserFavoriteItems/item-xyz",
+            "/Users/u1/FavoriteItems/item-xyz",
+        ],
+        "preferred route must be tried first, then the legacy fallback after 405"
     );
 }
 
@@ -3286,7 +3314,7 @@ async fn create_playlist_posts_pascal_case_body_and_returns_id() {
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
     let id = client
-        .create_playlist("Road Trip", &["t1", "t2", "t3"], None)
+        .create_playlist("Road Trip", &["t1", "t2", "t3"])
         .await
         .unwrap();
     assert_eq!(id, "new-playlist-id");
@@ -3372,10 +3400,7 @@ async fn create_playlist_with_empty_ids_sends_empty_array() {
 
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
-    let id = client
-        .create_playlist("Empty List", &[], None)
-        .await
-        .unwrap();
+    let id = client.create_playlist("Empty List", &[]).await.unwrap();
     assert_eq!(id, "empty-playlist-id");
 
     let requests = server.received_requests().await.unwrap();
@@ -3411,11 +3436,26 @@ async fn create_playlist_propagates_server_errors() {
 
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
-    let err = client.create_playlist("x", &[], None).await.unwrap_err();
+    let err = client.create_playlist("x", &[]).await.unwrap_err();
     match err {
         crate::error::LyrebirdError::Server { status, .. } => assert_eq!(status, 500),
         other => panic!("expected Server 500, got {other:?}"),
     }
+
+    // create_playlist is a resource-creating POST: it must NOT auto-retry on
+    // 5xx (a duplicate playlist could be created if the first POST committed
+    // but its response was lost). Exactly one POST must have hit /Playlists.
+    let create_posts = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.method.as_str() == "POST" && r.url.path() == "/Playlists")
+        .count();
+    assert_eq!(
+        create_posts, 1,
+        "non-idempotent create_playlist must not retry a 5xx, got {create_posts} POSTs"
+    );
 }
 
 #[tokio::test]
@@ -3426,7 +3466,7 @@ async fn create_playlist_requires_authenticated_session() {
     // a real host.
     let server = MockServer::start().await;
     let client = mock_client(&server.uri());
-    let err = client.create_playlist("x", &[], None).await.unwrap_err();
+    let err = client.create_playlist("x", &[]).await.unwrap_err();
     assert!(
         matches!(err, crate::error::LyrebirdError::NotAuthenticated),
         "expected NotAuthenticated, got {err:?}"
@@ -3559,6 +3599,11 @@ async fn playlist_tracks_includes_playlist_item_id_in_fields() {
     // via PlaylistItemId, which is now requested in Fields.
     assert_eq!(page.items.len(), 2);
     assert_eq!(page.total_count, 2);
+    // The two entries are byte-identical except for PlaylistItemId, so assert
+    // the values actually parsed onto the Track models — otherwise
+    // remove-by-entry / reorder can't tell the duplicates apart.
+    assert_eq!(page.items[0].playlist_item_id.as_deref(), Some("pi-1"));
+    assert_eq!(page.items[1].playlist_item_id.as_deref(), Some("pi-2"));
 }
 
 // ---------------------------------------------------------------------------
@@ -3641,49 +3686,15 @@ async fn add_to_playlist_without_position_omits_start_index() {
 }
 
 // ---------------------------------------------------------------------------
-// create_playlist — optional position param (#607)
+// create_playlist — never sends StartIndex (#607 removed: the param had no
+// server-side effect on POST /Playlists, so the misleading hint was dropped).
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn create_playlist_with_position_sends_start_index() {
-    // #607: when position is Some(n) the client must include StartIndex=n as a
-    // query param on POST /Playlists.
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/Users/AuthenticateByName"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
-            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/Playlists"))
-        .and(query_param("StartIndex", "5"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "Id": "pos-pl-id" })))
-        .mount(&server)
-        .await;
-
-    let mut client = mock_client(&server.uri());
-    client.authenticate_by_name("n", "pw").await.unwrap();
-    let id = client
-        .create_playlist("Positioned", &["t1"], Some(5))
-        .await
-        .unwrap();
-    assert_eq!(id, "pos-pl-id");
-
-    let requests = server.received_requests().await.unwrap();
-    let post = requests
-        .iter()
-        .find(|r| r.method.as_str() == "POST" && r.url.path() == "/Playlists")
-        .expect("expected POST to /Playlists");
-    let q = post.url.query().expect("expected a query string");
-    assert!(q.contains("StartIndex=5"), "query: {q}");
-}
-
-#[tokio::test]
-async fn create_playlist_without_position_omits_start_index() {
-    // #607: when position is None, StartIndex must NOT appear in the query.
+async fn create_playlist_never_sends_start_index() {
+    // `POST /Playlists` has no `StartIndex` semantics; the client must not
+    // append it. Pins the post-removal contract so a future reintroduction of
+    // a no-op position hint is caught.
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/Users/AuthenticateByName"))
@@ -3701,10 +3712,7 @@ async fn create_playlist_without_position_omits_start_index() {
 
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
-    let id = client
-        .create_playlist("Appended", &["t1"], None)
-        .await
-        .unwrap();
+    let id = client.create_playlist("Appended", &["t1"]).await.unwrap();
     assert_eq!(id, "no-pos-pl-id");
 
     let requests = server.received_requests().await.unwrap();
@@ -3715,7 +3723,7 @@ async fn create_playlist_without_position_omits_start_index() {
     let q = post.url.query().unwrap_or_default();
     assert!(
         !q.contains("StartIndex"),
-        "StartIndex must be absent when position is None, query: {q}"
+        "StartIndex must never be sent, query: {q}"
     );
 }
 
@@ -4233,16 +4241,29 @@ async fn set_session_invalidates_library_cache() {
     client.set_session("t2".into(), "u2".into());
     let _ = client.music_library_id().await.unwrap();
 
-    let get_count = server
-        .received_requests()
-        .await
-        .unwrap()
+    let requests = server.received_requests().await.unwrap();
+    let user_view_users: Vec<String> = requests
         .iter()
         .filter(|r| r.method.as_str() == "GET" && r.url.path() == "/UserViews")
-        .count();
+        .map(|r| {
+            r.url
+                .query_pairs()
+                .find(|(k, _)| k == "userId")
+                .map(|(_, v)| v.into_owned())
+                .unwrap_or_default()
+        })
+        .collect();
     assert_eq!(
-        get_count, 2,
+        user_view_users.len(),
+        2,
         "set_session must invalidate cached library ids"
+    );
+    // The cache invalidation must propagate the NEW user id to the second
+    // lookup — not just re-fetch under the stale user.
+    assert_eq!(
+        user_view_users,
+        vec!["u1".to_string(), "u2".to_string()],
+        "second /UserViews must be issued for the new user (u2)"
     );
 }
 
@@ -4668,16 +4689,10 @@ fn database_roundtrips_settings() {
     assert_eq!(db.get_setting("missing").unwrap(), None);
 }
 
-#[test]
-fn play_history_counts() {
-    let db = Database::in_memory().unwrap();
-    db.record_play("track-1", 100).unwrap();
-    db.record_play("track-1", 200).unwrap();
-    db.record_play("track-2", 150).unwrap();
-    assert_eq!(db.play_count("track-1").unwrap(), 2);
-    assert_eq!(db.play_count("track-2").unwrap(), 1);
-    assert_eq!(db.play_count("unknown").unwrap(), 0);
-}
+// NOTE: `play_history_counts` was removed alongside `record_play` /
+// `play_count` / the `play_history` table in the audit pass — local play
+// history was write-only dead storage (the server owns PlayCount via
+// /Sessions/Playing*). See storage.rs and lib.rs `mark_track_started`.
 
 // ---------------------------------------------------------------------------
 // Session auto-restore (resume_session / login persistence)
@@ -5358,16 +5373,12 @@ fn shuffle_repeat_defaults_on_empty_db() {
 /// memory.
 #[test]
 fn shuffle_repeat_round_trips_all_variants() {
-    // Use a uniquely-named file in the OS temp directory so parallel test
-    // runs do not collide. Best-effort removal at the end — it is fine if
-    // the process exits before the remove; the OS will clean up temp files.
-    let tmp = std::env::temp_dir().join(format!(
-        "lyrebird_test_sr_{}.db",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    // RAII temp dir: cleanup runs unconditionally on drop even if an
+    // assertion below panics, so a failing case can't leak the db file
+    // (matches the rest of the suite). The TempDir gives a private directory,
+    // so parallel runs don't collide either.
+    let tmpdir = tempfile::TempDir::new().expect("temp dir");
+    let tmp = tmpdir.path().join("sr.db");
 
     let cases: &[(bool, RepeatMode)] = &[
         (true, RepeatMode::Off),
@@ -5400,8 +5411,7 @@ fn shuffle_repeat_round_trips_all_variants() {
             );
         }
     }
-
-    let _ = std::fs::remove_file(&tmp);
+    // `tmpdir` drops here, removing the db file (and on early panic too).
 }
 
 // ============================================================================
@@ -5471,19 +5481,25 @@ async fn cert_error_maps_to_structured_variant() {
 async fn non_cert_transport_error_stays_network() {
     use crate::error::LyrebirdError;
 
-    // Connect to a port that is (almost certainly) not listening.  This
-    // produces a connect-refused transport error, not a cert error.
+    // Bind an ephemeral port (port 0 lets the OS pick a free one), capture the
+    // assigned port, then DROP the listener so the port is guaranteed closed.
+    // Targeting that port forces a deterministic connection-refused — unlike a
+    // hard-coded 19999, this can't pass vacuously because something happened
+    // to be listening.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let port = listener.local_addr().expect("local addr").port();
+    drop(listener);
+
     let result = reqwest::Client::builder()
         .build()
         .unwrap()
-        .get("http://127.0.0.1:19999/")
+        .get(format!("http://127.0.0.1:{port}/"))
         .send()
         .await;
 
-    // May succeed if something happens to be on that port; skip in that case.
-    let Some(reqwest_err) = result.err() else {
-        return;
-    };
+    // A missing error is a hard failure now (not an early return): the port is
+    // guaranteed closed, so the request MUST fail.
+    let reqwest_err = result.expect_err("connection to a closed port must fail");
     let lyrebird_err: LyrebirdError = reqwest_err.into();
 
     assert!(
@@ -5635,6 +5651,32 @@ fn auth_header_truncates_long_device_name() {
     );
 }
 
+/// `device_id` is interpolated into the same Authorization header value as
+/// `device_name`, so it must be sanitized identically — a CRLF in the device
+/// id would inject a header line just as a malicious device name could.
+#[test]
+fn auth_header_strips_crlf_injection_from_device_id() {
+    let malicious_id = "dev-id\r\nX-Injected: evil";
+    let client =
+        JellyfinClient::new("http://localhost:1/", malicious_id.into(), "Device".into()).unwrap();
+
+    let headers = client.build_headers().unwrap();
+    let auth_value = headers
+        .get(reqwest::header::AUTHORIZATION)
+        .expect("Authorization header must be present")
+        .to_str()
+        .expect("Authorization header value must be valid ASCII after sanitization");
+
+    assert!(
+        !auth_value.contains('\r'),
+        "Authorization header must not contain CR from device_id: {auth_value:?}"
+    );
+    assert!(
+        !auth_value.contains('\n'),
+        "Authorization header must not contain LF from device_id: {auth_value:?}"
+    );
+}
+
 // ============================================================================
 // #584 — keyring write failure propagation
 // ============================================================================
@@ -5657,17 +5699,17 @@ fn keyring_write_error_variant_is_displayable() {
 /// `KeyringWrite` rather than swallowing it. This is verified by running
 /// `login` against the shared mock keyring (which succeeds), then asserting
 /// that a simulated write failure at the `CredentialStore` level is correctly
-/// mapped to `LyrebirdError::KeyringWrite`.
+/// mapped to `LyrebirdError::KeyringWrite` — and specifically NOT silently
+/// swallowed (the pre-fix code used `let _ = save_token(...)`).
 ///
-/// Because `keyring`'s global builder is set once per process we cannot inject
-/// a failing backend without racing other tests. We therefore verify the error
-/// mapping at the type level: `CredentialStore::save_token` returns
-/// `Result<()>`, and the `login` path uses `?` / `map_err` to convert it.
-/// The `keyring_write_error_variant_is_displayable` test above confirms the
-/// variant itself is correctly formed; this test confirms the happy-path login
-/// propagates the write through without panicking.
+/// We inject a failing keyring by logging in as a `KEYRING_FAIL_SENTINEL`
+/// user: the mock's `set_secret` returns an error only for that user, so the
+/// failure is deterministic and isolated from parallel login tests. The
+/// assertion is exact — `Err(KeyringWrite { .. })`, not "Ok or KeyringWrite" —
+/// so a regression that drops the error to `Ok` is caught.
 #[tokio::test]
 async fn login_keyring_write_is_not_silenced() {
+    let fail_user = format!("{KEYRING_FAIL_SENTINEL}-user");
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/Users/AuthenticateByName"))
@@ -5677,7 +5719,7 @@ async fn login_keyring_write_is_not_silenced() {
             "ServerName": "Propagate",
             "User": {
                 "Id": "usr-propagate",
-                "Name": "propagate-user",
+                "Name": fail_user,
                 "ServerId": "srv-propagate-unique",
                 "PrimaryImageTag": null
             }
@@ -5697,17 +5739,13 @@ async fn login_keyring_write_is_not_silenced() {
             device_name: "Test".into(),
         })
         .unwrap();
-        // With the shared mock keyring the write succeeds and login returns Ok.
-        // The important thing is that any error from save_token is NOT silenced
-        // (the old code used `let _ = ...`). We confirm the happy-path login
-        // completes and the result is not quietly discarded.
-        let result = core.login(server_url, "propagate-user".into(), "pw".into());
-        // Accept Ok (mock keyring write succeeded) or KeyringWrite (write failed).
-        // Any other error variant indicates a regression.
+        // The mock keyring fails `set_secret` for the sentinel user, so the
+        // login MUST surface that as a specific `KeyringWrite` error — proving
+        // the write failure is propagated, not swallowed.
+        let result = core.login(server_url, fail_user, "pw".into());
         match result {
-            Ok(_) => {}
             Err(LyrebirdError::KeyringWrite { .. }) => {}
-            Err(other) => panic!("unexpected error from login: {other:?}"),
+            other => panic!("expected Err(KeyringWrite), got {other:?}"),
         }
     })
     .await
@@ -5803,15 +5841,6 @@ async fn logout_clears_user_data() {
         core.login(server_url, "clear-user".into(), "pw".into())
             .expect("login");
 
-        {
-            let inner = core.inner.lock();
-            inner.db.record_play("track-seed", 1_000_000).unwrap();
-            inner
-                .db
-                .set_setting("track_cache:track-seed", "cached")
-                .unwrap();
-        }
-
         core.logout().expect("logout");
 
         {
@@ -5820,11 +5849,6 @@ async fn logout_clears_user_data() {
             assert_eq!(inner.db.get_setting("last_username").unwrap(), None);
             assert_eq!(inner.db.get_setting("last_server_id").unwrap(), None);
             assert_eq!(inner.db.get_setting("last_user_id").unwrap(), None);
-            assert_eq!(
-                inner.db.play_count("track-seed").unwrap(),
-                0,
-                "play_history must be truncated on logout"
-            );
         }
 
         assert!(
@@ -5937,7 +5961,11 @@ async fn logout_releases_inner_before_http_round_trip() {
     let (tx, rx) = mpsc::channel::<bool>();
     let release_watch = release.clone();
 
-    tokio::task::spawn_blocking(move || {
+    // Bind the JoinHandle (don't detach it) so a panic in the blocking closure
+    // — e.g. a `.expect` on login/logout failing — propagates when we `.await`
+    // it below, instead of being swallowed and surfacing only as the
+    // misleading "deadlocked" timeout on the channel recv.
+    let blocking = tokio::task::spawn_blocking(move || {
         install_mock_keyring();
         let core = std::sync::Arc::new(
             LyrebirdCore::new(CoreConfig {
@@ -5968,14 +5996,28 @@ async fn logout_releases_inner_before_http_round_trip() {
         tx.send(acquired).ok();
     });
 
-    let acquired = rx
-        .recv_timeout(Duration::from_secs(10))
-        .expect("logout deadlocked holding Inner across the HTTP round-trip (#861)");
+    // Distinguish a real deadlock (Timeout) from the closure dying
+    // (Disconnected) so the #861-specific message is only emitted for an
+    // actual hang.
+    let acquired = match rx.recv_timeout(Duration::from_secs(10)) {
+        Ok(v) => v,
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            // Closure dropped the sender without sending — it panicked. Await
+            // the handle to surface the real panic message.
+            blocking.await.expect("logout blocking task panicked");
+            panic!("logout blocking task ended without sending a result");
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            panic!("logout deadlocked holding Inner across the HTTP round-trip (#861)");
+        }
+    };
     assert!(
         acquired,
         "watcher could not acquire Inner while logout's HTTP was in flight \
          — logout held the mutex across block_on (#861)"
     );
+    // Join the blocking task so any late panic still fails the test.
+    blocking.await.expect("logout blocking task panicked");
 }
 
 // ============================================================================
@@ -5995,13 +6037,24 @@ async fn rename_playlist_fetches_then_posts() {
         })))
         .mount(&server)
         .await;
-    // GET /Items?Ids=pl-1 — fetch_item uses the /Items?Ids= endpoint.
+    // GET /Items?Ids=pl-1 — fetch_item uses the /Items?Ids= endpoint. Include
+    // the metadata the rename round-trip must preserve (the whole reason it
+    // does a GET first — UpdateItem blind-assigns the posted body).
     Mock::given(method("GET"))
         .and(path("/Items"))
         .and(query_param("Ids", "pl-1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "Items": [
-                { "Id": "pl-1", "Name": "Old Name", "Type": "Playlist" }
+                {
+                    "Id": "pl-1",
+                    "Name": "Old Name",
+                    "Type": "Playlist",
+                    "Genres": ["Chill", "Focus"],
+                    "Tags": ["roadtrip"],
+                    "Overview": "My carefully curated mix.",
+                    "SortName": "old name",
+                    "ProductionYear": 2021
+                }
             ],
             "TotalRecordCount": 1
         })))
@@ -6030,6 +6083,46 @@ async fn rename_playlist_fetches_then_posts() {
         body["Name"].as_str(),
         Some("New Name"),
         "body Name must be updated, got: {body}"
+    );
+    // The fetched fields must survive the fetch-merge-post round-trip — this is
+    // the entire reason rename does a GET first. A regression that posts a
+    // sparse body would wipe these server-side (#audit lossy-RMW).
+    assert_eq!(
+        body["Id"].as_str(),
+        Some("pl-1"),
+        "Id must be preserved: {body}"
+    );
+    assert_eq!(
+        body["Type"].as_str(),
+        Some("Playlist"),
+        "Type must be preserved: {body}"
+    );
+    assert_eq!(
+        body["Genres"],
+        json!(["Chill", "Focus"]),
+        "Genres must be preserved: {body}"
+    );
+    assert_eq!(
+        body["Tags"],
+        json!(["roadtrip"]),
+        "Tags must be preserved: {body}"
+    );
+    assert_eq!(
+        body["Overview"].as_str(),
+        Some("My carefully curated mix."),
+        "Overview must be preserved: {body}"
+    );
+    assert_eq!(
+        body["ProductionYear"].as_i64(),
+        Some(2021),
+        "ProductionYear must be preserved: {body}"
+    );
+    // SortName must be mapped to ForcedSortName (the field UpdateItem reads)
+    // so the custom sort isn't cleared on rename.
+    assert_eq!(
+        body["ForcedSortName"].as_str(),
+        Some("old name"),
+        "SortName must be mapped to ForcedSortName: {body}"
     );
 }
 
@@ -6252,212 +6345,284 @@ async fn playlist_tracks_populates_favorite_from_user_data() {
 // #594 — heartbeat scheduler fires at the expected cadence
 // ---------------------------------------------------------------------------
 
-/// Helper: spawn a heartbeat loop directly using `JellyfinClient` (not
-/// `LyrebirdCore`) so the test can run inside a `#[tokio::test]` without
-/// fighting the core's embedded `tokio::runtime::Runtime`.
-///
-/// Returns an `AbortHandle` — the test cancels the task when done.
-async fn spawn_heartbeat_for_test(
-    client: std::sync::Arc<JellyfinClient>,
-    interval: std::time::Duration,
-    play_session_id: Option<String>,
-    current_track_id: std::sync::Arc<parking_lot::Mutex<Option<String>>>,
-    current_position: std::sync::Arc<parking_lot::Mutex<f64>>,
-) -> tokio::task::AbortHandle {
-    use crate::models::PlaybackProgressInfo;
-    let handle = tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.tick().await; // skip the immediate first tick
-        loop {
-            ticker.tick().await;
-            let item_id = match current_track_id.lock().clone() {
-                Some(id) => id,
-                None => continue,
-            };
-            let pos = *current_position.lock();
-            let info = PlaybackProgressInfo {
-                item_id,
-                failed: false,
-                is_paused: false,
-                is_muted: false,
-                position_ticks: (pos * 10_000_000.0) as i64,
-                play_session_id: play_session_id.clone(),
-                ..Default::default()
-            };
-            let _ = client.report_playback_progress(info).await;
-        }
+/// Build a `LyrebirdCore` logged in against `server`, with the player primed
+/// to a Playing track at `position_secs`, so the production heartbeat
+/// scheduler (`start_heartbeat`) has live state to report. Runs the
+/// `block_on`-using setup off the async runtime via the caller's
+/// `spawn_blocking`. Returns the `Arc<LyrebirdCore>`.
+fn heartbeat_core_logged_in(
+    server_url: String,
+    data_dir: String,
+    position_secs: f64,
+    paused: bool,
+) -> std::sync::Arc<LyrebirdCore> {
+    install_mock_keyring();
+    let core = LyrebirdCore::new(CoreConfig {
+        data_dir,
+        device_name: "Test".into(),
+    })
+    .expect("core init");
+    core.login(server_url, "hbuser".into(), "pw".into())
+        .expect("login");
+    let track = crate::models::Track {
+        id: "hb-track-1".into(),
+        name: "Heartbeat".into(),
+        album_id: None,
+        album_name: None,
+        artist_name: "Artist".into(),
+        artist_id: None,
+        index_number: None,
+        disc_number: None,
+        year: None,
+        runtime_ticks: 1_800_000_000,
+        is_favorite: false,
+        play_count: 0,
+        container: None,
+        bitrate: None,
+        image_tag: None,
+        playlist_item_id: None,
+        user_data: None,
+    };
+    core.set_queue(vec![track], 0).expect("set_queue");
+    core.mark_position(position_secs);
+    core.mark_state(if paused {
+        crate::player::PlaybackState::Paused
+    } else {
+        crate::player::PlaybackState::Playing
     });
-    handle.abort_handle()
+    core
 }
 
-/// The heartbeat scheduler must fire `POST /Sessions/Playing/Progress` at
-/// least N times in N * interval_secs of simulated time.  We use
-/// `tokio::time::pause` + `tokio::time::advance` so the test runs
-/// instantaneously without real wall-clock delays.
+/// Count the `/Sessions/Playing/Progress` POSTs wiremock has seen.
+async fn heartbeat_hits(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/Sessions/Playing/Progress")
+        .count()
+}
+
+/// The production heartbeat scheduler (`LyrebirdCore::start_heartbeat`) must
+/// POST `/Sessions/Playing/Progress` at the clamped cadence, forwarding the
+/// real player pause state, and `stop_heartbeat` must take the handle out of
+/// the `self.heartbeat` Mutex and halt further reports.
 ///
-/// The test operates on `JellyfinClient` directly to avoid the nested-
-/// runtime conflict that arises when `LyrebirdCore`'s embedded `block_on`
-/// runs inside the test's tokio executor. See issue #594.
+/// This drives the *shipping* scheduler end-to-end (not a test-only re-
+/// implementation), against a mock server, with real time — the interval is
+/// clamped to a 1s floor so the test only needs a couple of seconds.
 #[tokio::test]
-async fn heartbeat_fires_at_expected_cadence() {
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-
+async fn heartbeat_fires_at_clamped_cadence_and_forwards_pause_state() {
     let server = MockServer::start().await;
-
     Mock::given(method("POST"))
         .and(path("/Users/AuthenticateByName"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "AccessToken": "hb-token",
-            "ServerId": "hb-server",
+            "ServerId": "hb-server-cadence",
             "ServerName": "HB",
-            "User": {
-                "Id": "hb-user",
-                "Name": "hbuser",
-                "ServerId": "hb-server",
-                "PrimaryImageTag": null
-            }
+            "User": { "Id": "hb-user", "Name": "hbuser", "ServerId": "hb-server-cadence", "PrimaryImageTag": null }
         })))
         .mount(&server)
         .await;
-
     Mock::given(method("POST"))
         .and(path("/Sessions/Playing/Progress"))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
 
-    let mut client = mock_client(&server.uri());
-    client.authenticate_by_name("hbuser", "pw").await.unwrap();
-    let client = Arc::new(client);
+    let server_url = server.uri();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp_path = tmp.path().to_string_lossy().to_string();
 
-    let track_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("hb-track-1".into())));
-    let position: Arc<Mutex<f64>> = Arc::new(Mutex::new(42.0));
+    // Drive the production scheduler. `start_heartbeat(0, ..)` exercises the
+    // `interval_secs.clamp(1, 10)` floor — a naive impl would divide-by-zero
+    // or never fire; the clamp turns it into a 1s cadence.
+    tokio::task::spawn_blocking(move || {
+        let core = heartbeat_core_logged_in(server_url, tmp_path, 42.0, /* paused */ true);
+        core.start_heartbeat(0, Some("sess-abc".into()));
+        // ~2.6s real: heartbeats at ~1s and ~2s after the consumed first tick.
+        std::thread::sleep(std::time::Duration::from_millis(2600));
+        core.stop_heartbeat();
+    })
+    .await
+    .expect("spawn_blocking panicked");
 
-    let interval_secs: u64 = 5;
+    let hits = heartbeat_hits(&server).await;
+    assert!(
+        hits >= 2,
+        "clamped (0 -> 1s) cadence must fire at least twice in ~2.6s, got {hits}"
+    );
 
-    // Pause time after the real HTTP auth so reqwest's connection logic
-    // completes normally. From here on, `advance` drives the fake clock.
-    tokio::time::pause();
-
-    let abort = spawn_heartbeat_for_test(
-        Arc::clone(&client),
-        std::time::Duration::from_secs(interval_secs),
-        Some("sess-abc".into()),
-        Arc::clone(&track_id),
-        Arc::clone(&position),
-    )
-    .await;
-
-    // Advance time in per-interval steps, yielding between each so the
-    // heartbeat task can run and the HTTP POST to wiremock can complete
-    // before the next tick fires.
-    for _ in 0..(interval_secs * 3) {
-        tokio::time::advance(std::time::Duration::from_secs(1)).await;
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    abort.abort();
-    // One final yield to flush any in-flight request.
-    tokio::task::yield_now().await;
-
+    // The captured progress bodies must carry the *real* pause state we set on
+    // the player (is_paused=true), not a hard-coded false.
     let reqs = server.received_requests().await.unwrap();
-    let heartbeats = reqs
+    let progress: Vec<_> = reqs
         .iter()
         .filter(|r| r.url.path() == "/Sessions/Playing/Progress")
-        .count();
-
-    assert!(
-        heartbeats >= 2,
-        "expected at least 2 heartbeats in {} simulated seconds, got {}",
-        interval_secs * 3,
-        heartbeats,
-    );
+        .collect();
+    assert!(!progress.is_empty());
+    for r in &progress {
+        let body: serde_json::Value =
+            serde_json::from_slice(&r.body).expect("progress body is JSON");
+        assert_eq!(
+            body["IsPaused"].as_bool(),
+            Some(true),
+            "heartbeat must forward the player's real pause state, got: {body}"
+        );
+        // The PlaySessionId passed to start_heartbeat must be echoed.
+        assert_eq!(
+            body["PlaySessionId"].as_str(),
+            Some("sess-abc"),
+            "heartbeat must echo the play_session_id, got: {body}"
+        );
+    }
 }
 
-/// After aborting the heartbeat task no further POSTs should be sent.
-/// Verifies the scheduler does not leak a timer after `AbortHandle::abort()`.
-/// See issue #594.
+/// `stop_heartbeat` (production) must halt the scheduler — no further POSTs
+/// after it returns. Exercises the `self.heartbeat` Mutex take/None-guard that
+/// the old raw-`AbortHandle` test bypassed. See issue #594.
 #[tokio::test]
-async fn heartbeat_stops_after_abort() {
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-
+async fn heartbeat_stops_after_stop_heartbeat() {
     let server = MockServer::start().await;
-
     Mock::given(method("POST"))
         .and(path("/Users/AuthenticateByName"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "AccessToken": "tok2",
-            "ServerId": "srv2",
+            "ServerId": "hb-server-stop",
             "ServerName": "S2",
-            "User": {
-                "Id": "u2", "Name": "u2", "ServerId": "srv2",
-                "PrimaryImageTag": null
-            }
+            "User": { "Id": "hb-user", "Name": "hbuser", "ServerId": "hb-server-stop", "PrimaryImageTag": null }
         })))
         .mount(&server)
         .await;
-
     Mock::given(method("POST"))
         .and(path("/Sessions/Playing/Progress"))
         .respond_with(ResponseTemplate::new(204))
         .mount(&server)
         .await;
 
-    let mut client = mock_client(&server.uri());
-    client.authenticate_by_name("u2", "pw").await.unwrap();
-    let client = Arc::new(client);
+    let server_url = server.uri();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp_path = tmp.path().to_string_lossy().to_string();
 
-    let track_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("t2".into())));
-    let position: Arc<Mutex<f64>> = Arc::new(Mutex::new(0.0));
+    // Phase 1: run for ~1.6s (>= 1 heartbeat), then stop.
+    tokio::task::spawn_blocking(move || {
+        let core = heartbeat_core_logged_in(server_url, tmp_path, 10.0, /* paused */ false);
+        core.start_heartbeat(1, None);
+        std::thread::sleep(std::time::Duration::from_millis(1600));
+        core.stop_heartbeat();
+        // Give any in-flight request a moment to land before we snapshot.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    })
+    .await
+    .expect("spawn_blocking panicked");
 
-    // Pause time after real HTTP auth completes so `advance` controls ticks.
-    tokio::time::pause();
+    let count_at_stop = heartbeat_hits(&server).await;
+    assert!(
+        count_at_stop >= 1,
+        "expected >= 1 heartbeat before stop, got {count_at_stop}"
+    );
 
-    let abort = spawn_heartbeat_for_test(
-        Arc::clone(&client),
-        std::time::Duration::from_secs(5),
-        None,
-        Arc::clone(&track_id),
-        Arc::clone(&position),
-    )
-    .await;
-
-    // Advance 6 s — heartbeat fires once at t=5 s.
-    tokio::time::advance(std::time::Duration::from_secs(6)).await;
-    for _ in 0..4 {
-        tokio::task::yield_now().await;
-    }
-
-    abort.abort();
-    let count_after_abort = server
-        .received_requests()
-        .await
-        .unwrap()
-        .iter()
-        .filter(|r| r.url.path() == "/Sessions/Playing/Progress")
-        .count();
-
-    // Advance another 10 s — no new POSTs should appear.
-    tokio::time::advance(std::time::Duration::from_secs(10)).await;
-    for _ in 0..4 {
-        tokio::task::yield_now().await;
-    }
-
-    let count_final = server
-        .received_requests()
-        .await
-        .unwrap()
-        .iter()
-        .filter(|r| r.url.path() == "/Sessions/Playing/Progress")
-        .count();
-
+    // Phase 2: wait well past two more intervals — count must not grow.
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    let count_final = heartbeat_hits(&server).await;
     assert_eq!(
-        count_after_abort, count_final,
-        "no heartbeats should fire after abort; before={count_after_abort} after={count_final}"
+        count_at_stop, count_final,
+        "no heartbeats may fire after stop_heartbeat; before={count_at_stop} after={count_final}"
+    );
+}
+
+/// Calling `start_heartbeat` twice must abort the first task (the new handle
+/// replaces the old in the `self.heartbeat` Mutex) so there are never two
+/// schedulers POSTing in parallel — i.e. no doubled cadence.
+#[tokio::test]
+async fn start_heartbeat_twice_does_not_double_cadence() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "tok3",
+            "ServerId": "hb-server-twice",
+            "ServerName": "S3",
+            "User": { "Id": "hb-user", "Name": "hbuser", "ServerId": "hb-server-twice", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/Sessions/Playing/Progress"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp_path = tmp.path().to_string_lossy().to_string();
+
+    tokio::task::spawn_blocking(move || {
+        let core = heartbeat_core_logged_in(server_url, tmp_path, 5.0, /* paused */ false);
+        // Start, then immediately restart. The first task must be aborted by
+        // the second `start_heartbeat`, leaving exactly one scheduler.
+        core.start_heartbeat(1, None);
+        core.start_heartbeat(1, None);
+        std::thread::sleep(std::time::Duration::from_millis(2600));
+        core.stop_heartbeat();
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    // With a single ~1s scheduler over ~2.6s we expect ~2 heartbeats. Two
+    // overlapping schedulers would roughly double that. Allow generous CI
+    // slack but cap below the doubled count.
+    let hits = heartbeat_hits(&server).await;
+    assert!(
+        (2..=4).contains(&hits),
+        "double-start must not double the cadence: expected ~2 heartbeats (<=4), got {hits}"
+    );
+}
+
+/// When playback ends, the heartbeat must STOP POSTing even though
+/// `current_track` is still set — otherwise the server (and other Jellyfin
+/// clients) show a frozen ghost "Now Playing". Pins the Ended/Stopped/Idle
+/// guard in the heartbeat loop (lib.rs).
+#[tokio::test]
+async fn heartbeat_skips_when_playback_ended() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "tok4",
+            "ServerId": "hb-server-ended",
+            "ServerName": "S4",
+            "User": { "Id": "hb-user", "Name": "hbuser", "ServerId": "hb-server-ended", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/Sessions/Playing/Progress"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let tmp_path = tmp.path().to_string_lossy().to_string();
+
+    tokio::task::spawn_blocking(move || {
+        // Prime a track but immediately mark playback Ended (current_track
+        // stays Some). The heartbeat must treat this as "nothing to report".
+        let core = heartbeat_core_logged_in(server_url, tmp_path, 180.0, /* paused */ false);
+        core.mark_state(crate::player::PlaybackState::Ended);
+        core.start_heartbeat(1, Some("sess-ended".into()));
+        std::thread::sleep(std::time::Duration::from_millis(2600));
+        core.stop_heartbeat();
+    })
+    .await
+    .expect("spawn_blocking panicked");
+
+    let hits = heartbeat_hits(&server).await;
+    assert_eq!(
+        hits, 0,
+        "heartbeat must not POST progress for an Ended track (ghost now-playing), got {hits}"
     );
 }
 
@@ -7037,6 +7202,14 @@ async fn structured_error_forbidden_maps_403() {
     );
 }
 
+// A retriable 429 drives the full MAX_ATTEMPTS loop, sleeping
+// min(Retry-After=42, RETRY_AFTER_CAP=5) = 5s before each of the two retries —
+// ~10s of real wall-clock if run on a live clock. We virtualize that backoff
+// with the same pause-after-auth + manual advance/yield pump the heartbeat
+// tests use (a bare `start_paused` auto-advances tokio's clock and fires
+// reqwest's client timeout before wiremock's I/O completes; manual pause
+// freezes time so in-flight requests finish during the yields). The `Some(42)`
+// assertion is unaffected.
 #[tokio::test]
 async fn structured_error_rate_limit_parses_retry_after() {
     let server = MockServer::start().await;
@@ -7060,7 +7233,27 @@ async fn structured_error_rate_limit_parses_retry_after() {
 
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
-    let err = client.albums(Paging::new(0, 10)).await.unwrap_err();
+    let client = std::sync::Arc::new(client);
+
+    // Pause AFTER the real auth round-trip so reqwest's connection setup ran
+    // on the live clock. From here `advance` drives the retry backoff.
+    tokio::time::pause();
+    let call = tokio::spawn({
+        let client = std::sync::Arc::clone(&client);
+        async move { client.albums(Paging::new(0, 10)).await }
+    });
+
+    // Pump virtual time: each retry waits 5s, so step in 1s ticks (yielding
+    // so the spawned request can hit wiremock + the backoff timer can fire)
+    // for well past the two 5s backoffs.
+    for _ in 0..15 {
+        tokio::time::advance(std::time::Duration::from_secs(1)).await;
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    let err = call.await.unwrap().unwrap_err();
     match err {
         crate::error::LyrebirdError::RateLimit { retry_after } => {
             assert_eq!(retry_after, Some(42));
@@ -7129,6 +7322,84 @@ fn structured_error_is_retryable_classification() {
         body: "".into(),
     }
     .is_retryable());
+
+    // Consistency contract with client.rs `is_retriable_status`: 408 Request
+    // Timeout IS retryable (even though not 5xx); 501 Not Implemented is NOT
+    // (even though it is 5xx). The two classifiers must agree.
+    assert!(
+        LyrebirdError::Server {
+            status: 408,
+            body: "".into(),
+        }
+        .is_retryable(),
+        "408 Request Timeout must be retryable (matches client.rs)"
+    );
+    assert!(
+        !LyrebirdError::Server {
+            status: 501,
+            body: "".into(),
+        }
+        .is_retryable(),
+        "501 Not Implemented must NOT be retryable (matches client.rs)"
+    );
+}
+
+/// The user-facing message mapping (`user_message`) must give blank-credential
+/// and certificate errors their own copy, not the generic session-expired /
+/// network fallbacks they were previously lumped into.
+#[test]
+fn user_message_distinguishes_credentials_and_certificate() {
+    use crate::error::LyrebirdError;
+
+    // InvalidCredentials (blank login fields) is NOT a session-expiry.
+    let cred = LyrebirdError::InvalidCredentials.user_message();
+    assert!(
+        cred.to_lowercase().contains("username") && cred.to_lowercase().contains("password"),
+        "InvalidCredentials must prompt for username/password, got: {cred}"
+    );
+    assert_ne!(
+        cred,
+        LyrebirdError::AuthExpired.user_message(),
+        "InvalidCredentials must not share the session-expired copy"
+    );
+
+    // SelfSignedCertificate names the host and hints at trusting it.
+    let cert = LyrebirdError::SelfSignedCertificate {
+        host: "music.example.com".into(),
+    }
+    .user_message();
+    assert!(
+        cert.contains("music.example.com"),
+        "cert message must name the host, got: {cert}"
+    );
+    assert_ne!(
+        cert,
+        LyrebirdError::Network("x".into()).user_message(),
+        "cert message must differ from the generic network message"
+    );
+}
+
+/// The `RateLimit` Display string must render the `Option<u64>` cleanly (not
+/// Rust debug `Some(30)` / `None`), since that string is the only thing the
+/// flat-error FFI surfaces to the Swift presenter.
+#[test]
+fn rate_limit_display_formats_retry_after_cleanly() {
+    use crate::error::LyrebirdError;
+
+    let with = LyrebirdError::RateLimit {
+        retry_after: Some(30),
+    }
+    .to_string();
+    assert_eq!(with, "rate limited (retry after 30s)", "got: {with}");
+    // No debug-formatted Option leaks.
+    assert!(
+        !with.contains("Some("),
+        "must not debug-format the Option: {with}"
+    );
+
+    let without = LyrebirdError::RateLimit { retry_after: None }.to_string();
+    assert_eq!(without, "rate limited", "got: {without}");
+    assert!(!without.contains("None"), "must not render None: {without}");
 }
 
 #[test]
@@ -8214,8 +8485,71 @@ async fn scrobble_submit_maps_500_to_server_error() {
     }
 }
 
+#[tokio::test]
+async fn scrobble_submit_maps_429_to_rate_limit_with_retry_after() {
+    // ListenBrainz throttling (429 + Retry-After) must map to RateLimit
+    // carrying the parsed seconds, not a generic Server error.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/1/submit-listens"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("Retry-After", "17")
+                .set_body_string("rate limited"),
+        )
+        .mount(&server)
+        .await;
+
+    let track = scrobble_track("item-1", "Yona", "Saloli", None);
+    let scrobbler = crate::scrobble::Scrobbler::with_root(server.uri(), "tok").unwrap();
+    let err = scrobbler.submit_listen(&track, 1).await.unwrap_err();
+    match err {
+        LyrebirdError::RateLimit { retry_after } => assert_eq!(retry_after, Some(17)),
+        other => panic!("expected RateLimit {{ Some(17) }}, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn scrobble_skips_track_missing_name_or_artist() {
+    // A track with a blank name or artist would be rejected by ListenBrainz;
+    // the client must guard at the boundary and return InvalidInput WITHOUT
+    // POSTing. We mount NO submit route so a stray POST surfaces as a failure.
+    let server = MockServer::start().await;
+
+    let scrobbler = crate::scrobble::Scrobbler::with_root(server.uri(), "tok").unwrap();
+
+    let no_name = scrobble_track("item-1", "   ", "Artist", None);
+    let err = scrobbler.submit_playing_now(&no_name).await.unwrap_err();
+    assert!(matches!(err, LyrebirdError::InvalidInput(_)), "got {err:?}");
+
+    let no_artist = scrobble_track("item-2", "Title", "", None);
+    let err = scrobbler.submit_listen(&no_artist, 1).await.unwrap_err();
+    assert!(matches!(err, LyrebirdError::InvalidInput(_)), "got {err:?}");
+
+    // Nothing should have been POSTed.
+    let posts = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/1/submit-listens")
+        .count();
+    assert_eq!(
+        posts, 0,
+        "invalid tracks must not be submitted, got {posts} POSTs"
+    );
+}
+
 #[test]
 fn scrobble_token_persistence_and_configured_flag() {
+    // The scrobble token now lives in the OS keyring; install the in-memory
+    // mock so this doesn't touch the real keychain. The scrobble key is a
+    // single fixed entry shared process-wide, so clear it first for
+    // determinism and leave it cleared at the end.
+    install_mock_keyring();
+    let _serial = scrobble_keyring_guard();
+    CredentialStore::delete_scrobble_token().ok();
+
     let dir = tempfile::tempdir().unwrap();
     let config = CoreConfig {
         data_dir: dir.path().to_string_lossy().into_owned(),
@@ -8245,6 +8579,12 @@ fn scrobble_token_persistence_and_configured_flag() {
 
 #[test]
 fn scrobble_submit_without_token_errors_invalid_input() {
+    // `scrobble_token()` reads the keyring now; install the mock and clear the
+    // (shared) scrobble key so this test sees the "no token" state.
+    install_mock_keyring();
+    let _serial = scrobble_keyring_guard();
+    CredentialStore::delete_scrobble_token().ok();
+
     let dir = tempfile::tempdir().unwrap();
     let config = CoreConfig {
         data_dir: dir.path().to_string_lossy().into_owned(),
@@ -8262,18 +8602,23 @@ fn scrobble_submit_without_token_errors_invalid_input() {
 
 #[test]
 fn scrobble_token_survives_clear_user_data() {
-    // Logout must NOT wipe the scrobble token (account-independent pref).
+    // Logout must NOT wipe the scrobble token (account-independent pref). The
+    // token now lives in the keyring, which `clear_user_data` (settings table
+    // + caches only) doesn't touch — so the connection survives a sign-out.
+    install_mock_keyring();
+    let _serial = scrobble_keyring_guard();
+    CredentialStore::save_scrobble_token("keep-me").unwrap();
+
     let dir = tempfile::tempdir().unwrap();
     let db = Database::open(dir.path().join("lb.db")).unwrap();
-    db.set_setting("scrobble_listenbrainz_token", "keep-me")
-        .unwrap();
     db.clear_user_data().unwrap();
+
     assert_eq!(
-        db.get_setting("scrobble_listenbrainz_token")
-            .unwrap()
-            .as_deref(),
-        Some("keep-me")
+        CredentialStore::load_scrobble_token().unwrap().as_deref(),
+        Some("keep-me"),
+        "clear_user_data must not delete the keyring scrobble token"
     );
+    CredentialStore::delete_scrobble_token().ok();
 }
 
 #[test]
@@ -8422,4 +8767,160 @@ async fn plain_artists_query_still_sorts_by_sort_name_ascending() {
     let q = get.url.query().expect("expected a query string");
     assert!(q.contains("SortBy=SortName"), "query: {q}");
     assert!(q.contains("SortOrder=Ascending"), "query: {q}");
+}
+
+// ===========================================================================
+// Audit follow-ups (2.0 polish)
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Unauthenticated-session guards for the discovery / genre endpoints that
+// previously lacked a `*_requires_authenticated_session` test (mirrors the
+// existing `instant_mix_requires_authenticated_session`). Each must
+// short-circuit with NotAuthenticated before issuing any HTTP request.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn similar_artists_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.similar_artists("artist-1", 10).await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn similar_albums_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.similar_albums("album-1", 10).await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn similar_items_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.similar_items("item-1", 10).await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn genres_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.genres(Paging::new(0, 50)).await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn items_by_genre_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client
+        .items_by_genre("genre-1", Paging::new(0, 50))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn tracks_by_genre_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client
+        .tracks_by_genre("genre-1", Paging::new(0, 50))
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn frequently_played_tracks_requires_authenticated_session() {
+    let server = MockServer::start().await;
+    let client = mock_client(&server.uri());
+    let err = client.frequently_played_tracks(50).await.unwrap_err();
+    assert!(
+        matches!(err, crate::error::LyrebirdError::NotAuthenticated),
+        "expected NotAuthenticated, got {err:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// is_cert_error positive branch — a CI-runnable unit test (the only prior
+// positive coverage was an #[ignore]d live test against badssl.com). We can't
+// fabricate a `reqwest::Error` with an arbitrary source offline, so the
+// substring logic is factored into `error_chain_is_cert_failure`, which we
+// drive here with a synthetic `std::io::Error` source chain whose inner
+// message carries each matched rustls/webpki cert marker.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn error_chain_is_cert_failure_true_for_each_cert_marker() {
+    use crate::error::error_chain_is_cert_failure;
+    use std::error::Error as StdError;
+    use std::fmt;
+    use std::io;
+
+    // An outer error that wraps an inner source, so the detector must walk the
+    // chain (not just inspect the top-level message) to find the marker —
+    // exactly the rustls-buried-in-reqwest shape in production.
+    #[derive(Debug)]
+    struct Outer(io::Error);
+    impl fmt::Display for Outer {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "error sending request")
+        }
+    }
+    impl StdError for Outer {
+        fn source(&self) -> Option<&(dyn StdError + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    // Each marker the production detector keys on must drive a `true` result
+    // when it appears anywhere in the source chain.
+    for marker in [
+        "invalid peer certificate: UnknownIssuer",
+        "invalid certificate: expired",
+        "certificate verify failed",
+        "the chain has an UnknownIssuer",
+        "self-signed certificate in certificate chain",
+    ] {
+        let err = Outer(io::Error::other(marker));
+        assert!(
+            error_chain_is_cert_failure(&err),
+            "cert marker must be detected in the source chain: {marker}"
+        );
+    }
+}
+
+#[test]
+fn error_chain_is_cert_failure_false_for_benign_transport_error() {
+    use crate::error::error_chain_is_cert_failure;
+    use std::io;
+
+    // A plain connection-refused error must NOT be classified as a cert error.
+    let err = io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused");
+    assert!(
+        !error_chain_is_cert_failure(&err),
+        "benign transport error must not match cert markers"
+    );
 }

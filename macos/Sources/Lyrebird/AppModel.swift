@@ -4848,7 +4848,7 @@ final class AppModel {
         guard !trimmed.isEmpty else { return }
         do {
             let newId = try await Task.detached(priority: .userInitiated) { [core] in
-                try core.createPlaylist(name: trimmed, itemIds: [], position: nil)
+                try core.createPlaylist(name: trimmed, itemIds: [])
             }.value
             // The core returns only the id; build a minimal `Playlist`
             // record client-side rather than refetching. An `imageTag` of
@@ -4928,7 +4928,7 @@ final class AppModel {
         let copyName = "\(source.name) Copy"
         do {
             let newId = try await Task.detached(priority: .userInitiated) { [core] in
-                try core.createPlaylist(name: copyName, itemIds: trackIds, position: nil)
+                try core.createPlaylist(name: copyName, itemIds: trackIds)
             }.value
             // Core's `create_playlist` can accept seed items directly; the
             // `itemIds` path above covers the common case. We still build a
@@ -5880,7 +5880,15 @@ final class AppModel {
         // so it never short-circuits an explicit album-end — `skipNext`
         // walks those first and only returns nil when there's genuinely
         // nothing left.
-        guard autoplayWhenQueueEnds, let seed = status.currentTrack else { return }
+        guard autoplayWhenQueueEnds, let seed = status.currentTrack else {
+            // Playback is genuinely over and we're not autoplaying. Tear the
+            // session down so `reportPlaybackStopped` + `stopHeartbeat` run —
+            // otherwise the player keeps a stale `currentTrack` and the server
+            // shows a frozen "Now Playing" until the next user action (the
+            // companion to the core heartbeat Ended-state guard).
+            audio.stop()
+            return
+        }
         playInstantMix(seedId: seed.id)
     }
 
@@ -6273,7 +6281,7 @@ final class AppModel {
         guard !ids.isEmpty else { return }
         do {
             let newId = try await Task.detached(priority: .userInitiated) { [core] in
-                try core.createPlaylist(name: trimmed, itemIds: ids, position: nil)
+                try core.createPlaylist(name: trimmed, itemIds: ids)
             }.value
             // Some older Jellyfin builds ignore the initial `ItemIds` on
             // `create_playlist` and return an empty playlist. Follow up

@@ -6,6 +6,7 @@ use parking_lot::Mutex;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Client as HttpClient, RequestBuilder, Response, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -114,6 +115,12 @@ pub struct JellyfinClient {
     /// sleep between retry attempts and returns
     /// [`LyrebirdError::Other`]`("cancelled")` immediately. See issue #605.
     pub cancel: CancellationToken,
+    /// Monotonically-incrementing counter mixed into the backoff jitter seed
+    /// so two retries that fire in the same sub-millisecond window get
+    /// *decorrelated* jitter (the system clock alone returns near-identical
+    /// values for concurrent calls, defeating the thundering-herd purpose of
+    /// jitter). Bumped once per `backoff_for` call. See `backoff_for`.
+    jitter_counter: AtomicU64,
 }
 
 impl JellyfinClient {
@@ -139,6 +146,7 @@ impl JellyfinClient {
             library_cache: Mutex::new(LibraryCache::default()),
             refresh_cb: Mutex::new(None),
             cancel: CancellationToken::new(),
+            jitter_counter: AtomicU64::new(0),
         })
     }
 
@@ -199,11 +207,15 @@ impl JellyfinClient {
             .map(|t| format!(", Token=\"{t}\""))
             .unwrap_or_default();
         let safe_device = Self::sanitize_header_field(&self.device_name, 100);
+        // `device_id` is interpolated into the same header value, so it must
+        // be hardened identically — an embedded CRLF here would inject a
+        // header just as a malicious `device_name` could (#608).
+        let safe_device_id = Self::sanitize_header_field(&self.device_id, 100);
         format!(
             "MediaBrowser Client=\"{client}\", Device=\"{device}\", DeviceId=\"{device_id}\", Version=\"{version}\"{token}",
             client = CLIENT_NAME,
             device = safe_device,
-            device_id = self.device_id,
+            device_id = safe_device_id,
             version = CLIENT_VERSION,
             token = token_part,
         )
@@ -301,19 +313,41 @@ impl JellyfinClient {
 
     /// Backoff for attempt `n` (1-indexed: attempt 1 is the first *retry*,
     /// i.e. the backoff *after* the initial send failed). Applies ±15%
-    /// symmetric jitter seeded from the system clock.
-    fn backoff_for(attempt: u32) -> Duration {
+    /// symmetric jitter.
+    ///
+    /// The jitter must *decorrelate* concurrent retries to break up
+    /// thundering herds. Seeding from the system clock alone fails that goal:
+    /// two retries firing in the same sub-millisecond window read
+    /// near-identical clock values and so get near-identical jitter. We
+    /// instead mix a per-client monotonic counter into the clock and run the
+    /// result through the splitmix64 finalizer, which avalanches adjacent
+    /// seeds into well-spread outputs. This keeps the "no `rand` dependency"
+    /// property while giving each retry independent jitter even when called
+    /// back-to-back.
+    fn backoff_for(&self, attempt: u32) -> Duration {
         let idx = (attempt.saturating_sub(1) as usize).min(BACKOFF_BASE_MS.len() - 1);
         let base = BACKOFF_BASE_MS[idx] as f64;
-        // Cheap `±15%` jitter: the high bits of the system clock's
-        // subsecond nanos are plenty random for breaking up synchronized
-        // retries. Pulling in `rand` for this would be overkill.
-        let seed = std::time::SystemTime::now()
+
+        let clock = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.subsec_nanos())
+            .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
-        // Map nanos [0, 1e9) onto jitter factor [0.85, 1.15].
-        let jitter = 0.85 + (seed as f64 / 1_000_000_000.0) * 0.30;
+        // `fetch_add` returns the previous value, so each call gets a unique
+        // counter even when two fire in the same clock tick.
+        let counter = self.jitter_counter.fetch_add(1, Ordering::Relaxed);
+
+        // splitmix64 finalizer — strong avalanche so adjacent seeds map to
+        // well-separated outputs.
+        let mut z = clock
+            .wrapping_add(counter.wrapping_mul(0x9E37_79B9_7F4A_7C15))
+            .wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+
+        // Map the hashed bits onto a jitter factor in [0.85, 1.15].
+        let unit = (z >> 11) as f64 / (1u64 << 53) as f64; // [0, 1)
+        let jitter = 0.85 + unit * 0.30;
         Duration::from_millis((base * jitter).round() as u64)
     }
 
@@ -374,7 +408,7 @@ impl JellyfinClient {
 
                     if Self::is_retriable_status(status) && attempt < MAX_ATTEMPTS {
                         let delay = Self::parse_retry_after(resp.headers())
-                            .unwrap_or_else(|| Self::backoff_for(attempt));
+                            .unwrap_or_else(|| self.backoff_for(attempt));
                         tracing::warn!(
                             attempt,
                             status = status.as_u16(),
@@ -399,7 +433,7 @@ impl JellyfinClient {
                 }
                 Err(err) => {
                     if Self::is_retriable_transport_error(&err) && attempt < MAX_ATTEMPTS {
-                        let delay = Self::backoff_for(attempt);
+                        let delay = self.backoff_for(attempt);
                         tracing::warn!(
                             attempt,
                             error = %err,
@@ -435,6 +469,54 @@ impl JellyfinClient {
     {
         let resp = self.send_with_retry_raw(build).await?;
         Self::check(resp).await
+    }
+
+    /// Send a **non-idempotent, resource-mutating** request exactly once on
+    /// the wire (per logical attempt), with the silent-401 re-auth retry but
+    /// **without** the transport-error / 5xx automatic retry that
+    /// [`Self::send_with_retry`] applies.
+    ///
+    /// The blanket retry in `send_with_retry` is safe for idempotent verbs
+    /// (GET/HEAD/PUT/DELETE) but dangerous for POSTs that create or append
+    /// server state: if the first POST reaches the server and commits, then
+    /// the response is lost to a timeout (or the server answers 5xx after a
+    /// partial commit), a retry duplicates the side effect — a second
+    /// playlist, the same tracks appended twice, etc. (see #282-adjacent
+    /// audit). Such callers route here instead so a post-send failure
+    /// surfaces to the user rather than silently double-applying.
+    ///
+    /// A `401` is still retried once: an unauthorized request was rejected
+    /// before it could mutate anything, so re-authenticating and re-sending
+    /// is side-effect-free. Everything else (5xx, transport error) is
+    /// returned to the caller without a retry.
+    async fn send_mutation_no_retry<F>(&self, mut build: F) -> Result<Response>
+    where
+        F: FnMut() -> Result<RequestBuilder>,
+    {
+        let mut reauth_attempted = false;
+        loop {
+            let builder = build()?;
+            let resp = builder.send().await?;
+
+            if resp.status() == StatusCode::UNAUTHORIZED && !reauth_attempted {
+                reauth_attempted = true;
+                match self.try_refresh_token() {
+                    Ok(true) => {
+                        tracing::warn!(
+                            "jellyfin 401 on mutation — refreshed token from keyring, retrying once"
+                        );
+                        continue;
+                    }
+                    Ok(false) => return Err(LyrebirdError::AuthExpired),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "token refresh failed");
+                        return Err(LyrebirdError::AuthExpired);
+                    }
+                }
+            }
+
+            return Self::check(resp).await;
+        }
     }
 
     /// GET the given URL through the retry + silent re-auth pipeline, returning
@@ -699,9 +781,17 @@ impl JellyfinClient {
     /// [`JellyfinClient::albums`] instead; `latest_albums` is optimized for
     /// the Home "Recently Added" row.
     ///
-    /// `total_count` on the returned [`PaginatedAlbums`] is the number of
-    /// items the server returned for this request, NOT the library total —
-    /// `/Items/Latest` does not report `TotalRecordCount`.
+    /// `/Items/Latest` does **not** report a `TotalRecordCount`, so there is
+    /// no server-authoritative library total to surface here. To avoid
+    /// callers mistaking this for a paginatable total (and computing a wrong
+    /// "has more pages" — the old behaviour returned the pre-slice window
+    /// length, which could never exceed `offset + limit` and so falsely
+    /// implied more pages), `total_count` is set to the number of items
+    /// **actually returned in this page** (`items.len()`). It is therefore
+    /// self-consistent (`total_count == items.len()`) and signals "this is
+    /// the whole set the Latest shelf is showing", not a paginatable total.
+    /// Callers that need true catalog pagination must use
+    /// [`JellyfinClient::albums`].
     pub async fn latest_albums(&self, library_id: &str, paging: Paging) -> Result<PaginatedAlbums> {
         let user_id = self
             .user_id
@@ -737,13 +827,16 @@ impl JellyfinClient {
             .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
             .await?;
         let items: Vec<RawItem> = resp.json().await?;
-        let total_count = items.len() as u32;
         let sliced: Vec<Album> = items
             .into_iter()
             .skip(paging.offset as usize)
             .take(limit as usize)
             .map(Album::from)
             .collect();
+        // `total_count` mirrors the size of *this page* (post-slice), not the
+        // pre-slice fetch window — there's no server total for /Items/Latest,
+        // and reporting the window length implied phantom extra pages.
+        let total_count = sliced.len() as u32;
         Ok(PaginatedAlbums {
             items: sliced,
             total_count,
@@ -851,24 +944,6 @@ impl JellyfinClient {
         })
     }
 
-    /// Same implementation as [`JellyfinClient::user_playlists`] until a
-    /// reliable user-vs-public discriminator is wired. Kept as a distinct
-    /// method so callers that care about the intent — a future "Community
-    /// Playlists" surface — don't have to change when the split lands.
-    ///
-    /// Previous behaviour filtered on `!Path.contains("/data/")`. That was a
-    /// false discriminator (returned everything when the Playlists library
-    /// was mounted outside the user profile dir, returned nothing when it
-    /// was). Same fix rationale as `user_playlists`.
-    pub async fn public_playlists(
-        &self,
-        playlist_library_id: &str,
-        paging: Paging,
-    ) -> Result<PaginatedPlaylists> {
-        // Same query today; see doc comment. Avoid duplicating the HTTP call.
-        self.user_playlists(playlist_library_id, paging).await
-    }
-
     /// Playlists in the user's Playlists library whose track list features the
     /// given artist, capped at `limit` results.
     ///
@@ -883,23 +958,33 @@ impl JellyfinClient {
     /// just album-artist credits — which is what the Artist-detail rail wants.
     ///
     /// Cost: one playlist-list request plus one items request per playlist
-    /// scanned. We stop scanning as soon as `limit` matches are found, and cap
-    /// the playlists scanned at `MAX_PLAYLISTS_SCANNED` so a pathological
-    /// library can't turn this into an unbounded fan-out. Per-playlist we ask
-    /// for up to `PLAYLIST_TRACK_PROBE_LIMIT` items, which covers ordinary
-    /// playlists in a single round-trip; longer playlists are probed by their
-    /// leading window (a featured artist in a multi-hundred-track playlist is
-    /// overwhelmingly present in that window, and the rail is a discovery
-    /// affordance, not an exhaustive index).
+    /// scanned. We cap the playlists scanned at `MAX_PLAYLISTS_SCANNED` so a
+    /// pathological library can't turn this into an unbounded fan-out, and we
+    /// probe in **bounded-concurrency batches** (`PROBE_CONCURRENCY` requests
+    /// in flight) rather than strictly sequentially — the old one-at-a-time
+    /// loop serialized ~200 round-trips behind the FFI mutex and made the
+    /// Artist-detail rail crawl. Candidate order is preserved in the result,
+    /// and we stop launching new batches once `limit` matches are found.
+    /// Per-playlist we ask for up to `PLAYLIST_TRACK_PROBE_LIMIT` items, which
+    /// covers ordinary playlists in a single round-trip; longer playlists are
+    /// probed by their leading window (a featured artist in a multi-hundred-
+    /// track playlist is overwhelmingly present in that window, and the rail
+    /// is a discovery affordance, not an exhaustive index).
     pub async fn playlists_containing_artist(
         &self,
         playlist_library_id: &str,
         artist_id: &str,
         limit: u32,
     ) -> Result<Vec<Playlist>> {
+        use futures::stream::{self, StreamExt};
+
         // Upper bounds that keep the fan-out predictable on large libraries.
         const MAX_PLAYLISTS_SCANNED: u32 = 200;
         const PLAYLIST_TRACK_PROBE_LIMIT: u32 = 500;
+        // How many per-playlist probes to run at once. Bounded so we neither
+        // hammer the server nor hold the runtime hostage; tuned to keep the
+        // rail snappy without a connection stampede.
+        const PROBE_CONCURRENCY: usize = 8;
 
         if limit == 0 {
             return Ok(Vec::new());
@@ -913,16 +998,50 @@ impl JellyfinClient {
         let candidates = self
             .playlists_items(playlist_library_id, Paging::new(0, MAX_PLAYLISTS_SCANNED))
             .await?;
+        let candidate_items = candidates.items;
 
+        // First pass: probe membership for each candidate concurrently
+        // (bounded), recording a parallel `Vec<bool>` so we can map results
+        // back onto the owned candidate list in order without cloning the
+        // (large) RawItem. Process in chunks and stop probing once we've found
+        // enough matches.
+        let mut features: Vec<bool> = vec![false; candidate_items.len()];
+        let mut found = 0u32;
+        for (chunk_start, chunk) in candidate_items.chunks(PROBE_CONCURRENCY).enumerate() {
+            if found >= limit {
+                break;
+            }
+            let base = chunk_start * PROBE_CONCURRENCY;
+            let results: Vec<bool> = stream::iter(chunk.iter().map(|raw| async move {
+                self.playlist_features_artist(
+                    &raw.id,
+                    user_id,
+                    artist_id,
+                    PLAYLIST_TRACK_PROBE_LIMIT,
+                )
+                .await
+            }))
+            .buffered(PROBE_CONCURRENCY)
+            .collect::<Vec<Result<bool>>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<bool>>>()?;
+            for (offset, hit) in results.into_iter().enumerate() {
+                features[base + offset] = hit;
+                if hit {
+                    found += 1;
+                }
+            }
+        }
+
+        // Second pass: consume the owned candidates in order, keeping the
+        // ones that matched, capped at `limit`.
         let mut matches: Vec<Playlist> = Vec::new();
-        for raw in candidates.items {
+        for (i, raw) in candidate_items.into_iter().enumerate() {
             if matches.len() as u32 >= limit {
                 break;
             }
-            if self
-                .playlist_features_artist(&raw.id, user_id, artist_id, PLAYLIST_TRACK_PROBE_LIMIT)
-                .await?
-            {
+            if features[i] {
                 matches.push(Playlist::from(raw));
             }
         }
@@ -964,10 +1083,10 @@ impl JellyfinClient {
     }
 
     /// Shared `GET /Items` request that returns all playlists under the
-    /// given Playlists library view. `user_playlists` / `public_playlists`
-    /// partition the result by `Path`. Returns the raw [`RawItems`] wrapper
-    /// so callers can forward `total_record_count` to their paginated
-    /// response shape.
+    /// given Playlists library view. [`Self::user_playlists`] maps the raw
+    /// items to [`Playlist`]; [`Self::playlists_containing_artist`] probes
+    /// them. Returns the raw [`RawItems`] wrapper so callers can forward
+    /// `total_record_count` to their paginated response shape.
     async fn playlists_items(
         &self,
         playlist_library_id: &str,
@@ -1121,8 +1240,14 @@ impl JellyfinClient {
                 q.append_pair("StartIndex", &pos.to_string());
             }
         }
-        self.send_with_retry(|| Ok(self.http.post(url.clone()).headers(self.build_headers()?)))
-            .await?;
+        // Append is non-idempotent: a blanket transport/5xx retry could
+        // append the same items twice (the first POST commits, its response
+        // is lost, the retry re-appends). Route through the no-retry mutation
+        // path so a post-send failure surfaces instead of double-applying.
+        self.send_mutation_no_retry(|| {
+            Ok(self.http.post(url.clone()).headers(self.build_headers()?))
+        })
+        .await?;
         Ok(())
     }
 
@@ -1988,23 +2113,24 @@ impl JellyfinClient {
     /// method returns the new playlist id so callers can refetch the full
     /// record (e.g. via [`JellyfinClient::fetch_item`]) if they need it.
     ///
+    /// There is intentionally no positional-insert parameter: `POST
+    /// /Playlists` has no server-side `StartIndex` semantics (the seed items
+    /// are appended in `Ids` order), so a position hint would be silently
+    /// dropped. Positional insert is a separate primitive on
+    /// `POST /Playlists/{id}/Items` (deferred; see #282).
+    ///
+    /// Sent via [`Self::send_mutation_no_retry`] because it creates a
+    /// resource: a blanket transport/5xx retry could create a *duplicate*
+    /// playlist if the first POST committed but its response was lost.
+    ///
     /// Requires an authenticated session; returns
     /// [`LyrebirdError::NotAuthenticated`] if no `user_id` is set.
-    pub async fn create_playlist(
-        &self,
-        name: &str,
-        item_ids: &[&str],
-        position: Option<u32>,
-    ) -> Result<String> {
+    pub async fn create_playlist(&self, name: &str, item_ids: &[&str]) -> Result<String> {
         let user_id = self
             .user_id
             .as_ref()
             .ok_or(LyrebirdError::NotAuthenticated)?;
-        let mut url = self.endpoint("Playlists")?;
-        if let Some(pos) = position {
-            url.query_pairs_mut()
-                .append_pair("StartIndex", &pos.to_string());
-        }
+        let url = self.endpoint("Playlists")?;
         let body = CreatePlaylistBody {
             name: name.to_string(),
             ids: item_ids.iter().map(|s| s.to_string()).collect(),
@@ -2012,7 +2138,7 @@ impl JellyfinClient {
             media_type: "Audio".to_string(),
         };
         let resp = self
-            .send_with_retry(|| {
+            .send_mutation_no_retry(|| {
                 Ok(self
                     .http
                     .post(url.clone())
@@ -2421,9 +2547,18 @@ impl JellyfinClient {
 
     /// Rename a playlist by updating its `Name` field via `POST /Items/{id}`.
     ///
-    /// The `POST /Items/{id}` endpoint requires the full item body, so we first
-    /// fetch the existing item with `GET /Items/{id}` and then re-POST with only
-    /// `Name` changed. Responds 204 on success.
+    /// The `POST /Items/{id}` (UpdateItem) endpoint does a *blind assign* of
+    /// the posted [`BaseItemDto`] onto the stored item: every editable field
+    /// it reads is overwritten with whatever the body carries, and fields
+    /// absent from the body are reset. So we must fetch the existing item with
+    /// the full editable field projection first and round-trip it intact,
+    /// changing only `Name` — otherwise a rename silently *wipes* the
+    /// playlist's Genres, Overview, Tags, sort name, etc.
+    ///
+    /// `GET /Items` returns the sort name under `SortName`, but UpdateItem
+    /// reads it from `ForcedSortName`, so we map it across before posting (a
+    /// bare `SortName` in the body would leave `ForcedSortName` unset and
+    /// clear the custom sort). Responds 204 on success.
     ///
     /// Requires an authenticated session; returns
     /// [`LyrebirdError::NotAuthenticated`] if no token is set.
@@ -2432,11 +2567,35 @@ impl JellyfinClient {
             .user_id
             .as_ref()
             .ok_or(LyrebirdError::NotAuthenticated)?;
-        // Fetch the current item to prefill required fields.
-        let existing = self.fetch_item(playlist_id, &[]).await?;
+        // Fetch the current item with the full editable field set so the
+        // blind-assign UpdateItem echoes the existing values instead of
+        // clearing them.
+        let existing = self
+            .fetch_item(
+                playlist_id,
+                &[
+                    "Genres",
+                    "Tags",
+                    "Overview",
+                    "SortName",
+                    "ProviderIds",
+                    "DateCreated",
+                    "ProductionYear",
+                    "OfficialRating",
+                ],
+            )
+            .await?;
         // Build the update body from the existing item, overwriting Name.
         let mut body = existing;
         body["Name"] = serde_json::Value::String(new_name.to_string());
+        // UpdateItem reads the custom sort name from `ForcedSortName`; the GET
+        // projection exposes it as `SortName`. Map it so the round-trip
+        // preserves the playlist's sort name instead of clearing it.
+        if let Some(sort_name) = body.get("SortName").cloned() {
+            if sort_name.is_string() {
+                body["ForcedSortName"] = sort_name;
+            }
+        }
         let mut url = self.endpoint(&format!("Items/{playlist_id}"))?;
         url.query_pairs_mut().append_pair("UserId", user_id);
         self.send_with_retry(|| {

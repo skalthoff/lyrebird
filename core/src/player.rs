@@ -246,18 +246,29 @@ impl Player {
 
     /// Insert `tracks` into the queue immediately after the currently-playing
     /// entry without disturbing what's already playing. "Play Next" semantics,
-    /// matching Apple Music / Spotify. No-op when the queue is empty — the
-    /// caller should fall back to [`Player::set_queue`] for that case so the
-    /// playhead actually starts.
+    /// matching Apple Music / Spotify.
+    ///
+    /// When the queue is **empty** there is no playhead to insert after, so
+    /// this behaves like a fresh [`Player::set_queue`]: the queue becomes
+    /// `tracks`, `queue_index` resets to 0, and `current` is primed to the
+    /// first track. That makes "Play Next" do the obvious thing on a cold
+    /// queue instead of silently dropping the tracks.
+    ///
+    /// A `tracks` of zero length is a genuine no-op.
     ///
     /// Returns the new queue length. Closes #282 for the Play Next flows
     /// (album / playlist / track context menu, Up Next panel drag-drop).
     pub fn insert_next(&self, tracks: Vec<Track>) -> u32 {
         let mut s = self.shared.lock();
-        if s.queue.is_empty() || tracks.is_empty() {
-            // Nothing currently playing — the caller is better served by
-            // `set_queue` which also primes `current`. Return the queue's
-            // untouched length so the caller can detect the no-op.
+        if tracks.is_empty() {
+            return s.queue.len() as u32;
+        }
+        if s.queue.is_empty() {
+            // No playhead to insert after — start a fresh queue so the
+            // tracks are actually playable (mirrors `set_queue`).
+            s.current = tracks.first().cloned();
+            s.queue = tracks;
+            s.queue_index = 0;
             return s.queue.len() as u32;
         }
         let insert_at = (s.queue_index + 1).min(s.queue.len());
@@ -265,8 +276,15 @@ impl Player {
         s.queue.len() as u32
     }
 
-    /// Append `tracks` to the end of the queue without touching the playhead.
-    /// "Add to Queue" semantics. No-op when `tracks` is empty.
+    /// Append `tracks` to the end of the queue. "Add to Queue" semantics.
+    /// No-op when `tracks` is empty.
+    ///
+    /// When the queue was **empty** before the append there is no playhead,
+    /// so `queue_index` is set to 0 and `current` is primed to the first
+    /// appended track — otherwise the queue would be non-empty with
+    /// `current == None`, and `skip_next` could never reach the appended
+    /// tracks. When the queue already had entries the playhead is left
+    /// untouched.
     ///
     /// Returns the new queue length. Closes #282 for Add-to-Queue flows.
     pub fn append_to_queue(&self, tracks: Vec<Track>) -> u32 {
@@ -274,7 +292,12 @@ impl Player {
         if tracks.is_empty() {
             return s.queue.len() as u32;
         }
+        let was_empty = s.queue.is_empty();
         s.queue.extend(tracks);
+        if was_empty {
+            s.queue_index = 0;
+            s.current = s.queue.first().cloned();
+        }
         s.queue.len() as u32
     }
 
@@ -295,8 +318,17 @@ impl Player {
         }
     }
 
+    /// Mark `track` as the currently-playing entry and force state to
+    /// `Playing`. When `track` is present in the queue, `queue_index` is
+    /// advanced to its position so `current` never diverges from
+    /// `queue[queue_index]` (which drives `current_in_queue()` and the
+    /// skip/peek cursor). When it is not in the queue (e.g. a one-off play of
+    /// an item that was never enqueued) the index is left untouched.
     pub fn set_current(&self, track: Track) {
         let mut s = self.shared.lock();
+        if let Some(i) = s.queue.iter().position(|t| t.id == track.id) {
+            s.queue_index = i;
+        }
         s.current = Some(track);
         s.state = PlaybackState::Playing;
     }
@@ -413,11 +445,15 @@ mod tests {
     }
 
     #[test]
-    fn shuffle_and_repeat_are_preserved_across_queue_changes() {
+    fn shuffle_and_repeat_flags_are_preserved_across_queue_changes() {
         // Callers (e.g. the macOS AppModel) set shuffle/repeat once and
         // expect the flags to survive a fresh `set_queue` call — otherwise
         // dropping a new album onto the dock would silently disable the
         // user's chosen repeat mode. Validate that invariant here.
+        //
+        // NOTE: this asserts only that the *flags* survive, NOT that shuffle
+        // reorders playback. See `shuffle_is_a_flag_and_does_not_reorder_the_queue`
+        // for the no-reorder contract.
         let player = Player::new();
         player.set_shuffle(true);
         player.set_repeat_mode(RepeatMode::All);
@@ -426,6 +462,28 @@ mod tests {
         assert!(status.shuffle);
         assert_eq!(status.repeat_mode, RepeatMode::All);
         assert_eq!(status.queue_length, 2);
+    }
+
+    #[test]
+    fn shuffle_is_a_flag_and_does_not_reorder_the_queue() {
+        // Contract (#34): `set_shuffle` is intentionally a flag only. The
+        // core never reorders the stored queue — callers that want a
+        // shuffled listening session hand pre-shuffled tracks to
+        // `set_queue`. This test pins that contract explicitly so the
+        // "shuffle flag survives" test above can't be mistaken for proof
+        // that shuffle changes navigation order. If core ever grows real
+        // in-core shuffling, this test (and the docs) must change together.
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 0)
+            .unwrap();
+        player.set_shuffle(true);
+        // Navigation order is unchanged by the flag: skip/peek still walk the
+        // queue in its stored order.
+        assert_eq!(player.peek_next().unwrap().id, "b");
+        assert_eq!(player.skip_next().unwrap().id, "b");
+        assert_eq!(player.skip_next().unwrap().id, "c");
+        assert!(player.status().shuffle, "flag is still reported as engaged");
     }
 
     // ---- #591: set_queue OOB start_index ----
@@ -558,11 +616,18 @@ mod tests {
     }
 
     #[test]
-    fn insert_next_on_empty_queue_is_noop() {
+    fn insert_next_on_empty_queue_starts_fresh_queue() {
+        // With no playhead to insert after, insert_next behaves like a fresh
+        // set_queue: the tracks become the queue and the first is primed as
+        // current, so "Play Next" on a cold queue actually plays.
         let player = Player::new();
-        let new_len = player.insert_next(vec![track("x")]);
-        assert_eq!(new_len, 0, "no current track => insert_next must no-op");
-        assert!(player.status().current_track.is_none());
+        let new_len = player.insert_next(vec![track("x"), track("y")]);
+        assert_eq!(new_len, 2);
+        let status = player.status();
+        assert_eq!(status.current_track.unwrap().id, "x");
+        assert_eq!(status.queue_position, 0);
+        // The whole inserted set is reachable.
+        assert_eq!(player.skip_next().unwrap().id, "y");
     }
 
     #[test]
@@ -589,12 +654,17 @@ mod tests {
     }
 
     #[test]
-    fn append_to_queue_on_empty_queue_just_extends() {
+    fn append_to_queue_on_empty_queue_primes_current() {
         let player = Player::new();
         let new_len = player.append_to_queue(vec![track("x"), track("y")]);
-        // `append_to_queue` does not prime `current`; that's `set_queue`'s job.
+        // Appending onto an empty queue primes the playhead so the queue is
+        // actually playable (otherwise current would be None with a
+        // non-empty queue and skip_next could never reach the tracks).
         assert_eq!(new_len, 2);
-        assert!(player.status().current_track.is_none());
+        let status = player.status();
+        assert_eq!(status.current_track.unwrap().id, "x");
+        assert_eq!(status.queue_position, 0);
+        assert_eq!(player.skip_next().unwrap().id, "y");
     }
 
     #[test]
@@ -759,7 +829,7 @@ mod tests {
     }
 
     #[test]
-    fn peek_next_matches_skip_next_across_repeated_calls() {
+    fn peek_next_is_idempotent_and_does_not_advance() {
         let player = Player::new();
         player
             .set_queue(vec![track("a"), track("b"), track("c")], 0)
@@ -768,6 +838,31 @@ mod tests {
         assert_eq!(player.peek_next().unwrap().id, "b");
         assert_eq!(player.peek_next().unwrap().id, "b");
         assert_eq!(player.status().queue_position, 0);
+    }
+
+    #[test]
+    fn peek_next_predicts_skip_next_across_queue_including_wrap() {
+        // The peek/skip consistency contract: peek_next must predict exactly
+        // what the next skip_next yields. Walk the whole queue, and include
+        // the RepeatMode::All wrap boundary where divergence is most likely.
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 0)
+            .unwrap();
+        player.set_repeat_mode(RepeatMode::All);
+
+        // Walk one full lap plus the wrap, asserting peek == the subsequent
+        // skip at every step.
+        for _ in 0..4 {
+            let peeked = player.peek_next().unwrap().id;
+            let skipped = player.skip_next().unwrap().id;
+            assert_eq!(
+                peeked, skipped,
+                "peek_next must predict the next skip_next exactly"
+            );
+        }
+        // After a→b→c→(wrap)a→b we should be sitting on "b".
+        assert_eq!(player.status().current_track.unwrap().id, "b");
     }
 
     #[test]
@@ -813,5 +908,148 @@ mod tests {
     fn peek_next_on_empty_queue_is_none() {
         let player = Player::new();
         assert!(player.peek_next().is_none());
+    }
+
+    // ---- Coverage for previously-untested Player methods + PlayerStatus
+    //      fields (set_volume / mark_position clamps, mark_state, set_current,
+    //      clear, current_in_queue, play_session_id, and the snapshot
+    //      duration/position/volume/state plumbing). ----
+
+    #[test]
+    fn set_volume_clamps_to_unit_range() {
+        let player = Player::new();
+        player.set_volume(2.0);
+        assert_eq!(
+            player.status().volume,
+            1.0,
+            "above-range volume clamps to 1.0"
+        );
+        player.set_volume(-1.0);
+        assert_eq!(
+            player.status().volume,
+            0.0,
+            "below-range volume clamps to 0.0"
+        );
+        player.set_volume(0.5);
+        assert_eq!(
+            player.status().volume,
+            0.5,
+            "in-range volume passes through"
+        );
+    }
+
+    #[test]
+    fn mark_position_clamps_negative_to_zero() {
+        let player = Player::new();
+        player.mark_position(-5.0);
+        assert_eq!(player.status().position_seconds, 0.0);
+        player.mark_position(42.5);
+        assert_eq!(player.status().position_seconds, 42.5);
+    }
+
+    #[test]
+    fn mark_state_sets_state_on_status() {
+        let player = Player::new();
+        player.mark_state(PlaybackState::Paused);
+        assert_eq!(player.status().state, PlaybackState::Paused);
+        player.mark_state(PlaybackState::Loading);
+        assert_eq!(player.status().state, PlaybackState::Loading);
+    }
+
+    #[test]
+    fn set_current_sets_track_and_forces_playing_state() {
+        let player = Player::new();
+        player.set_current(track("z"));
+        let status = player.status();
+        assert_eq!(status.current_track.unwrap().id, "z");
+        assert_eq!(status.state, PlaybackState::Playing);
+    }
+
+    #[test]
+    fn set_current_advances_queue_index_when_track_in_queue() {
+        // Regression: set_current used to leave queue_index stale, letting
+        // current diverge from queue[queue_index] / current_in_queue().
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 0)
+            .unwrap();
+        player.set_current(track("c"));
+        assert_eq!(player.status().queue_position, 2);
+        assert_eq!(player.current_in_queue().unwrap().id, "c");
+        // And skip_next from there honours the realigned cursor.
+        assert!(player.skip_next().is_none(), "c is the last entry");
+    }
+
+    #[test]
+    fn set_current_leaves_index_untouched_for_track_not_in_queue() {
+        let player = Player::new();
+        player.set_queue(vec![track("a"), track("b")], 1).unwrap();
+        player.set_current(track("offqueue"));
+        // The cursor stays where it was; only `current` changes.
+        assert_eq!(player.status().queue_position, 1);
+        assert_eq!(player.status().current_track.unwrap().id, "offqueue");
+        assert_eq!(player.current_in_queue().unwrap().id, "b");
+    }
+
+    #[test]
+    fn current_in_queue_returns_indexed_track() {
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 2)
+            .unwrap();
+        assert_eq!(player.current_in_queue().unwrap().id, "c");
+    }
+
+    #[test]
+    fn play_session_id_round_trips() {
+        let player = Player::new();
+        assert!(player.play_session_id().is_none());
+        player.set_play_session_id(Some("sess-123".to_string()));
+        assert_eq!(player.play_session_id().as_deref(), Some("sess-123"));
+        assert_eq!(player.status().play_session_id.as_deref(), Some("sess-123"));
+        player.set_play_session_id(None);
+        assert!(player.play_session_id().is_none());
+    }
+
+    #[test]
+    fn clear_resets_all_playback_bookkeeping() {
+        let player = Player::new();
+        player.set_queue(vec![track("a"), track("b")], 1).unwrap();
+        player.set_play_session_id(Some("sess".to_string()));
+        player.mark_position(30.0);
+        player.mark_state(PlaybackState::Playing);
+
+        player.clear();
+
+        let status = player.status();
+        assert_eq!(status.state, PlaybackState::Stopped);
+        assert!(status.current_track.is_none());
+        assert_eq!(status.position_seconds, 0.0);
+        assert!(status.play_session_id.is_none());
+        assert_eq!(status.queue_length, 0);
+        assert_eq!(status.queue_position, 0);
+    }
+
+    #[test]
+    fn status_duration_reflects_current_track_and_zero_when_empty() {
+        let player = Player::new();
+        // No current track => duration defaults to 0.0.
+        assert_eq!(player.status().duration_seconds, 0.0);
+        // `track()` is 1_800_000_000 ticks = 180s.
+        player.set_queue(vec![track("a")], 0).unwrap();
+        assert!((player.status().duration_seconds - 180.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn status_reports_position_volume_and_state_fields() {
+        let player = Player::new();
+        player.set_queue(vec![track("a")], 0).unwrap();
+        player.mark_position(12.0);
+        player.set_volume(0.25);
+        player.mark_state(PlaybackState::Paused);
+        let status = player.status();
+        assert_eq!(status.position_seconds, 12.0);
+        assert_eq!(status.volume, 0.25);
+        assert_eq!(status.state, PlaybackState::Paused);
     }
 }

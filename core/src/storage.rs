@@ -43,18 +43,23 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
             [],
         )?;
-        let current: i32 = tx
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
+        // Propagate the read error with `?` rather than `.unwrap_or(0)`: the
+        // `schema_version` table was just created in this same transaction, so
+        // a successful read is expected. Swallowing a transient failure (e.g.
+        // a momentary lock) to `0` would re-enter the `current < 1` branch on
+        // an already-migrated DB and crash on the version insert.
+        let current: i32 = tx.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )?;
 
         if current < 1 {
             tx.execute_batch(include_str!("migrations/001_initial.sql"))?;
+            // `OR IGNORE` keeps the version stamp idempotent so a re-run can't
+            // crash on the PRIMARY KEY constraint.
             tx.execute(
-                "INSERT INTO schema_version (version) VALUES (?1)",
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
                 params![1],
             )?;
         }
@@ -79,8 +84,15 @@ impl Database {
     pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare("SELECT value FROM settings WHERE key = ?1")?;
-        let row = stmt.query_row(params![key], |r| r.get::<_, String>(0)).ok();
-        Ok(row)
+        // Discriminate "no such key" (a legitimate `Ok(None)`) from a genuine
+        // DB fault (locked / I/O / corruption). The old `.ok()` collapsed both
+        // into `None`, silently reporting a real fault as "setting absent" —
+        // the same NoEntry-vs-error split `CredentialStore::load_token` does.
+        match stmt.query_row(params![key], |r| r.get::<_, String>(0)) {
+            Ok(value) => Ok(Some(value)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub fn delete_setting(&self, key: &str) -> Result<()> {
@@ -122,10 +134,10 @@ impl Database {
 
     /// Clear all user-scoped data after a logout or server switch.
     ///
-    /// Truncates `play_history`, `track_cache`, `album_cache`, and
-    /// `artist_cache`, and removes the session-identity settings
-    /// (`last_server_url`, `last_username`, `last_server_id`, `last_user_id`)
-    /// that would cause `resume_session` to succeed on next launch.
+    /// Truncates `track_cache`, `album_cache`, and `artist_cache`, and removes
+    /// the session-identity settings (`last_server_url`, `last_username`,
+    /// `last_server_id`, `last_user_id`) that would cause `resume_session` to
+    /// succeed on next launch.
     ///
     /// Preserves: `device_id`, `device_name`, `shuffle_enabled`,
     /// `repeat_mode`, and `schema_version` rows so the login screen
@@ -133,8 +145,7 @@ impl Database {
     pub fn clear_user_data(&self) -> Result<()> {
         let conn = self.conn.lock();
         conn.execute_batch(
-            "DELETE FROM play_history;
-             DELETE FROM track_cache;
+            "DELETE FROM track_cache;
              DELETE FROM album_cache;
              DELETE FROM artist_cache;",
         )?;
@@ -151,21 +162,6 @@ impl Database {
             )?;
         }
         Ok(())
-    }
-
-    pub fn record_play(&self, track_id: &str, played_at: i64) -> Result<()> {
-        self.conn.lock().execute(
-            "INSERT INTO play_history (track_id, played_at) VALUES (?1, ?2)",
-            params![track_id, played_at],
-        )?;
-        Ok(())
-    }
-
-    pub fn play_count(&self, track_id: &str) -> Result<u64> {
-        let conn = self.conn.lock();
-        let mut stmt = conn.prepare("SELECT COUNT(*) FROM play_history WHERE track_id = ?1")?;
-        let count: i64 = stmt.query_row(params![track_id], |r| r.get(0))?;
-        Ok(count as u64)
     }
 }
 
@@ -213,6 +209,13 @@ fn dirs_next_like() -> Option<PathBuf> {
 
 const SERVICE: &str = "org.lyrebird.desktop";
 
+/// Keyring account under which the (account-independent) ListenBrainz scrobble
+/// token is stored. A fixed, non-`{server}/{user}` key because the token is a
+/// machine-level preference, not a per-Jellyfin-session credential. Kept in
+/// the OS keyring like the Jellyfin access token rather than in plaintext in
+/// the settings table.
+const SCROBBLE_ACCOUNT: &str = "scrobble/listenbrainz";
+
 pub struct CredentialStore;
 
 impl CredentialStore {
@@ -233,6 +236,34 @@ impl CredentialStore {
 
     pub fn delete_token(server_id: &str, username: &str) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE, &format!("{server_id}/{username}"))?;
+        match entry.delete_credential() {
+            Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Persist the ListenBrainz scrobble token in the OS keyring (same secure
+    /// store as the Jellyfin access token), keyed on [`SCROBBLE_ACCOUNT`].
+    pub fn save_scrobble_token(token: &str) -> Result<()> {
+        let entry = keyring::Entry::new(SERVICE, SCROBBLE_ACCOUNT)?;
+        entry.set_password(token)?;
+        Ok(())
+    }
+
+    /// Read the stored ListenBrainz scrobble token, or `None` when none is
+    /// stored. Discriminates a missing entry from a real keyring fault.
+    pub fn load_scrobble_token() -> Result<Option<String>> {
+        let entry = keyring::Entry::new(SERVICE, SCROBBLE_ACCOUNT)?;
+        match entry.get_password() {
+            Ok(t) => Ok(Some(t)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Remove the stored ListenBrainz scrobble token. A no-op when absent.
+    pub fn delete_scrobble_token() -> Result<()> {
+        let entry = keyring::Entry::new(SERVICE, SCROBBLE_ACCOUNT)?;
         match entry.delete_credential() {
             Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.into()),

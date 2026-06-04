@@ -146,12 +146,9 @@ pub struct PaginatedTracks {
     pub total_count: u32,
 }
 
-/// Page of playlists returned by `user_playlists` and `public_playlists`.
-/// Note: these two endpoints filter the server's response client-side by
-/// `Path`, so `total_count` is the server-reported total across BOTH user
-/// and public playlists (i.e. what Jellyfin would return without the
-/// client-side partition). Callers should treat it as an upper bound on the
-/// page size they need to fetch, not as `items.len()`'s true total.
+/// Page of playlists returned by `user_playlists`. `total_count` is the
+/// server-reported `TotalRecordCount` for the Playlists library view, so it
+/// can drive "N of M" sublines and load-more triggers directly.
 #[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]
 pub struct PaginatedPlaylists {
     pub items: Vec<Playlist>,

@@ -39,7 +39,7 @@ pub enum LyrebirdError {
     #[error("not found: {0}")]
     NotFound(String),
 
-    #[error("rate limited (retry after {retry_after:?}s)")]
+    #[error("rate limited{}", retry_after.map(|s| format!(" (retry after {s}s)")).unwrap_or_default())]
     RateLimit { retry_after: Option<u64> },
 
     #[error("server returned an error: {status} {body}")]
@@ -110,13 +110,19 @@ impl LyrebirdError {
     /// ```
     pub fn user_message(&self) -> String {
         match self {
-            // Authentication failures — user needs to re-login.
+            // Session expiry / missing session — user needs to re-login.
             LyrebirdError::Auth(_)
             | LyrebirdError::AuthExpired
             | LyrebirdError::NotAuthenticated
-            | LyrebirdError::NoSession
-            | LyrebirdError::InvalidCredentials => {
+            | LyrebirdError::NoSession => {
                 "Your session expired. Please sign in again.".to_string()
+            }
+
+            // Blank credentials at *login* time — not an expired session.
+            // Telling a user who left a field empty that their "session
+            // expired" is misleading, so give it its own arm.
+            LyrebirdError::InvalidCredentials => {
+                "Please enter your username and password.".to_string()
             }
 
             // Permission denied — the user's account lacks access.
@@ -134,9 +140,13 @@ impl LyrebirdError {
                 "Couldn't reach the server. Check your connection and try again.".to_string()
             }
 
-            // TLS / certificate issues — connectivity problem with extra context.
-            LyrebirdError::SelfSignedCertificate { .. } => {
-                "Couldn't reach the server. Check your connection and try again.".to_string()
+            // TLS / certificate issues — name the host and hint at the trust
+            // action so the UI can route to a "Trust this server" prompt
+            // instead of looking like a generic connectivity failure.
+            LyrebirdError::SelfSignedCertificate { host } => {
+                format!(
+                    "The server at {host} uses a certificate that couldn't be verified. You may need to trust it."
+                )
             }
 
             // Rate-limiting — tell the user to wait.
@@ -182,10 +192,16 @@ impl LyrebirdError {
 
     /// Should the caller retry the request after an exponential backoff?
     ///
-    /// Returns `true` for:
-    /// - [`Self::RateLimit`] — the server asked us to slow down; the
+    /// This is the error-typed mirror of the HTTP-status predicate in
+    /// `client.rs` (`is_retriable_status`); the two MUST agree so the
+    /// retry decision is identical whether a caller has a raw `StatusCode`
+    /// or an already-mapped [`LyrebirdError`]. Returns `true` for:
+    /// - [`Self::RateLimit`] (429) — the server asked us to slow down; the
     ///   `retry_after` (when set) is an upper bound on the wait.
-    /// - [`Self::Server`] with a 5xx status — transient server-side issue.
+    /// - [`Self::Server`] with a `408 Request Timeout` — the server gave up
+    ///   before we did, so a retry can succeed.
+    /// - [`Self::Server`] with a 5xx status **except** `501 Not Implemented`,
+    ///   which is a semantic "we don't do that" and will never succeed.
     /// - [`Self::Network`] — transport fault (DNS, TLS, timeout); usually
     ///   resolves on its own.
     ///
@@ -197,7 +213,11 @@ impl LyrebirdError {
         match self {
             LyrebirdError::RateLimit { .. } => true,
             LyrebirdError::Network(_) => true,
-            LyrebirdError::Server { status, .. } => (500..600).contains(status),
+            // Mirror client.rs `is_retriable_status`: 408 is retriable even
+            // though it isn't a 5xx; 501 is NOT retriable even though it is.
+            LyrebirdError::Server { status, .. } => {
+                *status == 408 || ((500..600).contains(status) && *status != 501)
+            }
             _ => false,
         }
     }
@@ -244,6 +264,15 @@ impl From<reqwest::Error> for LyrebirdError {
 /// Returns `true` when the error chain contains a TLS certificate-validation
 /// failure.  Compatible with both rustls 0.22 and 0.23.
 pub(crate) fn is_cert_error(e: &reqwest::Error) -> bool {
+    error_chain_is_cert_failure(e)
+}
+
+/// Walk an error's `source` chain looking for a TLS certificate-validation
+/// failure marker. Split out from [`is_cert_error`] (which is fixed to
+/// `reqwest::Error`) so the substring logic — the load-bearing, version-
+/// sensitive part — is unit-testable against a synthetic error chain without a
+/// live TLS server, covering the positive branch on CI.
+pub(crate) fn error_chain_is_cert_failure(e: &(dyn std::error::Error + 'static)) -> bool {
     use std::error::Error as StdError;
     let mut source: Option<&(dyn StdError + 'static)> = Some(e);
     while let Some(err) = source {

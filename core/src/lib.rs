@@ -34,10 +34,11 @@ use uuid::Uuid;
 
 uniffi::setup_scaffolding!();
 
-/// Settings-table key under which the ListenBrainz user token is persisted.
-/// Deliberately *not* on the diagnostic-bundle allowlist and *not* cleared by
-/// [`storage::Database::clear_user_data`], so the secret never leaks into a
-/// support bundle and survives logout like other account-independent prefs.
+/// **Legacy** settings-table key under which pre-keyring builds persisted the
+/// ListenBrainz token in plaintext. The token now lives in the OS keyring (see
+/// [`storage::CredentialStore::save_scrobble_token`]); this key is retained
+/// only so [`LyrebirdCore::set_scrobble_token`] can scrub a leftover plaintext
+/// value from an upgraded install.
 const SCROBBLE_TOKEN_KEY: &str = "scrobble_listenbrainz_token";
 
 /// Handle for a running heartbeat task.  Dropping or calling [`stop`] cancels
@@ -627,20 +628,6 @@ impl LyrebirdCore {
         })
     }
 
-    /// Public / community playlists visible to the current user — anything
-    /// under the Playlists library whose `Path` does NOT contain `/data/`.
-    pub fn public_playlists(
-        &self,
-        playlist_library_id: String,
-        offset: u32,
-        limit: u32,
-    ) -> std::result::Result<PaginatedPlaylists, LyrebirdError> {
-        self.with_client(|c| {
-            self.runtime
-                .block_on(c.public_playlists(&playlist_library_id, Paging::new(offset, limit)))
-        })
-    }
-
     /// Playlists in the user's Playlists library whose track list features the
     /// given artist, capped at `limit`. Powers the "Playlists featuring this
     /// artist" rail on the Artist detail screen. Matching is track-level
@@ -809,18 +796,18 @@ impl LyrebirdCore {
     /// `item_ids` may be empty to create an empty playlist. Errors with
     /// [`LyrebirdError::NotAuthenticated`] if no session is active.
     ///
-    /// When `position` is `Some(n)`, the Jellyfin `StartIndex` query param is
-    /// set so the server inserts the initial items starting at index `n`.
+    /// There is no positional-insert parameter: `POST /Playlists` has no
+    /// server-side `StartIndex` semantics, so the seed `item_ids` are
+    /// appended in order. Positional insert is deferred to a dedicated
+    /// `Playlists/{id}/Items` primitive (#282).
     pub fn create_playlist(
         &self,
         name: String,
         item_ids: Vec<String>,
-        position: Option<u32>,
     ) -> std::result::Result<String, LyrebirdError> {
         self.with_client(|c| {
             let id_refs: Vec<&str> = item_ids.iter().map(String::as_str).collect();
-            self.runtime
-                .block_on(c.create_playlist(&name, &id_refs, position))
+            self.runtime.block_on(c.create_playlist(&name, &id_refs))
         })
     }
 
@@ -926,15 +913,18 @@ impl LyrebirdCore {
     /// Insert `tracks` immediately after the currently-playing entry.
     /// "Play Next" semantics, per #282. Returns the new queue length.
     ///
-    /// No-op when either the queue is empty or `tracks` is empty — callers
-    /// that want to prime the queue with the new tracks should fall back to
-    /// [`Self::set_queue`] when the queue length stays at zero.
+    /// When the queue is empty there is no playhead to insert after, so this
+    /// starts a fresh queue (priming `current` to the first track) — "Play
+    /// Next" on a cold queue plays rather than dropping the tracks. A
+    /// zero-length `tracks` is a no-op.
     pub fn play_next(&self, tracks: Vec<Track>) -> u32 {
         self.player.insert_next(tracks)
     }
 
     /// Append `tracks` to the end of the queue. "Add to Queue" semantics,
     /// per #282. Returns the new queue length. No-op when `tracks` is empty.
+    /// When the queue was empty, the playhead is primed to the first appended
+    /// track so the queue is immediately playable.
     pub fn add_to_queue(&self, tracks: Vec<Track>) -> u32 {
         self.player.append_to_queue(tracks)
     }
@@ -947,10 +937,20 @@ impl LyrebirdCore {
         self.player.clear_queue();
     }
 
+    /// Mark `track` as the now-playing entry. Called from `AudioEngine.load`
+    /// on every track transition, on the main thread.
+    ///
+    /// This only updates in-memory player state. It deliberately does NOT
+    /// write a local play-history row: the server is the authority on play
+    /// counts (incremented via `/Sessions/Playing*`, see CLAUDE.md
+    /// "Resolved"), so a local `play_history` table was write-only dead
+    /// storage that also (a) ran a synchronous SQLite INSERT under the
+    /// `Inner` mutex on the main-thread load path and (b) counted a "play"
+    /// on every load — including quick-skips — inflating counts relative to
+    /// the server's threshold-based PlayCount. The table and its accessors
+    /// were removed in the audit pass.
     pub fn mark_track_started(&self, track: Track) {
-        self.player.set_current(track.clone());
-        let now = chrono::Utc::now().timestamp();
-        let _ = self.inner.lock().db.record_play(&track.id, now);
+        self.player.set_current(track);
     }
 
     /// Store the `PlaySessionId` returned by `PlaybackInfo` on the current
@@ -1027,7 +1027,7 @@ impl LyrebirdCore {
     }
 
     /// Resolve (and cache) the user's playlists library id. Used as the
-    /// `ParentId` for `user_playlists` / `public_playlists`.
+    /// `ParentId` for `user_playlists`.
     pub fn playlist_library_id(&self) -> std::result::Result<String, LyrebirdError> {
         self.with_client(|c| self.runtime.block_on(c.playlist_library_id()))
     }
@@ -1126,12 +1126,15 @@ impl LyrebirdCore {
     /// Persist the user's ListenBrainz token. Pass `None` (or an empty/blank
     /// string) to disconnect scrobbling and clear the stored token.
     ///
-    /// The token is a secret: it lives in the local settings table only, is
-    /// never written to logs, and is intentionally excluded from the
-    /// diagnostic bundle (which reads an allowlist of non-secret keys). It is
-    /// also *not* cleared on logout — like shuffle/repeat it is an
+    /// The token is a secret and is stored in the **OS keyring** (the same
+    /// secure store as the Jellyfin access token) — never in plaintext in the
+    /// settings table. It is never written to logs and is intentionally
+    /// excluded from the diagnostic bundle. Like shuffle/repeat it is an
     /// account-independent preference, so signing out of a Jellyfin server
     /// leaves the scrobble connection intact for the next sign-in.
+    ///
+    /// Any legacy plaintext token under the old settings key is removed on
+    /// write so an upgraded install doesn't leave the secret on disk.
     pub fn set_scrobble_token(
         &self,
         token: Option<String>,
@@ -1141,9 +1144,12 @@ impl LyrebirdCore {
             .map(|t| t.trim().to_string())
             .filter(|t| !t.is_empty())
         {
-            Some(t) => db.set_setting(SCROBBLE_TOKEN_KEY, &t)?,
-            None => db.delete_setting(SCROBBLE_TOKEN_KEY)?,
+            Some(t) => CredentialStore::save_scrobble_token(&t)?,
+            None => CredentialStore::delete_scrobble_token()?,
         }
+        // Belt-and-suspenders: scrub any plaintext token a pre-keyring build
+        // may have written to the settings table.
+        let _ = db.delete_setting(SCROBBLE_TOKEN_KEY);
         Ok(())
     }
 
@@ -1151,10 +1157,7 @@ impl LyrebirdCore {
     /// rather than the token itself so the UI can render connected / not-
     /// connected state without the secret ever crossing the FFI boundary.
     pub fn is_scrobble_configured(&self) -> bool {
-        self.inner
-            .lock()
-            .db
-            .get_setting(SCROBBLE_TOKEN_KEY)
+        CredentialStore::load_scrobble_token()
             .ok()
             .flatten()
             .map(|t| !t.trim().is_empty())
@@ -1229,6 +1232,20 @@ impl LyrebirdCore {
                 ticker.tick().await;
 
                 let status = core.player.status();
+                // Don't heartbeat when playback is over (or hasn't begun).
+                // The `current_track` can still be `Some` after a track ends
+                // — without this guard the loop would keep POSTing
+                // `/Sessions/Playing/Progress` with `is_paused=false`,
+                // freezing a ghost "Now Playing" at the final position on the
+                // server (and every other Jellyfin client) indefinitely.
+                if matches!(
+                    status.state,
+                    crate::player::PlaybackState::Ended
+                        | crate::player::PlaybackState::Stopped
+                        | crate::player::PlaybackState::Idle
+                ) {
+                    continue;
+                }
                 // Only send a heartbeat when there is an active track —
                 // sending progress with an empty `item_id` would confuse
                 // the server.
@@ -1342,17 +1359,15 @@ impl LyrebirdCore {
 }
 
 impl LyrebirdCore {
-    /// Read the stored ListenBrainz token, mapping "absent or blank" to a
-    /// clean [`LyrebirdError::InvalidInput`] so submit paths share one guard.
+    /// Read the stored ListenBrainz token from the OS keyring, mapping "absent
+    /// or blank" to a clean [`LyrebirdError::InvalidInput`] so submit paths
+    /// share one guard.
     ///
     /// Deliberately **not** part of the `#[uniffi::export]` block: the raw
     /// token must never cross the FFI boundary. Platform code learns *whether*
     /// a token is set via [`Self::is_scrobble_configured`], never its value.
     fn scrobble_token(&self) -> std::result::Result<String, LyrebirdError> {
-        self.inner
-            .lock()
-            .db
-            .get_setting(SCROBBLE_TOKEN_KEY)
+        CredentialStore::load_scrobble_token()
             .ok()
             .flatten()
             .filter(|t| !t.trim().is_empty())
