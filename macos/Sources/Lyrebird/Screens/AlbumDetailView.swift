@@ -17,6 +17,11 @@ import SwiftUI
 ///   `detail` is empty — the liner-note section falls back to cached fields.
 struct AlbumDetailView: View {
     @Environment(AppModel.self) private var model
+    /// Honour the system "Reduce Motion" setting for the liner-notes drawer
+    /// slide (#221) — when set, the panel appears/disappears with an opacity
+    /// crossfade instead of a horizontal slide. Matches the shell's
+    /// queue-inspector and the artist-page hover treatments.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let albumID: String
 
     @State private var tracks: [Track] = []
@@ -28,6 +33,11 @@ struct AlbumDetailView: View {
     /// Whether the full editorial blurb popover is open (#68). Mirrors the
     /// artist About section's "Read more" affordance.
     @State private var isAboutExpanded = false
+    /// Whether the right-side liner-notes drawer is presented (#221). The
+    /// liner-note fields + credits also live inline at the bottom of the page
+    /// (#65); the drawer surfaces the same structured data without a scroll to
+    /// the foot of a long tracklist. Reset on album change in the `.task`.
+    @State private var isLinerNotesDrawerPresented = false
 
     /// Cache-first lookup against the paged `albums` list, then fall
     /// back to the record the `.task` block fetched. Missing after both
@@ -50,11 +60,18 @@ struct AlbumDetailView: View {
             }
         }
         .background(Theme.bg)
+        // Right-side liner-notes drawer (#221). Layered above the scroll view
+        // so it slides in over the page rather than reflowing it. Mounted only
+        // while presented so it costs nothing when closed.
+        .overlay(alignment: .trailing) { linerNotesDrawer }
         .task(id: albumID) {
             isLoading = true
             // Reset the editorial-blurb popover so a prior album's expanded
             // "About this album" never bleeds into this page (#68).
             isAboutExpanded = false
+            // Close any open liner-notes drawer so it doesn't carry a prior
+            // album's data into this page (#221).
+            isLinerNotesDrawerPresented = false
             if model.albums.first(where: { $0.id == albumID }) == nil {
                 fetchedAlbum = await model.resolveAlbum(id: albumID)
             }
@@ -191,6 +208,7 @@ struct AlbumDetailView: View {
             shuffleButton
             radioButton
             downloadButton
+            linerNotesButton
 
             Divider()
                 .frame(height: 22)
@@ -252,6 +270,21 @@ struct AlbumDetailView: View {
             }
             .accessibilityLabel("Download album")
         }
+    }
+
+    /// Opens the right-side liner-notes drawer (#221). Uses the same
+    /// secondary-CTA pill as Shuffle / Radio / Download so it reads as a peer
+    /// affordance and Tab focus walks it in row order. The toggle is wrapped
+    /// in a reduce-motion-aware animation so the panel slides (or crossfades)
+    /// in consistently with the close paths.
+    private var linerNotesButton: some View {
+        secondaryCTA(icon: "doc.text", label: "Liner Notes") {
+            withAnimation(LinerNotesDrawerPresentation.animation(reduceMotion: reduceMotion)) {
+                isLinerNotesDrawerPresented = true
+            }
+        }
+        .accessibilityLabel("Show liner notes")
+        .accessibilityHint("Opens a panel with release details and credits")
     }
 
     private var favouriteButton: some View {
@@ -505,34 +538,47 @@ struct AlbumDetailView: View {
                     .tracking(2)
                     .padding(.bottom, 12)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    linerRow(label: "Released", value: releasedSummary(album: album))
-                    linerRow(label: "Label", value: detail.label ?? "—")
-                    linerRow(label: "Format", value: formatSummary(tracks: tracks))
-                    linerRow(label: "Runtime", value: runtimeSummary(album: album))
-                    linerRow(label: "Tracks", value: tracksSummary(album: album))
-                }
-                .textSelection(.enabled)
-
-                let creditRows = ExtendedCredit.rows(from: detail.people)
-                if !creditRows.isEmpty {
-                    Text("CREDITS")
-                        .font(Theme.font(10, weight: .bold))
-                        .foregroundStyle(Theme.ink3)
-                        .tracking(2)
-                        .padding(.top, 28)
-                        .padding(.bottom, 10)
-
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(creditRows, id: \.label) { row in
-                            creditRowView(row: row)
-                        }
-                    }
-                }
+                linerNotesContent(album: album)
             }
             .padding(.horizontal, 40)
             .padding(.top, 36)
             .padding(.bottom, 48)
+        }
+    }
+
+    /// The structured liner-note body — the field rows plus the optional
+    /// Credits subsection — without the section header or page padding. Shared
+    /// verbatim between the inline bottom-of-page block (#65) and the slide-in
+    /// drawer (#221) so the two surfaces can never drift in what they show.
+    /// Reads only the already-loaded `detail` / `tracks`, so it's free to
+    /// render in both places at once.
+    @ViewBuilder
+    private func linerNotesContent(album: Album) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                linerRow(label: "Released", value: releasedSummary(album: album))
+                linerRow(label: "Label", value: detail.label ?? "—")
+                linerRow(label: "Format", value: formatSummary(tracks: tracks))
+                linerRow(label: "Runtime", value: runtimeSummary(album: album))
+                linerRow(label: "Tracks", value: tracksSummary(album: album))
+            }
+            .textSelection(.enabled)
+
+            let creditRows = ExtendedCredit.rows(from: detail.people)
+            if !creditRows.isEmpty {
+                Text("CREDITS")
+                    .font(Theme.font(10, weight: .bold))
+                    .foregroundStyle(Theme.ink3)
+                    .tracking(2)
+                    .padding(.top, 28)
+                    .padding(.bottom, 10)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(creditRows, id: \.label) { row in
+                        creditRowView(row: row)
+                    }
+                }
+            }
         }
     }
 
@@ -566,6 +612,113 @@ struct AlbumDetailView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - Liner notes drawer (#221)
+
+    /// Right-side slide-in drawer surfacing the same structured liner-note
+    /// fields + credits as the inline block (#65), reachable from the hero
+    /// without scrolling past a long tracklist. Closes on Escape, a tap on the
+    /// dimmed scrim, or the panel's close button. Honours Reduce Motion: the
+    /// panel crossfades instead of sliding when the setting is on.
+    ///
+    /// Mounted only while presented (`if`-gated) so it adds no cost to a
+    /// closed page, and renders nothing when the album hasn't resolved yet so
+    /// the panel never shows an empty shell.
+    @ViewBuilder
+    private var linerNotesDrawer: some View {
+        if isLinerNotesDrawerPresented, let album = album {
+            ZStack(alignment: .trailing) {
+                // Dimmed tap-out scrim. `contentShape` + a plain Button keeps
+                // the whole backdrop a single dismiss target without stealing
+                // VoiceOver focus from the panel (it's hidden from the
+                // accessibility tree — the panel's close button is the
+                // assistive-tech dismiss path).
+                Color.black.opacity(0.32)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture { dismissLinerNotesDrawer() }
+                    .accessibilityHidden(true)
+                    .transition(.opacity)
+
+                linerNotesPanel(album: album)
+                    .transition(LinerNotesDrawerPresentation.transition(reduceMotion: reduceMotion))
+            }
+            // An invisible cancel-action button gives the drawer an Escape
+            // handler without a focusable on-screen control — the same idiom
+            // the command palette uses to close on Escape.
+            .background {
+                Button("", action: dismissLinerNotesDrawer)
+                    .keyboardShortcut(.cancelAction)
+                    .opacity(0)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// The drawer's opaque panel: a fixed-width column pinned to the trailing
+    /// edge with a header (title + close) over a scrollable liner-note body.
+    @ViewBuilder
+    private func linerNotesPanel(album: Album) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LINER NOTES")
+                        .font(Theme.font(10, weight: .bold))
+                        .foregroundStyle(Theme.ink3)
+                        .tracking(2)
+                    Text(album.name)
+                        .font(Theme.font(16, weight: .heavy))
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 16)
+                Button(action: dismissLinerNotesDrawer) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.ink2)
+                        .frame(width: 24, height: 24)
+                        .background(Circle().fill(Theme.surface))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close liner notes")
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .padding(.bottom, 16)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Theme.border).frame(height: 1)
+            }
+
+            ScrollView {
+                linerNotesContent(album: album)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 24)
+            }
+        }
+        .frame(width: 360)
+        .frame(maxHeight: .infinity)
+        .background(Theme.bgAlt)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Theme.border).frame(width: 1)
+        }
+        .shadow(color: Color.black.opacity(0.28), radius: 18, x: -8, y: 0)
+        // Group the panel as one container so VoiceOver treats it as a
+        // self-contained dialog rather than letting focus wander onto the
+        // dimmed page behind it.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Liner notes for \(album.name)")
+        .accessibilityAddTraits(.isModal)
+    }
+
+    /// Single dismiss path for every close affordance (Escape / scrim tap /
+    /// close button) so the slide-out animation stays consistent and honours
+    /// Reduce Motion regardless of how the user closed the panel.
+    private func dismissLinerNotesDrawer() {
+        withAnimation(LinerNotesDrawerPresentation.animation(reduceMotion: reduceMotion)) {
+            isLinerNotesDrawerPresented = false
         }
     }
 
@@ -686,6 +839,39 @@ struct AlbumDetailView: View {
             }
         }
         return ordered.joined(separator: " · ")
+    }
+}
+
+// MARK: - Liner-notes drawer presentation (#221)
+
+/// Pure presentation policy for the album liner-notes drawer. SwiftUI exposes
+/// no way to introspect a `transition` / `animation` off a `some View` without
+/// booting a scene, so — mirroring the `SidebarAutoHide` reducer — the two
+/// motion decisions that depend on the system "Reduce Motion" setting are
+/// hoisted into static functions here where they can be unit-tested directly:
+///
+/// - `transition(reduceMotion:)` — the panel slides in from the trailing edge
+///   normally, and crossfades (`.opacity`) when Reduce Motion is on so no
+///   horizontal travel occurs.
+/// - `animation(reduceMotion:)` — the `withAnimation` curve driving every
+///   open/close path; `nil` under Reduce Motion so the state flips instantly.
+///
+/// Keeping both in one type guarantees the open button, the Escape handler,
+/// the scrim tap, and the close button all animate identically.
+enum LinerNotesDrawerPresentation {
+    /// Trailing-edge slide normally; opacity-only crossfade under Reduce
+    /// Motion. The combined `.move + .opacity` keeps the slide from popping a
+    /// hard rectangle in at full alpha.
+    static func transition(reduceMotion: Bool) -> AnyTransition {
+        reduceMotion
+            ? .opacity
+            : .move(edge: .trailing).combined(with: .opacity)
+    }
+
+    /// The curve for the present/dismiss `withAnimation`. `nil` disables the
+    /// animation entirely so Reduce Motion users get an instant state change.
+    static func animation(reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.22)
     }
 }
 
