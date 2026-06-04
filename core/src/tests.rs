@@ -8346,7 +8346,10 @@ async fn recently_added_artists_builds_query_and_parses() {
     assert!(q.contains("ImageTypeLimit=1"), "query: {q}");
     // Same `IncludeItemTypes`-absence contract as `artists` (see
     // `artists_does_not_send_include_item_types_music_artist`).
-    assert!(!q.contains("IncludeItemTypes="), "unexpected IncludeItemTypes: {q}");
+    assert!(
+        !q.contains("IncludeItemTypes="),
+        "unexpected IncludeItemTypes: {q}"
+    );
 }
 
 #[tokio::test]
