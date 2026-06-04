@@ -7,12 +7,13 @@ import SwiftUI
 /// 2. **Connect Server** (#292) — same fields as login with extended helper
 ///    copy and a "Skip, explore offline" escape link.
 /// 3. **First Sync** (#293) — animated progress through artists → albums →
-///    tracks → artwork with a live counter; "Continue to Home" unlocks when
-///    the library crosses an 80% threshold.
+///    tracks → artwork with a live counter; "Continue to Home" unlocks only
+///    once the library has *actually* loaded (see `FirstSyncGate`), not when
+///    the cosmetic timer finishes.
 ///
 /// The flow exits by either completing a successful login (the last step
-/// flips `hasCompletedOnboarding` once the initial library sync crosses
-/// threshold and bounces the user into `MainShell`) or by tapping the
+/// flips `hasCompletedOnboarding` once the initial library sync has produced
+/// real data and bounces the user into `MainShell`) or by tapping the
 /// "Skip, explore offline" link on the connect step (same flag flip, lands
 /// on `LoginView` which becomes the signed-out surface).
 struct OnboardingView: View {
@@ -117,19 +118,19 @@ private struct WelcomeStep: View {
             JellyfishMark(size: 120)
                 .padding(.bottom, 8)
 
-            Text("Welcome to Lyrebird")
+            Text("onboarding.welcome.title")
                 .font(Theme.font(48, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
                 .multilineTextAlignment(.center)
 
-            Text("Your music, your server, your rules.")
+            Text("onboarding.welcome.subtitle")
                 .font(Theme.font(16, weight: .medium))
                 .foregroundStyle(Theme.ink2)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: 14) {
                 Button(action: onGetStarted) {
-                    Text("Get started")
+                    Text("onboarding.welcome.get_started")
                         .font(Theme.font(14, weight: .bold))
                         .frame(width: 280, height: 44)
                         .foregroundStyle(Theme.ink)
@@ -139,15 +140,15 @@ private struct WelcomeStep: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.defaultAction)
-                .accessibilityLabel("Get started")
+                .accessibilityLabel("onboarding.welcome.get_started")
 
                 Button(action: onExistingAccount) {
-                    Text("I already have an account →")
+                    Text("onboarding.welcome.existing_account")
                         .font(Theme.font(13, weight: .semibold))
                         .foregroundStyle(Theme.primary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("I already have an account")
+                .accessibilityLabel("onboarding.welcome.existing_account.a11y")
             }
             .padding(.top, 16)
         }
@@ -184,10 +185,10 @@ private struct ConnectStep: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
-                Text("Connect your server")
+                Text("onboarding.connect.title")
                     .font(Theme.font(28, weight: .black, italic: true))
                     .foregroundStyle(Theme.ink)
-                Text("Your Jellyfin URL is the address you use to reach it from a browser.")
+                Text("onboarding.connect.subtitle")
                     .font(Theme.font(13, weight: .medium))
                     .foregroundStyle(Theme.ink2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -206,8 +207,10 @@ private struct ConnectStep: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 labeledField(
-                    label: "SERVER URL",
-                    placeholder: "https://jellyfin.example.com",
+                    label: "login.field.url",
+                    a11yLabel: "login.a11y.server_url",
+                    // URL placeholder is a sample host, not a translatable phrase.
+                    placeholder: String("https://jellyfin.example.com"),
                     text: $url,
                     focus: .url,
                     onSubmit: { focusedField = .username }
@@ -215,16 +218,19 @@ private struct ConnectStep: View {
                 ProbeResultRow(state: probe.state)
 
                 labeledField(
-                    label: "USERNAME",
-                    placeholder: "you",
+                    label: "login.field.username",
+                    a11yLabel: "login.a11y.username",
+                    placeholder: String(localized: "login.username.placeholder"),
                     text: $username,
                     focus: .username,
                     onSubmit: { focusedField = .password }
                 )
 
                 labeledSecureField(
-                    label: "PASSWORD",
-                    placeholder: "••••••••",
+                    label: "login.field.password",
+                    a11yLabel: "login.a11y.password",
+                    // Bullet glyphs are the masked-input affordance; not a phrase.
+                    placeholder: String("••••••••"),
                     text: $password,
                     shake: shakeAttempts,
                     onSubmit: submit
@@ -242,7 +248,7 @@ private struct ConnectStep: View {
                     if model.isLoggingIn {
                         ProgressView().scaleEffect(0.7).tint(Theme.ink)
                     }
-                    Text(model.isLoggingIn ? "Connecting…" : "Continue")
+                    Text(model.isLoggingIn ? LocalizedStringKey("onboarding.connect.connecting") : LocalizedStringKey("onboarding.connect.continue"))
                         .font(Theme.font(14, weight: .bold))
                 }
                 .frame(maxWidth: .infinity)
@@ -258,7 +264,7 @@ private struct ConnectStep: View {
             .keyboardShortcut(.defaultAction)
 
             Button(action: onSkipOffline) {
-                Text("Skip, explore offline →")
+                Text("onboarding.connect.skip_offline")
                     .font(Theme.font(12, weight: .semibold))
                     .foregroundStyle(Theme.ink3)
             }
@@ -269,6 +275,13 @@ private struct ConnectStep: View {
         .onAppear {
             discovery.start()
             focusedField = url.isEmpty ? .url : .username
+            // Re-onboarding while already authenticated (e.g. a returning
+            // user who reset onboarding but kept a live session): advance
+            // straight to the sync step instead of stranding them on a
+            // Connect form they've already satisfied. The `onChange` below
+            // can't catch this case because the session is non-nil from the
+            // first render, so the value never *changes*.
+            if model.session != nil { onContinue() }
         }
         .onDisappear {
             discovery.stop()
@@ -280,8 +293,13 @@ private struct ConnectStep: View {
                 probe.schedule(url: newValue)
             }
         }
-        .onChange(of: model.session != nil) { _, signedIn in
-            if signedIn { onContinue() }
+        // Observe the session *identity* rather than a nil-ness Bool: a fresh
+        // login that replaces an already-non-nil session leaves the Bool
+        // unchanged, so the auto-advance would never fire. The user id flips
+        // on any sign-in (including signing in as a different account), which
+        // is the real signal we want to advance on.
+        .onChange(of: model.session?.user.id) { _, userId in
+            if userId != nil { onContinue() }
         }
     }
 
@@ -321,7 +339,8 @@ private struct ConnectStep: View {
 
     @ViewBuilder
     private func labeledField(
-        label: String,
+        label: LocalizedStringKey,
+        a11yLabel: LocalizedStringKey,
         placeholder: String,
         text: Binding<String>,
         focus: Field,
@@ -347,12 +366,14 @@ private struct ConnectStep: View {
                 .focused($focusedField, equals: focus)
                 .submitLabel(.next)
                 .onSubmit(onSubmit)
+                .accessibilityLabel(a11yLabel)
         }
     }
 
     @ViewBuilder
     private func labeledSecureField(
-        label: String,
+        label: LocalizedStringKey,
+        a11yLabel: LocalizedStringKey,
         placeholder: String,
         text: Binding<String>,
         shake: Int,
@@ -380,49 +401,119 @@ private struct ConnectStep: View {
                 .onSubmit(onSubmit)
                 .modifier(ShakeEffect(animatableData: CGFloat(shake)))
                 .animation(.interpolatingSpring(stiffness: 800, damping: 10), value: shake)
+                .accessibilityLabel(a11yLabel)
         }
     }
 }
 
 // MARK: - First sync step
 
+/// Pure decision logic for when the "Continue to Home" CTA may unlock.
+///
+/// Split out from the view so it can be unit-tested without rendering: the
+/// regression we're guarding against is the CTA opening on a *cosmetic*
+/// timer regardless of whether any real data loaded (#293). The gate is now
+/// driven exclusively by `AppModel` signals.
+enum FirstSyncGate {
+    /// `true` only when the initial library load has actually finished
+    /// successfully *and* there's something to show (or the server genuinely
+    /// has an empty library, in which case there's nothing to wait for).
+    ///
+    /// - Parameters:
+    ///   - finishedLoading: the initial `refreshLibrary` round-trip completed
+    ///     (whether it succeeded or failed). Until this latches, the gate is
+    ///     closed no matter what the cosmetic progress bar shows.
+    ///   - hasError: `model.errorMessage` is non-nil — the load failed, so we
+    ///     must not strand the user in an empty library.
+    ///   - hasAnyData: at least one album / artist / track landed locally.
+    ///   - librarySyncRatio: fraction of the server-reported totals we hold
+    ///     locally. Crosses the 0.8 threshold only for libraries that fit in
+    ///     the initial page; large libraries unlock via `hasAnyData` instead
+    ///     (Home is paginated and loads more on scroll).
+    ///   - serverReportsEmptyLibrary: the server's totals are all zero, so a
+    ///     completed-but-empty load is a legitimate "nothing to sync" state.
+    static func isReady(
+        finishedLoading: Bool,
+        hasError: Bool,
+        hasAnyData: Bool,
+        librarySyncRatio: Double,
+        serverReportsEmptyLibrary: Bool
+    ) -> Bool {
+        guard finishedLoading, !hasError else { return false }
+        return librarySyncRatio >= readyThreshold || hasAnyData || serverReportsEmptyLibrary
+    }
+
+    /// Spec threshold: "Continue to Home activates when sync crosses 80%."
+    /// Only reachable for single-page libraries; see `isReady`.
+    static let readyThreshold: Double = 0.8
+}
+
 private struct FirstSyncStep: View {
     @Environment(AppModel.self) private var model
     let onContinue: () -> Void
 
-    /// Nominal 0…1 progress derived from which library lists have started
-    /// populating. `refreshLibrary` fans out artist / album / track calls in
-    /// parallel, so this animates through the phases in order even when the
-    /// server answers fast.
+    /// Nominal 0…1 progress used purely to animate the bar so it doesn't sit
+    /// still on a slow network. This is *cosmetic only* — it never gates the
+    /// CTA (see `FirstSyncGate`). The real fraction (`librarySyncRatio`) is
+    /// blended in so a fast server visibly fills the bar.
     @State private var animatedProgress: Double = 0.0
 
     /// Current animated phase. Drives the "Loading artists… / albums… /
     /// tracks… / artwork…" copy line.
     @State private var phase: SyncPhase = .artists
 
+    /// Latches `true` once the initial library load has finished (success or
+    /// failure). The CTA stays disabled until this flips, regardless of the
+    /// cosmetic progress bar. Guarded so the pre-load render (when no fetch
+    /// has started yet) can't open the gate.
+    @State private var didFinishInitialLoad = false
+
     enum SyncPhase: Int, CaseIterable {
         case artists, albums, tracks, artwork
 
-        var label: String {
+        var labelKey: LocalizedStringKey {
             switch self {
-            case .artists: return "Loading artists…"
-            case .albums: return "Loading albums…"
-            case .tracks: return "Loading tracks…"
-            case .artwork: return "Fetching artwork…"
+            case .artists: return "onboarding.sync.phase.artists"
+            case .albums: return "onboarding.sync.phase.albums"
+            case .tracks: return "onboarding.sync.phase.tracks"
+            case .artwork: return "onboarding.sync.phase.artwork"
             }
         }
     }
 
-    /// Progress crosses 0.8 = CTA unlocks. Matches the spec: "Continue to
-    /// Home button activates when sync crosses 80%." Once activated, the
-    /// computed library-percent or the animation whichever is further keeps
-    /// the bar in sync while the user is deciding.
-    private var isReady: Bool {
-        displayProgress >= 0.8
+    /// Whether the load failed — drives the error row + retry affordance.
+    private var hasError: Bool {
+        model.errorMessage != nil
     }
 
+    /// At least one album / artist / track has landed locally.
+    private var hasAnyData: Bool {
+        !model.albums.isEmpty || !model.artists.isEmpty || !model.tracks.isEmpty
+    }
+
+    /// The server reports a genuinely empty library (all totals zero). Only
+    /// meaningful once `didFinishInitialLoad` is set — before that the totals
+    /// are simply unresolved.
+    private var serverReportsEmptyLibrary: Bool {
+        model.albumsTotal == 0 && model.artistsTotal == 0 && model.tracksTotal == 0
+    }
+
+    /// CTA readiness, driven entirely by real load signals.
+    private var isReady: Bool {
+        FirstSyncGate.isReady(
+            finishedLoading: didFinishInitialLoad,
+            hasError: hasError,
+            hasAnyData: hasAnyData,
+            librarySyncRatio: librarySyncRatio,
+            serverReportsEmptyLibrary: serverReportsEmptyLibrary
+        )
+    }
+
+    /// Cosmetic bar fill: the further of the animation and the real fraction
+    /// while loading; pinned full once the data is actually ready.
     private var displayProgress: Double {
-        max(animatedProgress, librarySyncRatio)
+        if isReady { return 1.0 }
+        return max(animatedProgress, librarySyncRatio)
     }
 
     /// Fraction of the library we actually have locally so far. This grows
@@ -446,7 +537,7 @@ private struct FirstSyncStep: View {
 
             VStack(spacing: 8) {
                 JellyfishMark(size: 72)
-                Text("Loading your library")
+                Text("onboarding.sync.title")
                     .font(Theme.font(28, weight: .black, italic: true))
                     .foregroundStyle(Theme.ink)
             }
@@ -470,10 +561,26 @@ private struct FirstSyncStep: View {
                 .frame(height: 6)
 
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.mini)
-                    Text(phase.label)
-                        .font(Theme.font(12, weight: .semibold))
-                        .foregroundStyle(Theme.teal)
+                    if hasError {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Theme.accentHot)
+                        Text("onboarding.sync.error")
+                            .font(Theme.font(12, weight: .semibold))
+                            .foregroundStyle(Theme.accentHot)
+                        Button(action: retry) {
+                            Text("onboarding.sync.retry")
+                                .font(Theme.font(12, weight: .bold))
+                                .foregroundStyle(Theme.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("onboarding.sync.retry")
+                    } else {
+                        ProgressView().controlSize(.mini)
+                        Text(phase.labelKey)
+                            .font(Theme.font(12, weight: .semibold))
+                            .foregroundStyle(Theme.teal)
+                    }
                     Spacer()
                     Text(counterLabel)
                         .font(Theme.font(12, weight: .medium))
@@ -483,7 +590,7 @@ private struct FirstSyncStep: View {
             }
 
             Button(action: onContinue) {
-                Text(isReady ? "Continue to Home" : "Syncing…")
+                Text(isReady ? LocalizedStringKey("onboarding.sync.continue") : LocalizedStringKey("onboarding.sync.syncing"))
                     .font(Theme.font(14, weight: .bold))
                     .frame(width: 280, height: 44)
                     .foregroundStyle(Theme.ink)
@@ -497,17 +604,52 @@ private struct FirstSyncStep: View {
             .buttonStyle(.plain)
             .disabled(!isReady)
             .keyboardShortcut(.defaultAction)
-            .accessibilityLabel("Continue to Home")
+            .accessibilityLabel("onboarding.sync.continue")
         }
         .padding(.vertical, 40)
         .onAppear {
             startProgressAnimation()
-            // `ConnectStep.submit` calls `model.login`, which already kicks
-            // off `refreshLibrary`. If we got here via `onChange` of
-            // `model.session`, the library fetch is likely already in
-            // flight. No extra call needed — `librarySyncRatio` will tick
-            // up as the arrays populate.
+            ensureLibraryLoad()
         }
+        .onChange(of: model.isLoadingLibrary) { _, loading in
+            // The initial fetch kicked off by `model.login` (or by
+            // `ensureLibraryLoad` below) completes when this flips back to
+            // false. That's the real "sync finished" edge that unlocks the
+            // CTA — never the cosmetic timer.
+            if !loading { didFinishInitialLoad = true }
+        }
+    }
+
+    /// Make sure a library load actually runs. `ConnectStep.submit` →
+    /// `model.login` already kicks off `refreshLibrary`, so in the common
+    /// path a fetch is in flight (or finished) by the time we get here and we
+    /// just observe its completion via `onChange(of: isLoadingLibrary)`. The
+    /// fallbacks cover paths that reach the sync step without a fetch having
+    /// been triggered (so the CTA can't hang forever).
+    private func ensureLibraryLoad() {
+        if model.isLoadingLibrary {
+            // A fetch (login's) is in flight; the onChange handler latches
+            // completion. Nothing to do.
+            return
+        }
+        if hasAnyData || hasError {
+            // The fetch already finished before this view appeared (data
+            // present) or failed (error surfaced). Either way it's done.
+            didFinishInitialLoad = true
+            return
+        }
+        // No fetch in flight and nothing loaded — drive one ourselves so the
+        // CTA can eventually unlock. `onChange(of: isLoadingLibrary)` latches
+        // completion once `refreshLibrary` finishes.
+        Task { await model.refreshLibrary() }
+    }
+
+    /// Retry a failed initial load. Clears the error so the progress row
+    /// returns to its loading state, then re-fetches.
+    private func retry() {
+        didFinishInitialLoad = false
+        model.errorMessage = nil
+        Task { await model.refreshLibrary() }
     }
 
     /// Server-reported total across the three lists we care about. Same
@@ -526,7 +668,13 @@ private struct FirstSyncStep: View {
         let t = formatter.string(from: NSNumber(value: tracks)) ?? "\(tracks)"
         let a = formatter.string(from: NSNumber(value: artists)) ?? "\(artists)"
         let al = formatter.string(from: NSNumber(value: albums)) ?? "\(albums)"
-        return "\(t) tracks · \(a) artists · \(al) albums"
+        // Look up the positional template ("%1$@ tracks · %2$@ artists ·
+        // %3$@ albums") by key and fill in the pre-formatted, grouping-
+        // separated counts. Using the format-string form (rather than
+        // interpolating into the key) keeps the catalog key stable and lets
+        // translators reorder the clauses.
+        let template = String(localized: "onboarding.sync.counter")
+        return String(format: template, t, a, al)
     }
 
     /// Drives `animatedProgress` and `phase` forward on a 250ms tick so
@@ -584,13 +732,13 @@ private struct BackButton: View {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .bold))
-                Text("Back")
+                Text("onboarding.back")
                     .font(Theme.font(12, weight: .semibold))
             }
             .foregroundStyle(Theme.ink3)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Back")
+        .accessibilityLabel("onboarding.back")
     }
 }
 
@@ -604,7 +752,7 @@ private struct ProbeResultRow: View {
             case .checking:
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("Checking…")
+                    Text("login.probe.checking")
                         .font(Theme.font(12, weight: .medium))
                         .foregroundStyle(Theme.teal)
                 }
@@ -640,7 +788,7 @@ private struct DiscoveredServersChipRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("FOUND ON THIS NETWORK")
+            Text("login.discovered_servers")
                 .font(Theme.font(10, weight: .bold))
                 .foregroundStyle(Theme.ink3)
                 .tracking(1.5)
@@ -664,6 +812,7 @@ private struct DiscoveredServersChipRow: View {
                         .overlay(Capsule().stroke(Theme.border, lineWidth: 1))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Use discovered server \(server.name)")
                 }
             }
         }

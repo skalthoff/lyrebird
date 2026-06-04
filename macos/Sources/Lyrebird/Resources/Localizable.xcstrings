@@ -685,6 +685,258 @@
         }
       }
     },
+    "onboarding.back" : {
+      "comment" : "Back button on the onboarding connect step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
+          }
+        }
+      }
+    },
+    "onboarding.welcome.title" : {
+      "comment" : "Hero headline on the first onboarding screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome to Lyrebird"
+          }
+        }
+      }
+    },
+    "onboarding.welcome.subtitle" : {
+      "comment" : "Tagline under the welcome headline.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your music, your server, your rules."
+          }
+        }
+      }
+    },
+    "onboarding.welcome.get_started" : {
+      "comment" : "Primary CTA on the welcome screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get started"
+          }
+        }
+      }
+    },
+    "onboarding.welcome.existing_account" : {
+      "comment" : "Secondary link on the welcome screen for returning users.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I already have an account →"
+          }
+        }
+      }
+    },
+    "onboarding.welcome.existing_account.a11y" : {
+      "comment" : "Accessibility label for the returning-user link on the welcome screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I already have an account"
+          }
+        }
+      }
+    },
+    "onboarding.connect.title" : {
+      "comment" : "Heading on the onboarding connect-server step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect your server"
+          }
+        }
+      }
+    },
+    "onboarding.connect.subtitle" : {
+      "comment" : "Helper copy under the connect-server heading.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your Jellyfin URL is the address you use to reach it from a browser."
+          }
+        }
+      }
+    },
+    "onboarding.connect.continue" : {
+      "comment" : "Primary submit button on the connect step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue"
+          }
+        }
+      }
+    },
+    "onboarding.connect.connecting" : {
+      "comment" : "Submit button label while a sign-in request is in flight.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting…"
+          }
+        }
+      }
+    },
+    "onboarding.connect.skip_offline" : {
+      "comment" : "Link that skips sign-in and lets the user explore offline.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip, explore offline →"
+          }
+        }
+      }
+    },
+    "onboarding.sync.title" : {
+      "comment" : "Heading on the first-sync step that shows library loading progress.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading your library"
+          }
+        }
+      }
+    },
+    "onboarding.sync.phase.artists" : {
+      "comment" : "Progress line while artists are loading on the first-sync step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading artists…"
+          }
+        }
+      }
+    },
+    "onboarding.sync.phase.albums" : {
+      "comment" : "Progress line while albums are loading on the first-sync step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading albums…"
+          }
+        }
+      }
+    },
+    "onboarding.sync.phase.tracks" : {
+      "comment" : "Progress line while tracks are loading on the first-sync step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading tracks…"
+          }
+        }
+      }
+    },
+    "onboarding.sync.phase.artwork" : {
+      "comment" : "Progress line while artwork is loading on the first-sync step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fetching artwork…"
+          }
+        }
+      }
+    },
+    "onboarding.sync.counter" : {
+      "comment" : "Library totals counter on the first-sync step. %1$@ is the track count, %2$@ the artist count, %3$@ the album count, each pre-formatted with grouping separators.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ tracks · %2$@ artists · %3$@ albums"
+          }
+        }
+      }
+    },
+    "onboarding.sync.continue" : {
+      "comment" : "CTA that leaves onboarding for the Home screen once the library has loaded.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue to Home"
+          }
+        }
+      }
+    },
+    "onboarding.sync.syncing" : {
+      "comment" : "Disabled CTA label shown while the library is still loading.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Syncing…"
+          }
+        }
+      }
+    },
+    "onboarding.sync.error" : {
+      "comment" : "Status line on the first-sync step when the library failed to load; offers a retry.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t load your library."
+          }
+        }
+      }
+    },
+    "onboarding.sync.retry" : {
+      "comment" : "Button that re-attempts the library load after a failure on the first-sync step.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        }
+      }
+    },
     "menu.app.about" : {
       "comment" : "App menu \u201cAbout Lyrebird\u201d item that opens the dedicated About window (#25).",
       "extractionState" : "manual",
