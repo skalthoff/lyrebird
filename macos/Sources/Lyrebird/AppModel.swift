@@ -5271,12 +5271,22 @@ final class AppModel {
     }
 
     /// The track the engine should pre-load for gapless playback after the
-    /// current one: the user-added "Up Next" overlay takes precedence over the
-    /// auto-queue tail, matching the order the engine advances through. Shared
-    /// by the end-of-track advance (`handleTrackEnded`) and stall recovery
+    /// current one. Read straight from the core queue's lookahead
+    /// (`core.peekNext()`) — the track `skipNext()` would return next — so the
+    /// pre-loaded item is *always* the one that actually plays at end-of-track,
+    /// honouring the current repeat mode. This is the same queue the in-app
+    /// "Up Next" / auto-queue split mirrors (user "Play Next" inserts land at
+    /// `queue_index + 1`, the source tail follows), so it captures both without
+    /// depending on those overlays being kept in sync. Shared by the
+    /// end-of-track advance (`handleTrackEnded`) and stall recovery
     /// (`audioEngineDidRecover`) so both arm the same item. See #931.
+    ///
+    /// `peekNext()` is a read-only in-memory clone under the core's queue mutex
+    /// (no network, no DB) — the same cost profile as the `core.skipNext()`
+    /// call `handleTrackEnded` already makes synchronously, and it fires once
+    /// per advance rather than per-cell, so it's safe on the main actor.
     private var nextTrackForPreload: Track? {
-        upNextUserAdded.first?.track ?? upNextAutoQueue.first?.track
+        core.peekNext()
     }
 
     /// Arm the engine's gapless pre-load for whatever comes after the current
@@ -5289,10 +5299,25 @@ final class AppModel {
     }
 
     #if DEBUG
-    /// Test seam: run the exact gapless-arming step the normal end-of-track
-    /// advance performs once `play(track:)` has settled. Lets a test prove the
-    /// advance re-arms the pre-load without driving the async `play(track:)`
-    /// path (which throws un-authed before the arm would run). See #931.
+    /// Test seam: drive the end-of-track advance the way `handleTrackEnded`
+    /// does — step the core queue forward (`core.skipNext()`) and then arm the
+    /// gapless pre-load for the track after the new current one. Skips only the
+    /// async `play(track:)` rebuild (which throws un-authed and which the test's
+    /// empty player stands in for); the queue advance and the arming step are
+    /// the *production* calls, reading the same core queue `play(tracks:)`
+    /// populated. Returns the track the advance landed on (or `nil` at end of
+    /// queue) so a test can assert the playhead moved as well. See #931.
+    @discardableResult
+    func advanceAndArmPreloadForTesting() -> Track? {
+        guard let next = core.skipNext() else { return nil }
+        armNextTrackPreload()
+        return next
+    }
+
+    /// Test seam: run just the gapless-arming step (`armNextTrackPreload`)
+    /// without advancing the queue — mirrors stall recovery
+    /// (`audioEngineDidRecover`), which re-arms the pre-load for the track
+    /// after the *current* one without moving the playhead. See #931.
     func armNextTrackPreloadForTesting() {
         armNextTrackPreload()
     }
@@ -6154,9 +6179,9 @@ extension AppModel: AudioEngineDelegate {
 
     /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
     /// which evicts any pre-loaded next-track item from the queue. Re-arm
-    /// gapless playback by preloading the upcoming track again — the
-    /// user-added "Up Next" overlay takes precedence over the auto-queue
-    /// tail, matching the order the engine would otherwise advance through.
+    /// gapless playback by preloading the upcoming track again — the same
+    /// core-queue lookahead (`nextTrackForPreload`) the normal end-of-track
+    /// advance uses, so both paths splice the track that actually plays next.
     func audioEngineDidRecover() {
         armNextTrackPreload()
     }

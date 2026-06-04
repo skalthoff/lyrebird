@@ -1187,6 +1187,15 @@ impl LyrebirdCore {
         self.player.skip_next()
     }
 
+    /// The track [`Self::skip_next`] would return next, without advancing the
+    /// queue. Lets the platform audio engine pre-load the upcoming item for
+    /// gapless playback while the current track is still playing. Honours the
+    /// current [`RepeatMode`] so the pre-loaded track always matches what
+    /// actually plays at end-of-track. See issue #931.
+    pub fn peek_next(&self) -> Option<Track> {
+        self.player.peek_next()
+    }
+
     pub fn skip_previous(&self) -> Option<Track> {
         self.player.skip_previous()
     }

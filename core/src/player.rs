@@ -186,6 +186,34 @@ impl Player {
         }
     }
 
+    /// The track [`Player::skip_next`] *would* return, without mutating the
+    /// queue index or `current`. Lets the platform audio engine pre-load the
+    /// upcoming item for gapless playback while the current track is still
+    /// playing.
+    ///
+    /// Mirrors `skip_next`'s [`RepeatMode`] semantics exactly so the pre-loaded
+    /// track is always the one that actually plays next:
+    /// * [`RepeatMode::One`] — the current track (it replays in place).
+    /// * [`RepeatMode::Off`] — the next sequential track, or `None` at the
+    ///   end of the queue.
+    /// * [`RepeatMode::All`] — wraps to the first track at the end of the
+    ///   queue.
+    ///
+    /// See issue #931.
+    pub fn peek_next(&self) -> Option<Track> {
+        let s = self.shared.lock();
+        if matches!(s.repeat_mode, RepeatMode::One) {
+            return s.queue.get(s.queue_index).cloned();
+        }
+        if s.queue_index + 1 < s.queue.len() {
+            s.queue.get(s.queue_index + 1).cloned()
+        } else if matches!(s.repeat_mode, RepeatMode::All) && !s.queue.is_empty() {
+            s.queue.first().cloned()
+        } else {
+            None
+        }
+    }
+
     /// Step back to the previous track in the queue. Returns `Some(track)` on
     /// success and updates `current` so that `status()` immediately reflects
     /// the new track.
@@ -710,5 +738,80 @@ mod tests {
         );
         assert_eq!(player.status().current_track.unwrap().id, "a");
         assert_eq!(player.status().queue_position, 0);
+    }
+
+    // ---- #931: peek_next mirrors skip_next without mutating the queue ----
+
+    #[test]
+    fn peek_next_returns_upcoming_track_without_advancing() {
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 0)
+            .unwrap();
+
+        let peeked = player.peek_next().expect("should peek the next track");
+        assert_eq!(peeked.id, "b");
+        // The peek is read-only: current and queue_position are untouched, so a
+        // subsequent skip_next still lands on the same track.
+        assert_eq!(player.status().current_track.unwrap().id, "a");
+        assert_eq!(player.status().queue_position, 0);
+        assert_eq!(player.skip_next().unwrap().id, "b");
+    }
+
+    #[test]
+    fn peek_next_matches_skip_next_across_repeated_calls() {
+        let player = Player::new();
+        player
+            .set_queue(vec![track("a"), track("b"), track("c")], 0)
+            .unwrap();
+        // Idempotent: peeking twice yields the same track and never advances.
+        assert_eq!(player.peek_next().unwrap().id, "b");
+        assert_eq!(player.peek_next().unwrap().id, "b");
+        assert_eq!(player.status().queue_position, 0);
+    }
+
+    #[test]
+    fn peek_next_returns_none_at_end_when_repeat_off() {
+        let player = Player::new();
+        player.set_queue(vec![track("a"), track("b")], 1).unwrap();
+        player.set_repeat_mode(RepeatMode::Off);
+        assert!(
+            player.peek_next().is_none(),
+            "RepeatMode::Off at end-of-queue has nothing to pre-load"
+        );
+    }
+
+    #[test]
+    fn peek_next_wraps_to_first_when_repeat_all() {
+        let player = Player::new();
+        player.set_queue(vec![track("a"), track("b")], 1).unwrap();
+        player.set_repeat_mode(RepeatMode::All);
+        let peeked = player.peek_next();
+        assert_eq!(
+            peeked.unwrap().id,
+            "a",
+            "RepeatMode::All must pre-load the wrap-around track"
+        );
+        // Still read-only.
+        assert_eq!(player.status().queue_position, 1);
+    }
+
+    #[test]
+    fn peek_next_returns_current_when_repeat_one() {
+        let player = Player::new();
+        player.set_queue(vec![track("a"), track("b")], 0).unwrap();
+        player.set_repeat_mode(RepeatMode::One);
+        let peeked = player.peek_next();
+        assert_eq!(
+            peeked.unwrap().id,
+            "a",
+            "RepeatMode::One replays in place, so the upcoming track is current"
+        );
+    }
+
+    #[test]
+    fn peek_next_on_empty_queue_is_none() {
+        let player = Player::new();
+        assert!(player.peek_next().is_none());
     }
 }

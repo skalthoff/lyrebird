@@ -92,18 +92,27 @@ private final class RecoverySpy: AudioEngineDelegate {
 }
 
 /// #931 — gapless must engage on a *normal* queue advance, not just stall
-/// recovery. `AppModel.handleTrackEnded` advances the queue and rebuilds the
-/// player via `play(track:)` (a fresh single-item `AVQueuePlayer`), which drops
-/// any pre-inserted next item. The advance must therefore re-arm the engine's
-/// pre-load for the track *after* the new current one — selecting it with the
-/// same precedence stall recovery uses (user-added "Up Next" over the
-/// auto-queue tail).
+/// recovery. `AppModel.handleTrackEnded` steps the core queue forward
+/// (`core.skipNext()`) and rebuilds the player via `play(track:)` (a fresh
+/// single-item `AVQueuePlayer`), which drops any pre-inserted next item. The
+/// advance must therefore re-arm the engine's pre-load for the track *after*
+/// the new current one, read from the core queue lookahead (`core.peekNext()`)
+/// so it always matches what `skipNext()` plays next.
 ///
-/// These exercise the production arming step directly (`armNextTrackPreload`,
-/// surfaced for tests as `armNextTrackPreloadForTesting`) rather than the async
-/// `play(track:)` path, which throws against the un-authed test core before the
-/// arm would run. The engine records the armed track id before its off-main
-/// stream resolve, so we can assert the *intent* without a network round-trip.
+/// These drive the **production queue-population path** the app actually uses:
+/// `model.play(tracks:)` calls `core.setQueue(...)` synchronously (an in-memory
+/// queue mutation that succeeds un-authed; only the async `play(track:)` it
+/// kicks off needs the network, and that's irrelevant to the queue state), so
+/// the core queue is populated exactly as it is in the running app. The advance
+/// itself runs through `advanceAndArmPreloadForTesting()`, which performs the
+/// same `core.skipNext()` + `armNextTrackPreload()` calls `handleTrackEnded`
+/// makes — skipping only the async player rebuild the empty test player stands
+/// in for. Nothing here hand-sets `upNextAutoQueue` / `upNextUserAdded`; a
+/// regression that left the preload unwired would surface as a nil armed id.
+///
+/// The engine records the armed track id (`lastPreloadedTrackIdForTesting`)
+/// before its off-main stream resolve, so we assert the *intent* without a
+/// network round-trip.
 ///
 /// `AppModel` is `@MainActor`; constructing it boots a live `LyrebirdCore`. We
 /// redirect the core's data dir to a throwaway temp dir via `XDG_DATA_HOME`
@@ -139,55 +148,112 @@ final class AppModelAdvancePreloadTests: XCTestCase {
         )
     }
 
-    /// A normal advance arms the engine pre-load for the head of the auto-queue
-    /// tail when there is no user-added "Up Next". Without the #931 wiring the
-    /// freshly built player would carry no queued-ahead item and the engine's
-    /// `lastPreloadedTrackIdForTesting` would stay nil.
-    func testAdvanceArmsPreloadFromAutoQueueTail() throws {
+    /// A normal advance through a queue built by `play(tracks:)` arms the
+    /// engine pre-load for the track *after* the one the advance landed on.
+    /// This is the end-to-end #931 guarantee: start at the head of a three-track
+    /// queue, advance once (now playing track 1), and the engine must have
+    /// pre-loaded track 2 for the next gapless transition. Before the wiring the
+    /// freshly built player carried no queued-ahead item and the armed id stayed
+    /// nil.
+    func testNormalAdvanceArmsPreloadForFollowingTrack() throws {
         let model = try AppModel()
         model.audio.installEmptyPlayerForTesting()
-        model.upNextAutoQueue = [Queue(track: makeTrack("auto-next"))]
 
-        model.armNextTrackPreloadForTesting()
+        // Production path: populate the core queue exactly as the app does.
+        model.play(tracks: [makeTrack("t0"), makeTrack("t1"), makeTrack("t2")], startIndex: 0)
 
+        // End-of-track advance: now playing t1, pre-load should be t2.
+        let landed = model.advanceAndArmPreloadForTesting()
+
+        XCTAssertEqual(landed?.id, "t1", "advance must move the playhead to the next track")
         XCTAssertEqual(
             model.audio.lastPreloadedTrackIdForTesting,
-            "auto-next",
-            "advance must pre-load the next auto-queue track for gapless playback"
+            "t2",
+            "a normal advance must pre-load the track after the new current one"
         )
     }
 
-    /// User-added "Up Next" wins over the auto-queue tail — the engine advances
-    /// through explicit queue entries first, so the pre-loaded item must match.
-    func testAdvancePrefersUserAddedOverAutoQueue() throws {
+    /// "Play Next" inserts the user's track at `queue_index + 1` in the core
+    /// queue, so after an advance it is exactly what the lookahead pre-loads —
+    /// the same precedence the old in-app "Up Next" overlay was meant to model,
+    /// now sourced straight from the core. Build the base queue via the
+    /// production path, insert a track via `core.playNext`, then advance.
+    func testAdvanceAfterPlayNextArmsTheInsertedTrack() throws {
         let model = try AppModel()
         model.audio.installEmptyPlayerForTesting()
-        model.upNextUserAdded = [Queue(track: makeTrack("user-next"))]
-        model.upNextAutoQueue = [Queue(track: makeTrack("auto-next"))]
 
-        model.armNextTrackPreloadForTesting()
+        model.play(tracks: [makeTrack("t0"), makeTrack("t1")], startIndex: 0)
+        // User "Play Next" — lands right after the current track (t0).
+        _ = model.core.playNext(tracks: [makeTrack("inserted")])
 
+        // Advance off t0: lands on the inserted track, and the *next* one
+        // (the original t1) is what gets pre-loaded.
+        let landed = model.advanceAndArmPreloadForTesting()
+
+        XCTAssertEqual(landed?.id, "inserted", "advance must land on the Play-Next track first")
         XCTAssertEqual(
             model.audio.lastPreloadedTrackIdForTesting,
-            "user-next",
-            "user-added Up Next must take precedence over the auto-queue tail"
+            "t1",
+            "the queue lookahead after the inserted track must be pre-loaded"
         )
     }
 
-    /// At the end of the queue (nothing user-added, empty tail) there is no
-    /// next track to arm, so the advance must leave the engine pre-load
-    /// untouched rather than re-arming a stale item.
-    func testAdvanceAtEndOfQueueArmsNothing() throws {
+    /// Advancing onto the last track of the queue leaves nothing further to
+    /// pre-load (repeat off), so the engine's armed id must stay nil rather than
+    /// re-arming a stale item.
+    func testAdvanceOntoLastTrackArmsNothing() throws {
         let model = try AppModel()
         model.audio.installEmptyPlayerForTesting()
-        model.upNextUserAdded = []
-        model.upNextAutoQueue = []
 
-        model.armNextTrackPreloadForTesting()
+        model.play(tracks: [makeTrack("t0"), makeTrack("t1")], startIndex: 0)
 
+        // Advance onto t1 (the last track) — peekNext is nil, nothing to arm.
+        let landed = model.advanceAndArmPreloadForTesting()
+
+        XCTAssertEqual(landed?.id, "t1")
         XCTAssertNil(
             model.audio.lastPreloadedTrackIdForTesting,
-            "no upcoming track means nothing to pre-load at end of queue"
+            "no track after the last one means nothing to pre-load"
+        )
+    }
+
+    /// With repeat-all engaged, advancing onto the last track must pre-load the
+    /// wrap-around (first) track — the lookahead honours repeat mode so the
+    /// pre-loaded item still matches what `skipNext()` would play next.
+    func testAdvanceOntoLastTrackWithRepeatAllArmsWrapAround() throws {
+        let model = try AppModel()
+        model.audio.installEmptyPlayerForTesting()
+
+        model.play(tracks: [makeTrack("t0"), makeTrack("t1")], startIndex: 0)
+        model.core.setRepeatMode(mode: .all)
+
+        let landed = model.advanceAndArmPreloadForTesting()
+
+        XCTAssertEqual(landed?.id, "t1")
+        XCTAssertEqual(
+            model.audio.lastPreloadedTrackIdForTesting,
+            "t0",
+            "repeat-all must pre-load the wrap-around track at the end of the queue"
+        )
+    }
+
+    /// Stall recovery re-arms the pre-load *without* advancing the playhead —
+    /// it re-loads the track after the current one. Mirrors
+    /// `audioEngineDidRecover`. Build the queue via the production path, then
+    /// arm without an advance: the head's successor is what gets pre-loaded.
+    func testStallRecoveryArmsFollowingTrackWithoutAdvancing() throws {
+        let model = try AppModel()
+        model.audio.installEmptyPlayerForTesting()
+
+        model.play(tracks: [makeTrack("t0"), makeTrack("t1")], startIndex: 0)
+
+        // No advance — recovery re-arms for the track after the current (t0).
+        model.armNextTrackPreloadForTesting()
+
+        XCTAssertEqual(
+            model.audio.lastPreloadedTrackIdForTesting,
+            "t1",
+            "stall recovery must re-arm the pre-load for the track after current"
         )
     }
 }
