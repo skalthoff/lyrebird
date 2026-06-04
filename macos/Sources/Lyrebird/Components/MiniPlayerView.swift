@@ -32,6 +32,9 @@ import SwiftUI
 struct MiniPlayerView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Contrast-adaptive accent for the favorite heart. Lifts to `accentHot`
+    // under Increase Contrast so the accent-tinted glyph clears 4.5:1 (#888).
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     /// Whether the controls overlay is currently revealed. Driven by hover plus
     /// the 2-second idle timeout below — `true` while the pointer is moving over
@@ -224,7 +227,7 @@ struct MiniPlayerView: View {
         } label: {
             Image(systemName: isFav ? "heart.fill" : "heart")
                 .font(.system(size: 12))
-                .foregroundStyle(isFav ? Theme.accent : Theme.ink3)
+                .foregroundStyle(isFav ? a11yTheme.accent : Theme.ink3)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(Text(isFav ? "mini_player.unfavorite" : "mini_player.favorite"))

@@ -42,6 +42,12 @@ let directPlayContainers: Set<String> = [
 struct TrackListRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Contrast-adaptive accent for foreground text/icons (active-track title,
+    // now-playing equalizer, favorite heart). Lifts to `accentHot` under
+    // Increase Contrast so accent foregrounds clear 4.5:1 (#888). The
+    // decorative selection rail / focus-ring stroke / selection background
+    // tint keep the base token.
+    @Environment(\.accessibleTheme) private var a11yTheme
     let track: Track
     /// Full track list the row was rendered from, so tap-to-play can hand
     /// the entire ordered list to `AppModel.play` and index into it. This
@@ -223,7 +229,7 @@ struct TrackListRow: View {
                         .fill(Color.black.opacity(0.55))
                         .frame(width: artworkSize, height: artworkSize)
                     EqualizerIcon()
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(a11yTheme.accent)
                 } else if isHovering {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.black.opacity(0.45))
@@ -240,7 +246,7 @@ struct TrackListRow: View {
                 HStack(spacing: 5) {
                     Text(track.name)
                         .font(Theme.font(13, weight: .semibold))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                        .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink)
                         .lineLimit(1)
                     FormatBadge(track: track)
                     if willTranscode {
@@ -278,7 +284,7 @@ struct TrackListRow: View {
                 } label: {
                     Image(systemName: isFav ? "heart.fill" : "heart")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                        .foregroundStyle(isFav ? a11yTheme.accent : Theme.ink2)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)

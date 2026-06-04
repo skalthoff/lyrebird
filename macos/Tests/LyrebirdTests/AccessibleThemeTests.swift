@@ -104,4 +104,74 @@ final class AccessibleThemeTests: XCTestCase {
         XCTAssertLessThan(standard.a, 0.5)
         XCTAssertEqual(increased.a, 1.0, accuracy: 0.02)
     }
+
+    // MARK: - Accent adoption at view call sites (#888)
+    //
+    // The legibility-critical accent foregrounds (active-track titles, the
+    // now-playing equalizer, favorite hearts, the "NOW PLAYING" label, the
+    // sidebar active-tab glyphs, prominent buttons) now read
+    // `@Environment(\.accessibleTheme).accent` instead of the static
+    // `Theme.accent`. These tests pin the two invariants that swap relies on:
+    // (1) the accessor routes to the right hex per contrast mode, and
+    // (2) the lift is load-bearing — the standard accent fails AA body
+    // contrast while the high-contrast accent clears it. Surfaces (`bg`/`bgAlt`)
+    // mirror `Theme.bg` / `Theme.bgAlt`.
+
+    private let bg: UInt32 = 0x0C0622
+    private let bgAlt: UInt32 = 0x140B30
+    /// Standard body accent (`Theme.accent`) and its Increase-Contrast lift
+    /// (`Theme.accentHighContrast` == `Theme.accentHot`).
+    private let accentHex: UInt32 = 0xCC2F71
+    private let accentHotHex: UInt32 = 0xFF066F
+    /// WCAG 2.2 §1.4.3 minimum for body text.
+    private let bodyTextMin = 4.5
+
+    /// The `colorSchemeContrast`-driven accessor a view binds via
+    /// `@Environment(\.accessibleTheme)` must resolve to the static `accent`
+    /// under `.standard` and to the brighter `accentHot` lift under
+    /// `.increased`. This is the exact value every converted call site now
+    /// renders, so the mapping is pinned against silent drift.
+    func testAccessibleAccentResolvesPerContrastForCallSites() {
+        XCTAssertEqual(AccessibleTheme(.standard).accent, Theme.accent)
+        XCTAssertEqual(AccessibleTheme(.increased).accent, Theme.accentHighContrast)
+        // The high-contrast variant is intentionally `accentHot`.
+        XCTAssertEqual(Theme.accentHighContrast, Theme.accentHot)
+        // Standard and increased must differ, or the adoption would be a
+        // no-op under Increase Contrast.
+        XCTAssertNotEqual(AccessibleTheme(.standard).accent, AccessibleTheme(.increased).accent)
+    }
+
+    /// Why the call-site swap matters: the static `Theme.accent` fails the
+    /// 4.5:1 body-text threshold on both dark surfaces, while the
+    /// high-contrast accent the wrapper substitutes clears it. If a future
+    /// palette edit made the base accent already-compliant (or broke the
+    /// lift), this test flags that the adoption is no longer load-bearing /
+    /// correct.
+    func testStandardAccentFailsBodyContrastButHighContrastAccentPasses() {
+        for surface in [bg, bgAlt] {
+            let standard = Color.contrastRatio(accentHex, surface)
+            let lifted = Color.contrastRatio(accentHotHex, surface)
+            XCTAssertLessThan(
+                standard, bodyTextMin,
+                "Standard accent contrast \(standard) unexpectedly clears 4.5:1 on \(String(format: "#%06X", surface)) — accent adoption may no longer be needed"
+            )
+            XCTAssertGreaterThanOrEqual(
+                lifted, bodyTextMin,
+                "High-contrast accent contrast \(lifted) below 4.5:1 on \(String(format: "#%06X", surface)) — the lift no longer clears AA body text"
+            )
+        }
+    }
+
+    /// The high-contrast accent must resolve to the documented `accentHot`
+    /// RGBA (#FF066F) when the wrapper reports increased contrast, so the
+    /// converted foregrounds actually paint the brighter pink rather than
+    /// silently falling back to the standard token.
+    func testIncreasedAccentResolvesToAccentHotComponents() {
+        let rgb = NSColor(AccessibleTheme(.increased).accent)
+            .usingColorSpace(.sRGB) ?? NSColor(AccessibleTheme(.increased).accent)
+        XCTAssertEqual(rgb.redComponent, Double(0xFF) / 255.0, accuracy: 0.01)
+        XCTAssertEqual(rgb.greenComponent, Double(0x06) / 255.0, accuracy: 0.01)
+        XCTAssertEqual(rgb.blueComponent, Double(0x6F) / 255.0, accuracy: 0.01)
+        XCTAssertEqual(rgb.alphaComponent, 1.0, accuracy: 0.01)
+    }
 }

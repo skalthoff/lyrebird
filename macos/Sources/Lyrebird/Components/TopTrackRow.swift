@@ -14,6 +14,10 @@ import SwiftUI
 struct TopTrackRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Contrast-adaptive accent for the active-row rank / title and the
+    // now-playing equalizer. Lifts to `accentHot` under Increase Contrast so
+    // accent foregrounds clear 4.5:1 (#888).
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     let track: Track
     let rank: Int
@@ -45,7 +49,7 @@ struct TopTrackRow: View {
                 ZStack {
                     if isPlaying {
                         EqualizerIcon()
-                            .foregroundStyle(Theme.accent)
+                            .foregroundStyle(a11yTheme.accent)
                     } else if isHovering {
                         Image(systemName: "play.fill")
                             .font(.system(size: 12))
@@ -53,7 +57,7 @@ struct TopTrackRow: View {
                     } else {
                         Text("\(rank)")
                             .font(Theme.font(14, weight: .heavy))
-                            .foregroundStyle(isActive ? Theme.accent : Theme.ink3)
+                            .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink3)
                             .monospacedDigit()
                     }
                 }
@@ -76,7 +80,7 @@ struct TopTrackRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.name)
                         .font(Theme.font(13, weight: .semibold))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                        .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink)
                         .lineLimit(1)
                     Text(track.albumName ?? track.artistName)
                         .font(Theme.font(11, weight: .medium))

@@ -3,6 +3,11 @@ import SwiftUI
 
 struct PlayerBar: View {
     @Environment(AppModel.self) private var model
+    // Contrast-adaptive accent for foreground/active-state controls. Lifts
+    // `Theme.accent` to the brighter `accentHot` under Increase Contrast so
+    // accent-tinted transport icons clear 4.5:1 (#888). Decorative accents
+    // (e.g. the play-button fill) keep the base token.
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     /// Local scrubber position used while the user is actively dragging the
     /// Slider. We don't bind the Slider straight to `status.positionSeconds`
@@ -99,7 +104,7 @@ struct PlayerBar: View {
                 iconBtn(
                     isFav ? "heart.fill" : "heart",
                     label: isFav ? "Unfavorite" : "Favorite",
-                    tint: isFav ? Theme.accent : Theme.ink2
+                    tint: isFav ? a11yTheme.accent : Theme.ink2
                 ) { model.toggleFavorite(track: track) }
                     .help(isFav ? "Unfavorite" : "Favorite")
             }
@@ -117,7 +122,7 @@ struct PlayerBar: View {
                 iconBtn(
                     "shuffle",
                     label: "Shuffle",
-                    tint: model.status.shuffle ? Theme.accent : Theme.ink2
+                    tint: model.status.shuffle ? a11yTheme.accent : Theme.ink2
                 ) {
                     Haptics.levelChange()
                     model.mediaSessionSetShuffle(!model.status.shuffle)
@@ -152,7 +157,7 @@ struct PlayerBar: View {
                 iconBtn(
                     model.status.repeatMode == .one ? "repeat.1" : "repeat",
                     label: "Repeat",
-                    tint: model.status.repeatMode != .off ? Theme.accent : Theme.ink2
+                    tint: model.status.repeatMode != .off ? a11yTheme.accent : Theme.ink2
                 ) {
                     Haptics.levelChange()
                     let next: RepeatMode = {

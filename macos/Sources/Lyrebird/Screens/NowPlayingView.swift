@@ -21,6 +21,11 @@ import SwiftUI
 struct NowPlayingView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Contrast-adaptive accent for the favorite heart, the "NOW PLAYING"
+    // section label, and the empty-state primary button. Lifts to `accentHot`
+    // under Increase Contrast so accent text / the prominent button fill clear
+    // 4.5:1 (#888).
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     /// Active right-pane tab. Reset to `.queue` when the view appears so
     /// opening the full player always lands on "what's next" rather than
@@ -199,7 +204,7 @@ struct NowPlayingView: View {
                 } label: {
                     Image(systemName: isFav ? "heart.fill" : "heart")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                        .foregroundStyle(isFav ? a11yTheme.accent : Theme.ink2)
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
@@ -302,7 +307,7 @@ struct NowPlayingView: View {
         HStack {
             Text("NOW PLAYING")
                 .font(Theme.font(10, weight: .bold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(a11yTheme.accent)
                 .tracking(3)
             Spacer()
         }
@@ -542,7 +547,7 @@ struct NowPlayingView: View {
                 model.previousScreen = nil
             }
             .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+            .tint(a11yTheme.accent)
             .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
