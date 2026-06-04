@@ -300,6 +300,19 @@ struct PlayerBar: View {
             .frame(width: 100)
             .accessibilityLabel("Volume")
             .accessibilityValue("\(Int((Double(model.status.volume) * 100).rounded())) percent")
+
+            // System AirPlay / output-route picker (#326). Tapping presents the
+            // OS list of AirPlay receivers and output targets — the same popover
+            // Music.app shows. Scope is system audio routing only, not Jellyfin
+            // SyncPlay (separate issue); `AVRoutePickerView` drives the routing
+            // stack directly, so this needs no core FFI. Sized to the 28×28
+            // transport-icon footprint so it lines up with the glyphs on the
+            // far side of the bar.
+            AirPlayRoutePicker()
+                .frame(width: 28, height: 28)
+                .accessibilityLabel("AirPlay")
+                .accessibilityHint("Choose an audio output device")
+                .help("AirPlay")
         }
     }
 
