@@ -12,11 +12,21 @@ import Foundation
 /// FFI work that enables it can flip a single flag rather than re-wiring
 /// every surface.
 extension AppModel {
-    /// Download engine (#819). Gates "Download Current" in the command
-    /// palette plus per-album / per-playlist / per-track Download
-    /// affordances. The four AppModel stubs (Download Current,
-    /// enqueueDownload(album:), enqueueDownload(playlist:),
-    /// toggleDownload(tracks:)) flip live once the core engine lands.
+    /// Offline downloads (#819). Gates "Download Current" in the command
+    /// palette, the per-album / per-playlist / per-track Download affordances,
+    /// the per-row download badge, the Downloads-pane usage readout, and the
+    /// AudioEngine's offline-playback branch (`offlinePlaybackEnabled`).
+    ///
+    /// The core engine (`core/src/downloads.rs`: stream-to-disk, SQLite index,
+    /// budget evict/refuse, offline-path resolution) and the full Swift wiring
+    /// (`AppModel+Downloads.swift`, AudioEngine local-file branch) are
+    /// implemented and unit/integration-tested (incl. a live-server download
+    /// e2e). The flag stays `false` deliberately until the end-to-end flow is
+    /// validated interactively in the running app — flipping it activates a
+    /// live change to the playback code path, so it gets its own focused QA
+    /// pass rather than riding in with the engine landing. When enabled, a
+    /// track with no local copy still streams byte-for-byte as before, so the
+    /// branch is purely additive. See CLAUDE.md "Deferred / known-open work".
     var supportsDownloads: Bool { false }
 
     /// `mark_played` / `mark_unplayed` FFIs (#133, #222). Gates

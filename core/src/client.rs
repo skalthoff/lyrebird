@@ -2672,6 +2672,81 @@ impl JellyfinClient {
         Ok((bytes.to_vec(), content_type))
     }
 
+    /// Download a track's audio payload to `dest`, streaming the response body
+    /// to disk in chunks rather than buffering the whole file in memory.
+    ///
+    /// Used by the offline-downloads engine (#819). Writes to a sibling
+    /// `<dest>.part` temp file first and atomically renames it into place only
+    /// on a fully-successful transfer, so an interrupted download never leaves
+    /// a truncated file that offline playback would treat as complete. Returns
+    /// `(bytes_written, content_type)` on success; `content_type` is the
+    /// server-reported MIME so the caller can pick the right file extension.
+    ///
+    /// On any error the partial temp file is removed. The destination's parent
+    /// directory is created if missing.
+    pub async fn download_to_file(
+        &self,
+        track_id: &str,
+        dest: &std::path::Path,
+    ) -> Result<(u64, Option<String>)> {
+        use futures::StreamExt;
+        use tokio::io::AsyncWriteExt;
+
+        let url = self.stream_url(track_id, None, None)?;
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        if let Some(parent) = dest.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| LyrebirdError::Storage(e.to_string()))?;
+        }
+
+        // Stream to a `.part` sibling, then atomically rename on success. The
+        // helper closure scopes the file handle so it's flushed + dropped
+        // before the rename, and lets us unlink the partial on any failure.
+        let tmp = dest.with_extension("part");
+        let result = async {
+            let mut file = tokio::fs::File::create(&tmp)
+                .await
+                .map_err(|e| LyrebirdError::Storage(e.to_string()))?;
+            let mut written: u64 = 0;
+            let mut stream = resp.bytes_stream();
+            while let Some(chunk) = stream.next().await {
+                let chunk = chunk?; // reqwest::Error -> Network
+                file.write_all(&chunk)
+                    .await
+                    .map_err(|e| LyrebirdError::Storage(e.to_string()))?;
+                written += chunk.len() as u64;
+            }
+            file.flush()
+                .await
+                .map_err(|e| LyrebirdError::Storage(e.to_string()))?;
+            // Drop the handle before the rename so all bytes are on disk.
+            drop(file);
+            tokio::fs::rename(&tmp, dest)
+                .await
+                .map_err(|e| LyrebirdError::Storage(e.to_string()))?;
+            Ok(written)
+        }
+        .await;
+
+        match result {
+            Ok(written) => Ok((written, content_type)),
+            Err(e) => {
+                // Best-effort cleanup of the partial file; ignore unlink errors.
+                let _ = tokio::fs::remove_file(&tmp).await;
+                Err(e)
+            }
+        }
+    }
+
     /// Build the URL to stream a given track.
     ///
     /// `media_source_id` should come from `MediaSourceInfo::id` returned by

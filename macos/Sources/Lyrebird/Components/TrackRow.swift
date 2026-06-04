@@ -101,6 +101,11 @@ struct TrackRow: View {
                             .foregroundStyle(Theme.warning)
                             .help("Transcoding required. Enable in Preferences → Playback.")
                     }
+                    // Offline-download status (#819). Reads the cached snapshot
+                    // (`model.downloadState`), never the core synchronously, so
+                    // this stays cheap per row. Renders nothing while the
+                    // downloads feature is dormant (state is always nil).
+                    downloadBadge
                 }
                 Text(track.artistName)
                     .font(Theme.font(11, weight: .medium))
@@ -210,6 +215,36 @@ struct TrackRow: View {
         if isFocused { return Theme.rowHover }
         if isHovering { return Theme.rowHover }
         return .clear
+    }
+
+    /// Inline download-status glyph (#819). `.done` shows a solid offline
+    /// check; an in-progress state shows a small spinner. Absent state renders
+    /// nothing, which is the case for every row while the feature is dormant.
+    @ViewBuilder
+    private var downloadBadge: some View {
+        switch model.downloadState(forTrackId: track.id) {
+        case .done:
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(a11yTheme.accent)
+                .help("Available offline")
+                .accessibilityLabel("Downloaded")
+        case .queued, .downloading:
+            ProgressView()
+                .controlSize(.mini)
+                .scaleEffect(0.7)
+                .frame(width: 12, height: 12)
+                .help("Downloading…")
+                .accessibilityLabel("Downloading")
+        case .failed:
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.warning)
+                .help("Download failed")
+                .accessibilityLabel("Download failed")
+        case .none:
+            EmptyView()
+        }
     }
 
     /// "1 play" / "12 plays" readout shown on hover when the user enables

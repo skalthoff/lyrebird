@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -61,6 +61,16 @@ impl Database {
             tx.execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
                 params![1],
+            )?;
+        }
+
+        if current < 2 {
+            // Offline downloads index (#819). Additive: adds the `downloads`
+            // table + its LRU index, leaving every v1 table untouched.
+            tx.execute_batch(include_str!("migrations/002_downloads.sql"))?;
+            tx.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                params![2],
             )?;
         }
 
@@ -162,6 +172,206 @@ impl Database {
             )?;
         }
         Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+    // Offline downloads index (#819).
+    //
+    // Thin CRUD over the `downloads` table. The connection lives here, so these
+    // methods are the single writer/reader; the orchestration (streaming bytes
+    // to disk, budget enforcement) lives in `crate::downloads`, which calls
+    // through these. Returned shapes are intentionally primitive tuples / the
+    // `DownloadRow` struct so `storage.rs` stays free of the FFI-facing
+    // `DownloadEntry` mapping (that's `downloads.rs`'s job).
+    // ------------------------------------------------------------------------
+
+    /// Insert (or reset) a download row in the `queued` state. `track_json` is
+    /// the serialized [`crate::models::Track`] snapshot. Re-enqueuing an
+    /// existing row clears any prior `local_path` / `size_bytes` / `error` and
+    /// returns it to `queued` so a failed download can be retried cleanly.
+    pub fn download_upsert_queued(
+        &self,
+        track_id: &str,
+        track_json: &str,
+        created_at: i64,
+    ) -> Result<()> {
+        self.conn.lock().execute(
+            "INSERT INTO downloads (track_id, track_json, state, created_at) \
+             VALUES (?1, ?2, 'queued', ?3) \
+             ON CONFLICT(track_id) DO UPDATE SET \
+                 track_json = excluded.track_json, \
+                 state = 'queued', \
+                 local_path = NULL, \
+                 size_bytes = 0, \
+                 error = NULL, \
+                 completed_at = NULL",
+            params![track_id, track_json, created_at],
+        )?;
+        Ok(())
+    }
+
+    /// Move a row to the `downloading` state. No-op if the row is gone.
+    pub fn download_mark_downloading(&self, track_id: &str) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE downloads SET state = 'downloading', error = NULL WHERE track_id = ?1",
+            params![track_id],
+        )?;
+        Ok(())
+    }
+
+    /// Mark a download complete: record its on-disk path, byte size, container,
+    /// and completion timestamp, flipping it to `done`.
+    pub fn download_mark_done(
+        &self,
+        track_id: &str,
+        local_path: &str,
+        size_bytes: u64,
+        container: Option<&str>,
+        completed_at: i64,
+    ) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE downloads SET state = 'done', local_path = ?2, size_bytes = ?3, \
+                 container = ?4, error = NULL, completed_at = ?5 WHERE track_id = ?1",
+            params![
+                track_id,
+                local_path,
+                size_bytes as i64,
+                container,
+                completed_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Mark a download failed with a human-readable reason. Leaves any prior
+    /// `local_path` cleared so a half-written file is never treated as playable.
+    pub fn download_mark_failed(&self, track_id: &str, error: &str) -> Result<()> {
+        self.conn.lock().execute(
+            "UPDATE downloads SET state = 'failed', error = ?2, local_path = NULL, \
+                 size_bytes = 0, completed_at = NULL WHERE track_id = ?1",
+            params![track_id, error],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a download row. Returns the `local_path` that was recorded (if
+    /// any) so the caller can unlink the file on disk. Returns `Ok(None)` when
+    /// no such row existed.
+    pub fn download_delete(&self, track_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock();
+        let path: Option<String> = match conn.query_row(
+            "SELECT local_path FROM downloads WHERE track_id = ?1",
+            params![track_id],
+            |r| r.get::<_, Option<String>>(0),
+        ) {
+            Ok(p) => p,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        conn.execute(
+            "DELETE FROM downloads WHERE track_id = ?1",
+            params![track_id],
+        )?;
+        Ok(path)
+    }
+
+    /// Fetch a single download row by track id, or `None` when absent.
+    pub fn download_get(&self, track_id: &str) -> Result<Option<DownloadRow>> {
+        let conn = self.conn.lock();
+        match conn.query_row(
+            "SELECT track_id, track_json, local_path, container, size_bytes, state, \
+                    error, created_at, completed_at \
+             FROM downloads WHERE track_id = ?1",
+            params![track_id],
+            DownloadRow::from_sql_row,
+        ) {
+            Ok(row) => Ok(Some(row)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// All download rows, newest-enqueued first. Drives the Downloads screen.
+    pub fn download_list(&self) -> Result<Vec<DownloadRow>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT track_id, track_json, local_path, container, size_bytes, state, \
+                    error, created_at, completed_at \
+             FROM downloads ORDER BY created_at DESC",
+        )?;
+        let rows = stmt
+            .query_map([], DownloadRow::from_sql_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Sum of `size_bytes` across completed (`done`) downloads, plus the count
+    /// of such rows. This is the figure compared against the storage budget.
+    pub fn download_used_bytes(&self) -> Result<(u64, u32)> {
+        let conn = self.conn.lock();
+        let (sum, count): (i64, i64) = conn.query_row(
+            "SELECT COALESCE(SUM(size_bytes), 0), COUNT(*) FROM downloads WHERE state = 'done'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok((sum.max(0) as u64, count.max(0) as u32))
+    }
+
+    /// Completed downloads ordered oldest-first (LRU). Returns
+    /// `(track_id, local_path, size_bytes)` so the budget-eviction loop can
+    /// pick victims and unlink their files. Rows missing a `local_path` are
+    /// skipped — they can't be evicted by file deletion and don't count toward
+    /// used bytes anyway.
+    pub fn download_completed_lru(&self) -> Result<Vec<(String, String, u64)>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT track_id, local_path, size_bytes FROM downloads \
+             WHERE state = 'done' AND local_path IS NOT NULL \
+             ORDER BY completed_at ASC, created_at ASC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?.max(0) as u64,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+}
+
+/// A raw row of the `downloads` table, as read from SQLite. Lives in
+/// `storage.rs` (next to the connection that produces it) and is mapped to the
+/// FFI-facing [`crate::models::DownloadEntry`] in `crate::downloads`.
+#[derive(Clone, Debug)]
+pub struct DownloadRow {
+    pub track_id: String,
+    pub track_json: String,
+    pub local_path: Option<String>,
+    pub container: Option<String>,
+    pub size_bytes: u64,
+    /// Raw `state` column: `"queued" | "downloading" | "done" | "failed"`.
+    pub state: String,
+    pub error: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+impl DownloadRow {
+    fn from_sql_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(DownloadRow {
+            track_id: r.get(0)?,
+            track_json: r.get(1)?,
+            local_path: r.get(2)?,
+            container: r.get(3)?,
+            size_bytes: r.get::<_, i64>(4)?.max(0) as u64,
+            state: r.get(5)?,
+            error: r.get(6)?,
+            created_at: r.get(7)?,
+            completed_at: r.get(8)?,
+        })
     }
 }
 

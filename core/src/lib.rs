@@ -11,6 +11,7 @@
 //! play them and calls back with status updates.
 
 pub mod client;
+pub mod downloads;
 pub mod enums;
 pub mod error;
 pub mod models;
@@ -85,6 +86,10 @@ struct Inner {
     db: Arc<Database>,
     device_id: String,
     device_name: String,
+    /// Resolved root data directory (the parent of `lyrebird.db`). Held so the
+    /// downloads engine can locate the default offline-audio directory
+    /// (`<data_dir>/downloads`) without recomputing it. See `downloads.rs`.
+    data_dir: PathBuf,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -132,6 +137,7 @@ impl LyrebirdCore {
                 db,
                 device_id,
                 device_name: config.device_name,
+                data_dir,
             })),
             player,
             runtime,
@@ -1355,6 +1361,147 @@ impl LyrebirdCore {
 
     pub fn status(&self) -> PlayerStatus {
         self.player.status()
+    }
+
+    // ======================================================================
+    // Offline downloads (#819).
+    //
+    // All of these serialize through the same `Inner` mutex as every other
+    // FFI, but the long-running one (`download_track`) clones the `Arc`s
+    // under the lock and drops the guard before the network stream, exactly
+    // like `with_client`. The cheap query methods (`download_state`,
+    // `is_track_downloaded`, `download_local_path`, `list_downloads`,
+    // `downloads_used_bytes`, `download_stats`) only touch SQLite, so they're
+    // safe for the platform layer to call off the main thread and cache.
+    // ======================================================================
+
+    /// Enqueue and synchronously download a track's audio for offline
+    /// playback. Records a `queued` row first (so a concurrent `download_state`
+    /// query reflects the intent immediately), then streams the bytes to disk
+    /// and flips the row to `done`.
+    ///
+    /// Enforces the configured storage budget: evicts least-recently-completed
+    /// downloads to make room, or refuses with [`LyrebirdError::Storage`] when
+    /// the track can't fit even an empty store. On any failure the row is
+    /// marked `failed` with the reason and the error is returned.
+    ///
+    /// Blocking: this drives the full HTTP transfer on the tokio runtime, so
+    /// the platform layer MUST call it off the main thread (e.g. inside a
+    /// `Task.detached`).
+    pub fn download_track(
+        &self,
+        track: Track,
+    ) -> std::result::Result<DownloadEntry, LyrebirdError> {
+        let (client, db, data_dir) = {
+            let inner = self.inner.lock();
+            (
+                inner
+                    .client
+                    .as_ref()
+                    .ok_or(LyrebirdError::NoSession)?
+                    .clone(),
+                inner.db.clone(),
+                inner.data_dir.clone(),
+            )
+        };
+        let now = chrono::Utc::now().timestamp();
+        // Record the queued intent up front, off the network path.
+        downloads::enqueue(&db, &track, now)?;
+        self.runtime
+            .block_on(downloads::fetch(&db, &client, &data_dir, &track, now))
+    }
+
+    /// Cancel / remove a download: deletes the on-disk file and the index row.
+    /// Idempotent — removing a track that was never downloaded succeeds.
+    ///
+    /// Note: this does not abort an in-flight `download_track` mid-stream (that
+    /// call owns the transfer synchronously); it removes a completed or queued
+    /// entry. The platform layer surfaces it as "Remove Download".
+    pub fn delete_download(&self, track_id: String) -> std::result::Result<(), LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        downloads::delete(&db, &track_id)
+    }
+
+    /// The download state of a single track, or `None` when it has no download
+    /// record. Cheap (one indexed SQLite read) and side-effect free.
+    pub fn download_state(
+        &self,
+        track_id: String,
+    ) -> std::result::Result<Option<DownloadState>, LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        downloads::state_for(&db, &track_id)
+    }
+
+    /// `true` when the track is fully downloaded *and* its backing file still
+    /// exists on disk. The existence check makes this the safe predicate for
+    /// the offline-playback branch — a stale `done` row whose file was evicted
+    /// reports `false`, so playback falls back to streaming.
+    pub fn is_track_downloaded(&self, track_id: String) -> bool {
+        let db = self.inner.lock().db.clone();
+        downloads::local_path_for(&db, &track_id)
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    /// Absolute on-disk path of a track's completed download, or `None` when it
+    /// isn't downloaded / not yet done / the file is gone. The platform audio
+    /// engine turns this into a `file://` URL for offline playback.
+    pub fn download_local_path(&self, track_id: String) -> Option<String> {
+        let db = self.inner.lock().db.clone();
+        downloads::local_path_for(&db, &track_id).ok().flatten()
+    }
+
+    /// Every download record (any state), newest-enqueued first. Drives the
+    /// Downloads screen.
+    pub fn list_downloads(&self) -> std::result::Result<Vec<DownloadEntry>, LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        downloads::list(&db)
+    }
+
+    /// Total bytes used by completed downloads.
+    pub fn downloads_used_bytes(&self) -> std::result::Result<u64, LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        Ok(db.download_used_bytes()?.0)
+    }
+
+    /// Aggregate offline-storage stats (used bytes, configured budget, item
+    /// count) for the Downloads preferences pane.
+    pub fn download_stats(&self) -> std::result::Result<DownloadStats, LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        downloads::stats(&db)
+    }
+
+    /// Set the storage budget in bytes (`0` = unlimited). Persisted to the
+    /// settings table; consulted on the next `download_track`.
+    pub fn set_download_budget_bytes(&self, bytes: u64) -> std::result::Result<(), LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        db.set_setting(downloads::DOWNLOAD_BUDGET_KEY, &bytes.to_string())
+    }
+
+    /// Override the directory offline audio files are written to. Pass an empty
+    /// string to clear the override and fall back to `<data_dir>/downloads`.
+    /// Existing files are not migrated — this only affects subsequent
+    /// downloads (the UI warns accordingly).
+    pub fn set_download_dir(&self, dir: String) -> std::result::Result<(), LyrebirdError> {
+        let db = self.inner.lock().db.clone();
+        if dir.trim().is_empty() {
+            db.delete_setting(downloads::DOWNLOAD_DIR_KEY)
+        } else {
+            db.set_setting(downloads::DOWNLOAD_DIR_KEY, &dir)
+        }
+    }
+
+    /// The directory offline audio files are written to (the resolved path,
+    /// honouring any override). Shown read-only in the Downloads pane.
+    pub fn download_dir_path(&self) -> String {
+        let (db, data_dir) = {
+            let inner = self.inner.lock();
+            (inner.db.clone(), inner.data_dir.clone())
+        };
+        downloads::download_dir(&db, &data_dir)
+            .to_string_lossy()
+            .to_string()
     }
 }
 

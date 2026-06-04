@@ -1,28 +1,26 @@
 import SwiftUI
 
-/// Downloads preferences pane.
+/// Downloads preferences pane (#819).
 ///
-/// Minimal shell today — two surfaces users look for first:
+/// Two surfaces, both now wired to the core download engine when
+/// `supportsDownloads` is live:
 ///
-/// 1. **Download location** — read-only display of the path where offline
-///    copies will land. Today this resolves to
-///    `~/Library/Containers/.../Caches/Downloads` via
-///    `FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)`
-///    so the path reads as expected for a sandboxed app. Picking a custom
-///    location lands alongside the broader download manager work
-///    (`TODO(#570)`).
+/// 1. **Download location** — read-only display of the resolved directory
+///    offline copies land in (`core.downloadDirPath()`), falling back to the
+///    sandbox cache path when the feature is dormant.
 ///
-/// 2. **Storage budget slider** — caps total disk space used by offline
-///    downloads. 1 GB — 100 GB with a 500 MB step; the chosen value is
-///    persisted under `downloads.storageBudgetGb` so the download manager
-///    can enforce it once it lands.
+/// 2. **Storage budget slider** — caps total disk used by completed downloads.
+///    1 GB – 100 GB; the chosen value is persisted under
+///    `downloads.storageBudgetGb` *and* pushed to the core via
+///    `setDownloadBudget(gigabytes:)`, which the engine enforces (evict/refuse)
+///    on the next download.
 ///
-/// Both surfaces are here now so users can see the feature exists and set
-/// their preference in advance — the download manager honours both when
-/// `core.download_track` / offline playback ships.
+/// When the feature is live the pane also shows current usage (used of budget,
+/// item count) read from `core.downloadStats()`.
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 66 Downloads bullet.
 struct PreferencesDownloads: View {
+    @Environment(AppModel.self) private var model
     @AppStorage("downloads.storageBudgetGb") private var storageBudgetGb: Double = 10
 
     var body: some View {
@@ -31,11 +29,11 @@ struct PreferencesDownloads: View {
 
             PreferenceSection(
                 title: "Location",
-                footnote: "Offline copies live inside Lyrebird's cache folder so macOS can evict them under disk pressure."
+                footnote: "Offline copies live inside Lyrebird's data folder so they survive relaunches."
             ) {
                 PreferenceRow(
                     label: "Download location",
-                    help: "Cache directory inside Lyrebird's sandbox."
+                    help: "Directory offline audio is written to."
                 ) {
                     Text(downloadLocationText)
                         .font(Theme.font(12, weight: .medium))
@@ -58,7 +56,7 @@ struct PreferencesDownloads: View {
 
             PreferenceSection(
                 title: "Storage",
-                footnote: "Budget for offline downloads. When the cap is reached, the download manager stops queuing new tracks and asks you to free space. Oldest-played downloads evict first when auto-prune lands."
+                footnote: "Budget for offline downloads. When the cap is reached, the oldest-downloaded tracks are evicted to make room; a track larger than the whole budget is refused."
             ) {
                 PreferenceRow(
                     label: "Storage budget",
@@ -69,6 +67,12 @@ struct PreferencesDownloads: View {
                             .frame(width: 220)
                             .accessibilityLabel("Storage budget")
                             .accessibilityValue("\(Int(storageBudgetGb)) gigabytes")
+                            .onChange(of: storageBudgetGb) { _, newValue in
+                                // Push the new cap to the engine so it's enforced
+                                // on the next download. No-op while the feature
+                                // is dormant.
+                                model.setDownloadBudget(gigabytes: newValue)
+                            }
                         Text(budgetReadout)
                             .font(Theme.font(12, weight: .semibold))
                             .foregroundStyle(Theme.ink2)
@@ -76,9 +80,29 @@ struct PreferencesDownloads: View {
                             .frame(width: 56, alignment: .trailing)
                     }
                 }
+
+                if model.supportsDownloads {
+                    PreferenceRow(
+                        label: "Used",
+                        help: "Disk space currently used by completed downloads."
+                    ) {
+                        Text(usageText)
+                            .font(Theme.font(12, weight: .semibold))
+                            .foregroundStyle(Theme.ink2)
+                            .monospacedDigit()
+                            .accessibilityLabel("Storage used: \(usageText)")
+                    }
+                }
             }
 
             Spacer(minLength: 0)
+        }
+        .task {
+            // Seed the core's budget from the persisted slider value and pull
+            // current usage so the pane shows real numbers on open. Both no-op
+            // while `supportsDownloads` is false.
+            model.setDownloadBudget(gigabytes: storageBudgetGb)
+            await model.refreshDownloadStats()
         }
     }
 
@@ -93,11 +117,14 @@ struct PreferencesDownloads: View {
         }
     }
 
-    /// Path where offline tracks live. Resolves against the user's cache
-    /// directory so the value matches macOS's sandbox expectations. When the
-    /// resolver fails (extremely unusual) we show a dash rather than an
-    /// empty string so the row stays readable.
+    /// Path where offline tracks live. When the downloads feature is live this
+    /// is the engine's resolved directory; otherwise it falls back to the
+    /// sandbox cache path so the row stays meaningful before the feature ships.
     private var downloadLocationText: String {
+        if model.supportsDownloads {
+            let resolved = model.downloadDirectoryPath()
+            if !resolved.isEmpty { return resolved }
+        }
         let fm = FileManager.default
         guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             return "—"
@@ -113,12 +140,17 @@ struct PreferencesDownloads: View {
         let gb = Int(storageBudgetGb.rounded())
         return "Up to \(gb) GB of disk space reserved for offline music."
     }
-}
 
-#Preview {
-    PreferencesDownloads()
-        .frame(width: 560, height: 520)
-        .padding(32)
-        .background(Theme.bg)
-        .preferredColorScheme(.dark)
+    /// "1.2 GB of 10 GB · 14 tracks" style usage readout, formatted from the
+    /// core's `DownloadStats`. Falls back to a zero readout before the first
+    /// stats refresh.
+    private var usageText: String {
+        let stats = model.downloadStats
+        let used = stats?.usedBytes ?? 0
+        let count = Int(stats?.itemCount ?? 0)
+        let usedStr = ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .file)
+        let budgetStr = "\(Int(storageBudgetGb.rounded())) GB"
+        let trackWord = count == 1 ? "track" : "tracks"
+        return "\(usedStr) of \(budgetStr) · \(count) \(trackWord)"
+    }
 }

@@ -1027,9 +1027,8 @@ final class AppModel {
                 searchTitle: "Download Current",
                 symbol: "arrow.down.circle",
                 run: { [weak self] in
-                    guard self?.status.currentTrack != nil else { return }
-                    // TODO(#819): wire to the download engine once it lands.
-                    Log.app.notice("Download Current — not yet wired (see #819)")
+                    guard let self, let track = self.status.currentTrack else { return }
+                    Task { await self.downloadTracks([track]) }
                 }
             ))
         }
@@ -1208,6 +1207,11 @@ final class AppModel {
         // Seed the scrobble-connected flag from the core's persisted token so
         // the Preferences pane shows the right state on first open.
         self.scrobbleConnected = core.isScrobbleConfigured()
+        // Offline playback (#819): only let the engine prefer a local copy when
+        // the downloads feature is live. With `supportsDownloads == false` this
+        // stays false, so `AudioEngine.play` never queries the core for a local
+        // path and the streaming path is byte-for-byte unchanged.
+        self.audio.offlinePlaybackEnabled = supportsDownloads
     }
 
     // MARK: - Network
@@ -1246,6 +1250,7 @@ final class AppModel {
             self.errorMessage = nil
             startPolling()
             await refreshLibrary()
+            await refreshDownloads()
         } catch {
             self.errorMessage = LyrebirdErrorPresenter.message(for: error, context: .login)
         }
@@ -1284,6 +1289,7 @@ final class AppModel {
             self.errorMessage = nil
             startPolling()
             await refreshLibrary()
+            await refreshDownloads()
         } catch {
             // Best-effort: leave `session == nil` so RootView renders LoginView.
             // No banner — the user sees the login form, which is already the
@@ -1363,6 +1369,13 @@ final class AppModel {
         currentLyrics = nil
         currentLyricsForId = nil
         sessionPlayHistory = []
+        // Clear the in-memory download snapshot. On-disk files are intentionally
+        // NOT removed — they're keyed by track id and rehydrate via
+        // `refreshDownloads()` on the next sign-in. See #819.
+        downloadStateById = [:]
+        downloads = []
+        downloadStats = nil
+        downloadsInFlight = []
         resetPaginationState()
         stopPolling()
     }
@@ -1480,7 +1493,11 @@ final class AppModel {
     /// Call-sites that do NOT match auth go on to call
     /// `LyrebirdErrorPresenter.message(for:context:)` (see #351) to turn the
     /// raw Display string into localized banner copy.
-    private func handleAuthError(_ error: Error) -> Bool {
+    ///
+    /// `internal` (not `private`) so AppModel extension files in other source
+    /// files (e.g. `AppModel+Downloads.swift`) can route their FFI failures
+    /// through the same auth-expiry interception.
+    func handleAuthError(_ error: Error) -> Bool {
         guard let err = error as? LyrebirdError else { return false }
         switch err {
         case .NotAuthenticated, .Auth, .AuthExpired:
@@ -4179,6 +4196,38 @@ final class AppModel {
     /// without polling.
     var favoriteChangeToken: UInt64 = 0
 
+    // MARK: - Offline downloads (#819)
+    //
+    // The download state of every track the user has interacted with, mirrored
+    // into an in-memory snapshot so per-cell row views (`TrackRow`) can read a
+    // downloading / done badge WITHOUT a synchronous core FFI on the main
+    // thread (CLAUDE.md runtime gap #2). The dictionary is the single source the
+    // UI reads; the FFI is consulted only off-main when a download is enqueued,
+    // finishes, is deleted, or when `refreshDownloadSnapshot()` rehydrates it.
+    //
+    // Keyed by track id. Absence means "no download record" (the common case),
+    // which `downloadState(forTrackId:)` reports as `nil`. All of this is inert
+    // while `supportsDownloads` is false — nothing populates the map, so every
+    // lookup returns `nil` and the UI shows no download affordances.
+
+    /// Per-track download lifecycle, keyed by track id. Read by row views; never
+    /// holds the core mutex on the main thread.
+    var downloadStateById: [String: DownloadState] = [:]
+
+    /// The full list of download records (any state), newest-enqueued first.
+    /// Drives the Downloads area. Refreshed from `core.listDownloads()` off-main
+    /// via `refreshDownloads()`.
+    var downloads: [DownloadEntry] = []
+
+    /// Aggregate offline-storage figures (used / budget / count) for the
+    /// Downloads preferences pane. Refreshed alongside `downloads`.
+    var downloadStats: DownloadStats?
+
+    /// Set of track ids with an enqueue/fetch currently in flight, so the UI can
+    /// show an immediate spinner before the core flips the row to `downloading`,
+    /// and so a double-tap doesn't kick a second concurrent fetch.
+    var downloadsInFlight: Set<String> = []
+
     /// In-memory played flag keyed by item id (track / album / playlist).
     /// Mirrors `favoriteById` — populated lazily from
     /// `track.userData?.played` and stamped with the server's authoritative
@@ -4320,12 +4369,17 @@ final class AppModel {
         }
     }
 
-    /// Enqueue a download of every track on the album.
-    /// TODO: #819 — there is no download engine yet; this is a logging
-    /// stub so the UI action has a landing pad.
+    /// Download every track on the album for offline playback (#819).
+    /// Resolves the album's tracks (cache-or-fetch), then hands them to the
+    /// shared `downloadTracks` pipeline. Gated behind `supportsDownloads`; a
+    /// no-op when the feature is dormant.
     func enqueueDownload(album: Album) {
-        // TODO(#819): download engine not yet wired.
-        Log.app.notice("enqueueDownload(album:) not yet wired — see #819")
+        guard supportsDownloads else { return }
+        Task {
+            let tracks = await loadTracks(forAlbum: album.id)
+            guard !tracks.isEmpty else { return }
+            await downloadTracks(tracks)
+        }
     }
 
     /// Append a batch of tracks to an existing playlist via `add_to_playlist`
@@ -4744,12 +4798,15 @@ final class AppModel {
         Task { await setFavorite(itemId: playlist.id, enabled: !isFavorite(playlist: playlist)) }
     }
 
-    /// Enqueue a download of every track in the playlist.
-    /// TODO: #819 — there is no download engine yet; this is a logging
-    /// stub so the UI action has a landing pad.
+    /// Download every track in the playlist for offline playback (#819).
+    /// Mirrors `enqueueDownload(album:)`. Gated behind `supportsDownloads`.
     func enqueueDownload(playlist: Playlist) {
-        // TODO(#819): download engine not yet wired.
-        Log.app.notice("enqueueDownload(playlist:) not yet wired — see #819")
+        guard supportsDownloads else { return }
+        Task {
+            let tracks = await loadPlaylistTracks(playlist: playlist)
+            guard !tracks.isEmpty else { return }
+            await downloadTracks(tracks)
+        }
     }
 
     /// Flip the sidebar's inline TextField onto an existing playlist row so
@@ -5386,12 +5443,24 @@ final class AppModel {
         }
     }
 
-    /// Toggle the download state of every track in the selection.
-    /// TODO(#819): download engine not yet wired.
+    /// Toggle the download state across a multi-select of tracks (#819).
+    ///
+    /// Target direction mirrors the favorite/played multi-select convention:
+    /// when **every** selected track is already downloaded, the action removes
+    /// them all; otherwise it downloads the ones that aren't already done (or
+    /// in flight). Gated behind `supportsDownloads`.
     func toggleDownload(tracks: [Track]) {
-        guard !tracks.isEmpty else { return }
-        // TODO(#819): download engine not yet wired.
-        Log.app.notice("toggleDownload(tracks: \(tracks.count, privacy: .public)) not yet wired — see #819")
+        guard supportsDownloads, !tracks.isEmpty else { return }
+        let allDownloaded = tracks.allSatisfy { downloadStateById[$0.id] == .done }
+        if allDownloaded {
+            Task { await removeDownloads(tracks) }
+        } else {
+            let pending = tracks.filter {
+                downloadStateById[$0.id] != .done && !downloadsInFlight.contains($0.id)
+            }
+            guard !pending.isEmpty else { return }
+            Task { await downloadTracks(pending) }
+        }
     }
 
     /// Toggle the played flag across a multi-select of tracks. Target

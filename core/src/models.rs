@@ -686,6 +686,60 @@ pub struct PlaybackStopInfo {
     pub session_id: Option<String>,
 }
 
+// ============================================================================
+// Offline downloads (#819).
+// ============================================================================
+
+/// Lifecycle of a single offline download. Surfaced across the FFI so the UI
+/// can render the right per-track affordance (queued spinner, progress, a
+/// solid "downloaded" check, or a retry on failure).
+///
+/// Only [`DownloadState::Done`] entries are eligible for offline playback and
+/// count toward the storage budget. `Queued` and `Downloading` are transient;
+/// `Failed` is terminal until the user re-enqueues.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, uniffi::Enum)]
+pub enum DownloadState {
+    /// Enqueued, bytes not yet being fetched.
+    Queued,
+    /// Audio bytes are actively streaming to disk.
+    Downloading,
+    /// Fully on disk and playable offline.
+    Done,
+    /// The download failed (network, disk, or budget). Terminal until retried.
+    Failed,
+}
+
+/// One row of the offline-downloads index. Mirrors a row of the `downloads`
+/// table. `track` is the snapshot captured at enqueue time so the Downloads
+/// screen and offline queue can render without a live server.
+///
+/// `local_path` is the absolute on-disk path of the audio file; it is `Some`
+/// only once `state == Done`. `size_bytes` is the byte length of that file (0
+/// until completion). `completed_at` is the Unix timestamp (seconds) the
+/// download finished, used as the LRU key for budget eviction.
+#[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]
+pub struct DownloadEntry {
+    pub track: Track,
+    pub state: DownloadState,
+    pub local_path: Option<String>,
+    pub size_bytes: u64,
+    pub error: Option<String>,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+/// Aggregate offline-storage figures for the Downloads preferences pane.
+///
+/// `used_bytes` is the sum of `size_bytes` across all completed downloads;
+/// `budget_bytes` is the user's configured cap (0 means "unlimited");
+/// `item_count` is the number of completed (playable) downloads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, uniffi::Record)]
+pub struct DownloadStats {
+    pub used_bytes: u64,
+    pub budget_bytes: u64,
+    pub item_count: u32,
+}
+
 // `ImageType` now lives in `crate::enums` alongside the other typed query
 // enums (`ItemKind`, `ItemSortBy`, `SortOrder`, `ItemField`). It is
 // re-exported from the crate root for backwards-compatible imports.

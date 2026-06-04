@@ -215,6 +215,17 @@ public final class AudioEngine: NSObject {
     /// flip) has superseded it.
     private var replayGainGeneration: Int = 0
 
+    /// Offline playback gate (#819). When `true`, `play(track:)` and
+    /// `preloadNextTrack(_:)` first ask the core whether the track has a
+    /// completed local download and, if so, play the `file://` copy instead of
+    /// streaming. The owner (`AppModel`) sets this from `supportsDownloads`.
+    ///
+    /// CRITICAL: while this is `false` (the default, and what ships until the
+    /// downloads feature is proven), neither method ever calls the core's
+    /// download FFI, so the streaming path is byte-for-byte identical to the
+    /// pre-#819 behaviour. The offline branch is purely additive.
+    public var offlinePlaybackEnabled: Bool = false
+
     public init(core: LyrebirdCore) {
         self.core = core
         super.init()
@@ -278,6 +289,15 @@ public final class AudioEngine: NSObject {
     /// Test seam: whether a stall watchdog is currently armed. Lets a test
     /// confirm the give-up path actually cancels it.
     var hasPendingStallWatchdogForTesting: Bool { stallWorkItem != nil }
+
+    /// Test seam: drive the offline asset resolver directly (#819). Returns the
+    /// `file://` URL for a downloaded track, or nil when offline playback is
+    /// disabled / the track isn't downloaded. Lets a test assert that the
+    /// streaming path is unperturbed (nil result, no FFI) while
+    /// `offlinePlaybackEnabled` is false, without a live `play(_:)`.
+    func resolveLocalAssetURLForTesting(_ trackId: String) async -> URL? {
+        await resolveLocalAssetURL(for: trackId)
+    }
     #endif
 
     // MARK: - Private helpers
@@ -309,6 +329,26 @@ public final class AudioEngine: NSObject {
             }
             return (info.mediaSources.first?.id, info.playSessionId)
         }.value
+    }
+
+    /// Resolve the local `file://` URL for a track that has a completed offline
+    /// download, or `nil` when offline playback is disabled or no usable local
+    /// copy exists (#819).
+    ///
+    /// Returns `nil` immediately — without any FFI — when
+    /// `offlinePlaybackEnabled` is `false`, so the streaming path is never
+    /// perturbed while the downloads feature is dormant. When enabled, the
+    /// core's `downloadLocalPath` already verifies the file exists on disk, so a
+    /// non-nil result is safe to hand straight to AVFoundation. The FFI blocks
+    /// on a SQLite read, so it runs off the main actor.
+    private func resolveLocalAssetURL(for trackId: String) async -> URL? {
+        guard offlinePlaybackEnabled else { return nil }
+        let core = self.core
+        let path: String? = await Task.detached {
+            core.downloadLocalPath(trackId: trackId)
+        }.value
+        guard let path, !path.isEmpty else { return nil }
+        return URL(fileURLWithPath: path)
     }
 
     /// The currently-reporting session, captured at the last
@@ -510,30 +550,55 @@ public final class AudioEngine: NSObject {
         // not touch the pending `stallWorkItem`, so cancel it explicitly here.
         cancelStallWatchdog()
 
-        // Resolve media source + play session id via PlaybackInfo so the
-        // server picks the right source for multi-version items and can
-        // correlate subsequent /Sessions/Playing* reports with the stream.
-        // Falling back to nil is harmless — the server just picks its
-        // default source and correlation stays opportunistic.
-        let (mediaSourceId, playSessionId) = await resolvePlaybackSource(for: track.id)
-        let urlString = try core.streamUrl(
-            trackId: track.id,
-            mediaSourceId: mediaSourceId,
-            playSessionId: playSessionId
-        )
-        guard let url = URL(string: urlString) else {
-            throw AudioEngineError.invalidURL(urlString)
+        // Offline playback (#819): when enabled and a completed local copy
+        // exists, play the file directly — no PlaybackInfo round-trip, no auth
+        // header, no play-session correlation. `resolveLocalAssetURL` returns
+        // nil (with no FFI) whenever `offlinePlaybackEnabled` is false, so the
+        // streaming branch below is reached byte-for-byte as before when the
+        // feature is dormant or the track isn't downloaded.
+        let url: URL
+        let authHeader: String?
+        let mediaSourceId: String?
+        let playSessionId: String?
+        if let localURL = await resolveLocalAssetURL(for: track.id) {
+            url = localURL
+            authHeader = nil
+            mediaSourceId = nil
+            playSessionId = nil
+            // No server play-session for a local file; clear any stale one so a
+            // later progress/stop report doesn't correlate against a dead id.
+            core.setPlaySessionId(playSessionId: nil)
+        } else {
+            // Resolve media source + play session id via PlaybackInfo so the
+            // server picks the right source for multi-version items and can
+            // correlate subsequent /Sessions/Playing* reports with the stream.
+            // Falling back to nil is harmless — the server just picks its
+            // default source and correlation stays opportunistic.
+            let (resolvedSource, resolvedSession) = await resolvePlaybackSource(for: track.id)
+            mediaSourceId = resolvedSource
+            playSessionId = resolvedSession
+            let urlString = try core.streamUrl(
+                trackId: track.id,
+                mediaSourceId: mediaSourceId,
+                playSessionId: playSessionId
+            )
+            guard let streamURL = URL(string: urlString) else {
+                throw AudioEngineError.invalidURL(urlString)
+            }
+            url = streamURL
+            core.setPlaySessionId(playSessionId: playSessionId)
+            authHeader = try core.authHeader()
         }
-        core.setPlaySessionId(playSessionId: playSessionId)
-        let authHeader = try core.authHeader()
-        let asset = AVURLAsset(
-            url: url,
-            options: [
-                "AVURLAssetHTTPHeaderFieldsKey": [
-                    "Authorization": authHeader
-                ]
-            ]
-        )
+        // Build the asset with the auth header only for a streamed URL; a local
+        // file needs no Authorization (and AVFoundation ignores HTTP header
+        // options for `file://` anyway).
+        let assetOptions: [String: Any]
+        if let authHeader {
+            assetOptions = ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": authHeader]]
+        } else {
+            assetOptions = [:]
+        }
+        let asset = AVURLAsset(url: url, options: assetOptions)
         let item = AVPlayerItem(asset: asset)
 
         // Capture the *outgoing* track's playback position while `self.player`
@@ -728,6 +793,11 @@ public final class AudioEngine: NSObject {
         // preload has superseded this one.
         preloadGeneration &+= 1
         let generation = preloadGeneration
+        // Capture the offline gate on the actor so the detached task makes the
+        // same local-vs-stream decision `play(track:)` does. When false the
+        // task never queries the download FFI — gapless preload is byte-for-byte
+        // the streaming path (#819).
+        let offlineEnabled = offlinePlaybackEnabled
         // `[weak self]` so an engine torn down mid-resolve (track change,
         // stop) doesn't get pinned alive for the duration of the network FFI —
         // matches `applyReplayGain`. The network work below only touches the
@@ -735,27 +805,32 @@ public final class AudioEngine: NSObject {
         // if `self` is gone.
         Task.detached { [weak self] in
             do {
-                let info = try? core.playbackInfo(itemId: track.id, opts: opts)
-                let mediaSourceId = info?.mediaSources.first?.id
-                let playSessionId = info?.playSessionId
-                let urlString = try core.streamUrl(
-                    trackId: track.id,
-                    mediaSourceId: mediaSourceId,
-                    playSessionId: playSessionId
-                )
-                let authHeader = try core.authHeader()
-                guard let url = URL(string: urlString) else {
-                    engineLog.error("preload skipped: invalid stream URL for track \(track.id, privacy: .public)")
-                    return
+                // Offline branch: a completed local copy plays from disk with no
+                // PlaybackInfo round-trip or auth header.
+                let localPath = offlineEnabled ? core.downloadLocalPath(trackId: track.id) : nil
+                let url: URL
+                let assetOptions: [String: Any]
+                if let localPath, !localPath.isEmpty {
+                    url = URL(fileURLWithPath: localPath)
+                    assetOptions = [:]
+                } else {
+                    let info = try? core.playbackInfo(itemId: track.id, opts: opts)
+                    let mediaSourceId = info?.mediaSources.first?.id
+                    let playSessionId = info?.playSessionId
+                    let urlString = try core.streamUrl(
+                        trackId: track.id,
+                        mediaSourceId: mediaSourceId,
+                        playSessionId: playSessionId
+                    )
+                    let authHeader = try core.authHeader()
+                    guard let streamURL = URL(string: urlString) else {
+                        engineLog.error("preload skipped: invalid stream URL for track \(track.id, privacy: .public)")
+                        return
+                    }
+                    url = streamURL
+                    assetOptions = ["AVURLAssetHTTPHeaderFieldsKey": ["Authorization": authHeader]]
                 }
-                let asset = AVURLAsset(
-                    url: url,
-                    options: [
-                        "AVURLAssetHTTPHeaderFieldsKey": [
-                            "Authorization": authHeader
-                        ]
-                    ]
-                )
+                let asset = AVURLAsset(url: url, options: assetOptions)
                 let nextItem = AVPlayerItem(asset: asset)
 
                 await MainActor.run {

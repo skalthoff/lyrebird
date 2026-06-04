@@ -146,6 +146,7 @@ enum LyrebirdErrorPresenter {
         case favorite
         case markPlayed
         case playlistAdd
+        case download
 
         fileprivate var fallbackKey: String? {
             switch self {
@@ -161,6 +162,7 @@ enum LyrebirdErrorPresenter {
             case .favorite: return "error.favorite"
             case .markPlayed: return "error.markPlayed"
             case .playlistAdd: return "error.playlist.add"
+            case .download: return "error.download"
             }
         }
     }

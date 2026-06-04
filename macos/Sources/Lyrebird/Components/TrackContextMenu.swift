@@ -108,7 +108,7 @@ struct TrackContextMenu: View {
         if model.supportsDownloads {
             Button(
                 downloadLabel,
-                systemImage: "arrow.down.circle"
+                systemImage: allDownloaded ? "arrow.down.circle.fill" : "arrow.down.circle"
             ) { model.toggleDownload(tracks: selection) }
         }
         if model.supportsMarkPlayed {
@@ -136,11 +136,15 @@ struct TrackContextMenu: View {
         allFavorited ? "Unfavorite\(countSuffix)" : "Favorite\(countSuffix)"
     }
 
+    /// True when every track in the selection is already downloaded, so the
+    /// action reads as "Remove Download" rather than "Download" (#819). Mirrors
+    /// `allFavorited`.
+    private var allDownloaded: Bool {
+        !selection.isEmpty && selection.allSatisfy { model.downloadState(forTrackId: $0.id) == .done }
+    }
+
     private var downloadLabel: String {
-        // Download state isn't tracked per-track yet (#819 downloads engine),
-        // so the label always reads as "Download" for now. Once state lands
-        // this mirrors favorite's all-on / any-off logic.
-        "Download\(countSuffix)"
+        allDownloaded ? "Remove Download\(countSuffix)" : "Download\(countSuffix)"
     }
 
     private var markPlayedLabel: String {

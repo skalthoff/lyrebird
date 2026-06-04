@@ -589,6 +589,18 @@
         }
       }
     },
+    "error.download" : {
+      "comment" : "Banner copy when downloading a track for offline playback fails.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't download for offline playback."
+          }
+        }
+      }
+    },
     "error.storage" : {
       "comment" : "Banner copy for LyrebirdError.Storage — local SQLite or cache failure.",
       "extractionState" : "manual",
