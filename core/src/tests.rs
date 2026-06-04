@@ -9032,7 +9032,9 @@ async fn download_budget_refuses_track_larger_than_whole_budget() {
     let track = dl_track("t-big", Some(320_000), 225 * 10_000_000);
     downloads::enqueue(&db, &track, 1).unwrap();
     let client = mock_client("http://127.0.0.1:0");
-    let err = downloads::fetch(&db, &client, tmp.path(), &track, 2)
+    let permits = tokio::sync::Semaphore::new(2);
+    let budget_lock = tokio::sync::Mutex::new(());
+    let err = downloads::fetch(&db, &client, tmp.path(), &track, 2, &permits, &budget_lock)
         .await
         .expect_err("oversized track must be refused");
     match err {
@@ -9257,4 +9259,202 @@ async fn download_track_server_error_marks_failed() {
     })
     .await
     .unwrap();
+}
+
+/// A track id carrying path separators / `..` must be refused before any file
+/// is written, and must not escape the downloads directory. Guards the
+/// path-traversal fix in `downloads::fetch` (`safe_filename_stem` +
+/// `dest_within_dir`).
+#[tokio::test]
+async fn download_rejects_path_traversal_track_id() {
+    use crate::downloads;
+    let db = std::sync::Arc::new(Database::in_memory().unwrap());
+    let tmp = tempfile::tempdir().unwrap();
+    // Point the downloads dir at our temp tree so we can prove nothing escaped.
+    db.set_setting(downloads::DOWNLOAD_DIR_KEY, &tmp.path().to_string_lossy())
+        .unwrap();
+
+    // An id that, interpolated into `<dir>/<id>.<ext>`, would climb out of the
+    // downloads dir and into the temp root as `escape.mp3`.
+    let evil_id = "../escape";
+    let track = dl_track(evil_id, None, 0);
+    downloads::enqueue(&db, &track, 1).unwrap();
+
+    let permits = tokio::sync::Semaphore::new(2);
+    let budget_lock = tokio::sync::Mutex::new(());
+    // The client URL is never contacted — validation refuses the id first.
+    let client = mock_client("http://127.0.0.1:0");
+    let err = downloads::fetch(&db, &client, tmp.path(), &track, 2, &permits, &budget_lock)
+        .await
+        .expect_err("path-traversal id must be refused");
+    assert!(
+        matches!(err, LyrebirdError::InvalidInput(_)),
+        "expected InvalidInput, got {err:?}"
+    );
+
+    // The row is marked failed, and crucially NO file was written anywhere the
+    // traversal pointed: neither inside the downloads dir nor its parent.
+    assert_eq!(
+        downloads::state_for(&db, evil_id).unwrap(),
+        Some(crate::models::DownloadState::Failed)
+    );
+    let parent_escape = tmp.path().parent().unwrap().join("escape.mp3");
+    assert!(
+        !parent_escape.exists(),
+        "traversal wrote outside the downloads dir at {parent_escape:?}"
+    );
+    // The downloads dir itself holds no stray audio file.
+    let stray: Vec<_> = std::fs::read_dir(tmp.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name())
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "expected no files written for a refused id, found {stray:?}"
+    );
+}
+
+/// `downloads::fetch` must cap parallel transfers at the semaphore's permit
+/// count (#819: default 2). Three concurrent fetches sharing a 2-permit
+/// semaphore must never have more than two streaming at once. A counting
+/// wiremock responder records the peak observed concurrency.
+#[tokio::test(flavor = "multi_thread")]
+async fn download_fetch_caps_parallel_transfers() {
+    use crate::downloads;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let server = MockServer::start().await;
+    let in_flight = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let in_flight_mock = in_flight.clone();
+    let peak_mock = peak.clone();
+
+    // Each audio request bumps the in-flight counter, records the running peak,
+    // holds the connection briefly so overlap is observable, then releases.
+    Mock::given(method("GET"))
+        .respond_with(move |req: &Request| {
+            // Only the /Audio/.../universal stream endpoint participates.
+            if !req.url.path().starts_with("/Audio/") {
+                return ResponseTemplate::new(404);
+            }
+            let now = in_flight_mock.fetch_add(1, Ordering::SeqCst) + 1;
+            peak_mock.fetch_max(now, Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            in_flight_mock.fetch_sub(1, Ordering::SeqCst);
+            ResponseTemplate::new(200)
+                .insert_header("Content-Type", "audio/mpeg")
+                .set_body_bytes(vec![7u8; 64])
+        })
+        .mount(&server)
+        .await;
+
+    let db = Arc::new(Database::in_memory().unwrap());
+    let tmp = tempfile::tempdir().unwrap();
+    db.set_setting(downloads::DOWNLOAD_DIR_KEY, &tmp.path().to_string_lossy())
+        .unwrap();
+    // Shared across all fetches — this is the cap under test.
+    let permits = Arc::new(tokio::sync::Semaphore::new(2));
+    let budget_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let client = Arc::new(mock_client(&server.uri()));
+
+    let mut handles = Vec::new();
+    for i in 0..3 {
+        let id = format!("cap-{i}");
+        let track = dl_track(&id, None, 0);
+        downloads::enqueue(&db, &track, 1).unwrap();
+        let (db, client, permits, budget_lock) = (
+            db.clone(),
+            client.clone(),
+            permits.clone(),
+            budget_lock.clone(),
+        );
+        let dir = tmp.path().to_path_buf();
+        handles.push(tokio::spawn(async move {
+            downloads::fetch(&db, &client, &dir, &track, 2, &permits, &budget_lock)
+                .await
+                .expect("fetch should succeed");
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    assert!(
+        peak.load(Ordering::SeqCst) <= 2,
+        "expected at most 2 concurrent transfers, observed peak {}",
+        peak.load(Ordering::SeqCst)
+    );
+    // All three still completed.
+    assert_eq!(db.download_used_bytes().unwrap().1, 3);
+}
+
+/// Two concurrent fetches sharing a budget that fits only one track must not
+/// both commit and collectively exceed the budget. The size-checked commit
+/// under `download_budget_lock` serialises the decision, so the second to
+/// finish evicts the first (LRU) instead of stacking on top. Guards the TOCTOU
+/// fix.
+#[tokio::test(flavor = "multi_thread")]
+async fn download_concurrent_fetches_respect_shared_budget() {
+    use crate::downloads;
+    use std::sync::Arc;
+
+    let server = MockServer::start().await;
+    // 64-byte body per track; budget of 100 fits exactly one (not two).
+    Mock::given(method("GET"))
+        .respond_with(|req: &Request| {
+            if req.url.path().starts_with("/Audio/") {
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "audio/mpeg")
+                    .set_body_bytes(vec![1u8; 64])
+            } else {
+                ResponseTemplate::new(404)
+            }
+        })
+        .mount(&server)
+        .await;
+
+    let db = Arc::new(Database::in_memory().unwrap());
+    let tmp = tempfile::tempdir().unwrap();
+    db.set_setting(downloads::DOWNLOAD_DIR_KEY, &tmp.path().to_string_lossy())
+        .unwrap();
+    db.set_setting(downloads::DOWNLOAD_BUDGET_KEY, &100u64.to_string())
+        .unwrap();
+    let permits = Arc::new(tokio::sync::Semaphore::new(2));
+    let budget_lock = Arc::new(tokio::sync::Mutex::new(()));
+    let client = Arc::new(mock_client(&server.uri()));
+
+    // Two tracks with no bitrate -> pre-fetch estimate is 0, so both pass the
+    // *estimate* gate and race to the post-fetch (true-size) commit. Distinct
+    // completion timestamps via `now` so the LRU victim is deterministic.
+    let mut handles = Vec::new();
+    for (i, now) in [("budget-a", 10i64), ("budget-b", 20i64)] {
+        let track = dl_track(i, None, 0);
+        downloads::enqueue(&db, &track, now).unwrap();
+        let (db, client, permits, budget_lock) = (
+            db.clone(),
+            client.clone(),
+            permits.clone(),
+            budget_lock.clone(),
+        );
+        let dir = tmp.path().to_path_buf();
+        handles.push(tokio::spawn(async move {
+            // A fetch may legitimately fail here only if it can't fit at all,
+            // which it can (64 <= 100), so both should succeed; the loser just
+            // evicts the winner.
+            downloads::fetch(&db, &client, &dir, &track, now, &permits, &budget_lock)
+                .await
+                .expect("fetch should succeed (track fits an empty store)");
+        }));
+    }
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // The invariant: completed usage never exceeds the budget, even though both
+    // ran concurrently. Exactly one survives as `done`.
+    let (used, count) = db.download_used_bytes().unwrap();
+    assert!(used <= 100, "used {used} exceeded budget 100");
+    assert_eq!(count, 1, "exactly one download should remain within budget");
 }

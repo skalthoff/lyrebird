@@ -60,6 +60,10 @@ impl Drop for HeartbeatHandle {
     }
 }
 
+/// Default number of offline downloads allowed to stream in parallel (#819:
+/// "default 2 parallel transfers"). Bounds [`LyrebirdCore::download_semaphore`].
+const DOWNLOAD_PARALLELISM: usize = 2;
+
 /// The main handle a UI holds.
 #[derive(uniffi::Object)]
 pub struct LyrebirdCore {
@@ -68,6 +72,18 @@ pub struct LyrebirdCore {
     runtime: tokio::runtime::Runtime,
     /// Running heartbeat task, if one was started via [`Self::start_heartbeat`].
     heartbeat: Mutex<Option<HeartbeatHandle>>,
+    /// Caps how many offline downloads stream concurrently (#819 — default
+    /// [`DOWNLOAD_PARALLELISM`]). Acquired by `downloads::fetch` for the
+    /// duration of each transfer. Shared (not behind the `Inner` mutex) so the
+    /// permit can be held across the network stream without keeping the FFI
+    /// lock — `download_track` clones this `Arc` under the lock, then awaits
+    /// outside it.
+    download_semaphore: Arc<tokio::sync::Semaphore>,
+    /// Serialises offline-download budget planning + the size-checked commit so
+    /// two concurrent `download_track` calls can't each pass the budget check
+    /// and collectively overshoot. Held only around the cheap plan/commit
+    /// critical sections, never across the byte stream. See `downloads::fetch`.
+    download_budget_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct Inner {
@@ -142,6 +158,8 @@ impl LyrebirdCore {
             player,
             runtime,
             heartbeat: Mutex::new(None),
+            download_semaphore: Arc::new(tokio::sync::Semaphore::new(DOWNLOAD_PARALLELISM)),
+            download_budget_lock: Arc::new(tokio::sync::Mutex::new(())),
         }))
     }
 
@@ -1388,6 +1406,11 @@ impl LyrebirdCore {
     /// Blocking: this drives the full HTTP transfer on the tokio runtime, so
     /// the platform layer MUST call it off the main thread (e.g. inside a
     /// `Task.detached`).
+    ///
+    /// Concurrency: parallel transfers are capped (#819 — default 2) via a
+    /// shared semaphore, and budget planning + the final size-checked commit
+    /// are serialised by a shared lock, so concurrent `download_track` calls
+    /// can't collectively overshoot the storage budget.
     pub fn download_track(
         &self,
         track: Track,
@@ -1407,8 +1430,20 @@ impl LyrebirdCore {
         let now = chrono::Utc::now().timestamp();
         // Record the queued intent up front, off the network path.
         downloads::enqueue(&db, &track, now)?;
-        self.runtime
-            .block_on(downloads::fetch(&db, &client, &data_dir, &track, now))
+        // The concurrency cap + budget lock are shared across all in-flight
+        // downloads; clone the handles so `fetch` can hold a permit / take the
+        // lock without keeping the `Inner` mutex (already dropped above).
+        let permits = self.download_semaphore.clone();
+        let budget_lock = self.download_budget_lock.clone();
+        self.runtime.block_on(downloads::fetch(
+            &db,
+            &client,
+            &data_dir,
+            &track,
+            now,
+            &permits,
+            &budget_lock,
+        ))
     }
 
     /// Cancel / remove a download: deletes the on-disk file and the index row.
