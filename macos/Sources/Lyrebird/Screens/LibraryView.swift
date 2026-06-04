@@ -114,27 +114,43 @@ struct LibraryView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    chipRow
-                    if model.isLoadingLibrary && model.albums.isEmpty {
-                        ProgressView()
-                            .tint(Theme.ink2)
-                            .padding(.top, 40)
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        content
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        header
+                        chipRow
+                        if model.isLoadingLibrary && model.albums.isEmpty {
+                            ProgressView()
+                                .tint(Theme.ink2)
+                                .padding(.top, 40)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            content
+                        }
+                        Spacer(minLength: 24)
                     }
-                    Spacer(minLength: 24)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 28)
+                    // Leave room for the floating selection banner so the last
+                    // rows aren't occluded while a selection is active.
+                    .padding(.bottom, selectedTracks.isEmpty ? 32 : 88)
                 }
-                .padding(.horizontal, 32)
-                .padding(.top, 28)
-                // Leave room for the floating selection banner so the last
-                // rows aren't occluded while a selection is active.
-                .padding(.bottom, selectedTracks.isEmpty ? 32 : 88)
+                .background(backgroundWash)
+                // A–Z fast-scroll rail (#216). Only shown for large, A–Z-sorted
+                // lists where alphabetical position is meaningful; see
+                // `showAlphabetRail`. Centred on the trailing edge; a tap or
+                // drag scrolls to the first row in the chosen letter's bucket.
+                .overlay(alignment: .trailing) {
+                    if showAlphabetRail {
+                        AlphabetScrollRail(
+                            presentBuckets: alphabetPresentBuckets,
+                            onSelect: { letter in scrollToLetter(letter, using: proxy) }
+                        )
+                        .padding(.trailing, 6)
+                        .transition(.opacity)
+                    }
+                }
             }
-            .background(backgroundWash)
 
             if !selectedTracks.isEmpty {
                 TrackSelectionBanner(
@@ -202,6 +218,66 @@ struct LibraryView: View {
         .onChange(of: defaultSongSort) { _, _ in
             reapplyDefaultSort(for: .tracks)
         }
+    }
+
+    // MARK: - A–Z fast scroll (#216)
+
+    /// Threshold above which the alphabet rail is worth showing. Below a couple
+    /// hundred rows a flick scroll is faster than aiming at a letter, and the
+    /// rail would just clutter the trailing edge.
+    private let alphabetRailMinItems = 200
+
+    /// The `name` of every row in the active tab, in the exact order it's
+    /// displayed. Reuses the same `sorted*` arrays the grid/list render so the
+    /// rail's letter → index mapping can't drift from what's on screen.
+    /// Downloaded has no backing list yet, so it contributes nothing.
+    private var displayedSortNames: [String] {
+        switch selectedTab {
+        case .albums: return sortedAlbums.map(\.name)
+        case .artists: return sortedArtists.map(\.name)
+        case .tracks: return sortedTracks.map(\.name)
+        case .playlists: return sortedPlaylists.map(\.name)
+        case .downloaded: return []
+        }
+    }
+
+    /// The `id` of every row in the active tab, in display order. Paired
+    /// positionally with `displayedSortNames` so a resolved bucket index maps
+    /// straight to a `scrollTo` target — `ForEach(_, id: \.element.id)` registers
+    /// these ids as scroll anchors.
+    private var displayedItemIds: [String] {
+        switch selectedTab {
+        case .albums: return sortedAlbums.map(\.id)
+        case .artists: return sortedArtists.map(\.id)
+        case .tracks: return sortedTracks.map(\.id)
+        case .playlists: return sortedPlaylists.map(\.id)
+        case .downloaded: return []
+        }
+    }
+
+    /// Whether to show the rail for the current tab + sort. Gated on a large
+    /// row count (`alphabetRailMinItems`) **and** an A–Z name sort — under any
+    /// other sort the displayed order doesn't track the alphabet, so a letter
+    /// wouldn't correspond to a position. (`AlphabetScrollIndex.firstIndex`
+    /// assumes an ascending sort.)
+    private var showAlphabetRail: Bool {
+        sortOrder == .nameAscending && displayedSortNames.count > alphabetRailMinItems
+    }
+
+    /// Buckets present in the displayed list, for the rail's emphasis/dimming.
+    private var alphabetPresentBuckets: Set<Character> {
+        AlphabetScrollIndex.presentBuckets(in: displayedSortNames)
+    }
+
+    /// Resolve a tapped/dragged rail letter to the first row in its bucket and
+    /// scroll there. No-op when nothing sits at or after the letter (the helper
+    /// returns `nil`). Snaps the target row to the top of the viewport.
+    private func scrollToLetter(_ letter: Character, using proxy: ScrollViewProxy) {
+        guard
+            let index = AlphabetScrollIndex.firstIndex(for: letter, in: displayedSortNames),
+            displayedItemIds.indices.contains(index)
+        else { return }
+        proxy.scrollTo(displayedItemIds[index], anchor: .top)
     }
 
     /// The selected tracks resolved against the currently-sorted list, in
