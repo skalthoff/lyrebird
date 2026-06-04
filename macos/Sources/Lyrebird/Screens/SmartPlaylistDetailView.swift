@@ -33,30 +33,34 @@ struct SmartPlaylistDetailView: View {
     }
 
     /// The live evaluated track set. Pure function of the playlist's rules
-    /// and the current snapshot — recomputed each render (cheap: a single
-    /// linear pass with an O(1) genre lookup).
-    private var matchedTracks: [Track] {
-        guard let playlist else { return [] }
-        return SmartPlaylistEvaluator.evaluate(
+    /// and the current snapshot.
+    ///
+    /// SwiftUI does not memoize computed properties, so reading this once per
+    /// visible row (as the old code did via `matchedTracks`) re-ran the whole
+    /// O(albums + tracks) predicate N times per render. `body` instead
+    /// evaluates **once** into a local and threads the result down to every
+    /// subview, building the album→genre index a single time per render with
+    /// the `genresByAlbumId:` evaluator overload rather than rebuilding it
+    /// per access.
+    private func evaluate(_ playlist: SmartPlaylist) -> [Track] {
+        SmartPlaylistEvaluator.evaluate(
             playlist,
             tracks: model.tracks,
-            albums: model.albums
+            genresByAlbumId: SmartPlaylistEvaluator.albumGenreIndex(model.albums)
         )
-    }
-
-    /// `matchedTracks` filtered by the scoped query, paired with the index
-    /// into `matchedTracks` so playback starts from the right row.
-    private var filteredTracks: [(index: Int, track: Track)] {
-        PlaylistView.filterTracks(matchedTracks, query: scopedQuery)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let playlist {
-                    hero(playlist)
-                    transportBar
-                    trackList
+                    // Evaluate once per render; pass the result to every
+                    // subview so the predicate isn't re-run per row / per
+                    // property access.
+                    let matched = evaluate(playlist)
+                    hero(playlist, matched: matched)
+                    transportBar(playlist, matched: matched)
+                    trackList(matched: matched)
                 } else {
                     notFound
                 }
@@ -82,7 +86,7 @@ struct SmartPlaylistDetailView: View {
     // MARK: - Hero
 
     @ViewBuilder
-    private func hero(_ playlist: SmartPlaylist) -> some View {
+    private func hero(_ playlist: SmartPlaylist, matched: [Track]) -> some View {
         HStack(alignment: .top, spacing: 24) {
             // Gradient artwork tile with the smart-playlist glyph, so the
             // detail page reads as "rule-driven" rather than a normal
@@ -103,7 +107,7 @@ struct SmartPlaylistDetailView: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("SMART PLAYLIST")
+                Text("smart_playlist.badge")
                     .font(Theme.font(10, weight: .bold))
                     .foregroundStyle(Theme.ink3)
                     .tracking(2)
@@ -121,7 +125,7 @@ struct SmartPlaylistDetailView: View {
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(SmartPlaylistDetailView.countSummary(matchedTracks.count))
+                Text(CountStrings.label(matched.count, .songs))
                     .font(Theme.font(12, weight: .semibold))
                     .foregroundStyle(Theme.ink3)
             }
@@ -134,11 +138,10 @@ struct SmartPlaylistDetailView: View {
     // MARK: - Transport bar
 
     @ViewBuilder
-    private var transportBar: some View {
+    private func transportBar(_ playlist: SmartPlaylist, matched: [Track]) -> some View {
         HStack(spacing: 14) {
             Button {
-                let t = matchedTracks
-                if !t.isEmpty { model.play(tracks: t, startIndex: 0) }
+                if !matched.isEmpty { model.play(tracks: matched, startIndex: 0) }
             } label: {
                 Image(systemName: "play.fill")
                     .font(.system(size: 22))
@@ -148,12 +151,11 @@ struct SmartPlaylistDetailView: View {
                     .shadow(color: Theme.accent.opacity(0.35), radius: 12, y: 8)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Play smart playlist")
-            .disabled(matchedTracks.isEmpty)
+            .accessibilityLabel(Text("smart_playlist.a11y.play"))
+            .disabled(matched.isEmpty)
 
             Button {
-                let t = matchedTracks
-                if !t.isEmpty { model.play(tracks: t.shuffled(), startIndex: 0) }
+                if !matched.isEmpty { model.play(tracks: matched.shuffled(), startIndex: 0) }
             } label: {
                 Image(systemName: "shuffle")
                     .font(.system(size: 20))
@@ -161,15 +163,15 @@ struct SmartPlaylistDetailView: View {
                     .frame(width: 36, height: 36)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Shuffle smart playlist")
-            .disabled(matchedTracks.isEmpty)
+            .accessibilityLabel(Text("smart_playlist.a11y.shuffle"))
+            .disabled(matched.isEmpty)
 
             Button {
                 editing = playlist
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "slider.horizontal.3")
-                    Text("Edit Rules")
+                    Text("smart_playlist.edit_rules")
                 }
                 .font(Theme.font(13, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
@@ -179,7 +181,7 @@ struct SmartPlaylistDetailView: View {
                 .overlay(Capsule().stroke(Theme.border, lineWidth: 1))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Edit smart playlist rules")
+            .accessibilityLabel(Text("smart_playlist.a11y.edit_rules"))
 
             Spacer()
         }
@@ -191,36 +193,39 @@ struct SmartPlaylistDetailView: View {
     // MARK: - Track list
 
     @ViewBuilder
-    private var trackList: some View {
+    private func trackList(matched: [Track]) -> some View {
+        // Filter the (already-evaluated) set by the scoped query once, paired
+        // with the index into `matched` so playback starts from the right row.
+        let filtered = PlaylistView.filterTracks(matched, query: scopedQuery)
         VStack(alignment: .leading, spacing: 0) {
-            if !matchedTracks.isEmpty {
+            if !matched.isEmpty {
                 HStack {
                     Spacer()
                     ScopedSearchBar(
                         query: $scopedQuery,
                         isFocused: $scopedSearchFocused,
-                        placeholder: "Filter tracks"
+                        placeholder: String(localized: "smart_playlist.filter_placeholder")
                     )
                 }
                 .padding(.bottom, 8)
             }
 
-            if matchedTracks.isEmpty {
+            if matched.isEmpty {
                 emptyResult
-            } else if filteredTracks.isEmpty {
-                Text("No tracks match \u{201C}\(scopedQuery)\u{201D}")
+            } else if filtered.isEmpty {
+                Text("smart_playlist.no_filter_match \(scopedQuery)")
                     .font(Theme.font(13, weight: .medium))
                     .foregroundStyle(Theme.ink3)
                     .padding(.vertical, 40)
                     .frame(maxWidth: .infinity)
             } else {
-                ForEach(filteredTracks, id: \.track.id) { entry in
+                ForEach(filtered, id: \.track.id) { entry in
                     let idx = entry.index
                     TrackRow(
                         track: entry.track,
                         number: idx + 1,
-                        onPlay: { model.play(tracks: matchedTracks, startIndex: idx) },
-                        tracks: matchedTracks,
+                        onPlay: { model.play(tracks: matched, startIndex: idx) },
+                        tracks: matched,
                         index: idx
                     )
                 }
@@ -238,15 +243,17 @@ struct SmartPlaylistDetailView: View {
             Image(systemName: "line.3.horizontal.decrease.circle")
                 .font(.system(size: 34))
                 .foregroundStyle(Theme.ink3)
-            Text("No tracks match these rules")
+            Text("smart_playlist.empty.title")
                 .font(Theme.font(14, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
-            Text("Loaded \(model.tracks.count) tracks so far. Try loosening the rules, or open the Library so more tracks are in memory.")
+            Text("smart_playlist.empty.detail \(model.tracks.count)")
                 .font(Theme.font(12, weight: .medium))
                 .foregroundStyle(Theme.ink3)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
-            Button("Edit Rules") { editing = playlist }
+            Button { editing = playlist } label: {
+                Text("smart_playlist.edit_rules")
+            }
                 .buttonStyle(.plain)
                 .font(Theme.font(13, weight: .semibold))
                 .foregroundStyle(Theme.primary)
@@ -262,7 +269,7 @@ struct SmartPlaylistDetailView: View {
             Image(systemName: "questionmark.folder")
                 .font(.system(size: 34))
                 .foregroundStyle(Theme.ink3)
-            Text("Smart playlist not found")
+            Text("smart_playlist.not_found")
                 .font(Theme.font(15, weight: .semibold))
                 .foregroundStyle(Theme.ink2)
         }
@@ -272,20 +279,29 @@ struct SmartPlaylistDetailView: View {
 
     // MARK: - Pure summary helpers (unit-tested)
 
-    /// One-line plain-English description of a playlist's rules, e.g.
+    /// One-line localized description of a playlist's rules, e.g. (en)
     /// "Matches all of: Artist is Radiohead, Year greater than 2000". An
-    /// empty rule set reads as "Matches every track". Pure so it's tested
-    /// without a view.
+    /// empty rule set reads as "Matches every track."
+    ///
+    /// Built from localized format strings rather than English-glued clauses:
+    /// the empty case and the "Matches {mode} of: {clauses}" frame are catalog
+    /// keys, the per-clause `field`/`op` labels are already localized via the
+    /// model's `displayName`, and the clause separator is itself a catalog key
+    /// so locales that don't list-join with ", " can override it. Pure (no
+    /// view state) so it stays unit-testable; in the test bundle the catalog
+    /// is stripped, so lookups return the raw keys — the *structure* is what's
+    /// pinned there, the rendered copy is verified in the running app.
     static func ruleSummary(_ playlist: SmartPlaylist) -> String {
-        guard !playlist.rules.isEmpty else { return "Matches every track." }
-        let clauses = playlist.rules.map { rule -> String in
-            "\(rule.field.displayName) \(rule.op.displayName) \(rule.value)"
+        guard !playlist.rules.isEmpty else {
+            return String(localized: "smart_playlist.rules.matches_all_tracks", bundle: .main)
         }
-        return "Matches \(playlist.matchMode.displayName) of: " + clauses.joined(separator: ", ")
-    }
-
-    /// Pluralized "N song(s)" readout. Pure.
-    static func countSummary(_ count: Int) -> String {
-        count == 1 ? "1 song" : "\(count) songs"
+        let separator = String(localized: "smart_playlist.rules.clause_separator", bundle: .main)
+        let clauses = playlist.rules
+            .map { rule in "\(rule.field.displayName) \(rule.op.displayName) \(rule.value)" }
+            .joined(separator: separator)
+        return String(
+            localized: "smart_playlist.rules.matches \(playlist.matchMode.displayName) \(clauses)",
+            bundle: .main
+        )
     }
 }

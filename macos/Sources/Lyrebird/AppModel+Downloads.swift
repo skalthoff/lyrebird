@@ -70,6 +70,12 @@ extension AppModel {
             } catch {
                 if handleAuthError(error) {
                     downloadsInFlight.remove(track.id)
+                    // Auth expired mid-batch: clear the optimistic `.queued`
+                    // badge so the row doesn't show a permanent spinner with
+                    // nothing in flight (markAuthExpired() doesn't touch the
+                    // download maps). `.failed` mirrors the core, which marks
+                    // the DB row failed on the same auth error.
+                    downloadStateById[track.id] = .failed
                     continue
                 }
                 // Mark failed locally and surface the reason. We deliberately
@@ -80,9 +86,12 @@ extension AppModel {
                 Log.tracks.error("download failed track=\(track.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
             downloadsInFlight.remove(track.id)
-            // Keep aggregate stats fresh after each completion.
-            await refreshDownloadStats()
         }
+        // Refresh aggregate stats once after the batch rather than per track:
+        // the per-track `downloadStateById` updates already drive row badges,
+        // and the stats aggregate (SQLite sum) only feeds the preferences pane,
+        // so one read at the end avoids O(n) serialized FFI hops.
+        await refreshDownloadStats()
     }
 
     /// Remove the offline copies of a batch of tracks: deletes the files + index

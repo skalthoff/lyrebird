@@ -33,10 +33,13 @@ import Foundation
 /// | `.isFavorite` | `userData?.isFavorite ?? isFavorite`               |
 /// | `.dateAdded`  | `userData?.lastPlayedAt` (ISO-8601). Jellyfin's    |
 /// |               | per-track projection exposes *last played*, not    |
-/// |               | `DateCreated`; the desktop client treats "Date     |
-/// |               | added" as last activity until core surfaces a real |
-/// |               | creation date. The seam is the single `dateAdded`  |
-/// |               | assignment in `TrackFacts.init`.                   |
+/// |               | `DateCreated`, so this field is surfaced to the     |
+/// |               | user as **"Last Played"** — the case raw value is  |
+/// |               | the pre-existing `dateAdded` storage key (kept for |
+/// |               | persistence compatibility), but `displayName`      |
+/// |               | reflects what the data actually means. The seam is |
+/// |               | the single `dateAdded` assignment in               |
+/// |               | `TrackFacts.init`.                                 |
 
 // MARK: - Field
 
@@ -63,18 +66,25 @@ enum SmartPlaylistField: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// Short, human-facing label. Not localized through the String Catalog
-    /// yet (the catalog work is #560); kept as plain English so the builder
-    /// is legible until that lands.
+    /// Short, human-facing label shown in the builder's field picker and the
+    /// detail view's rule summary. Routed through the String Catalog so it is
+    /// localized like the rest of the smart-playlist UI.
+    ///
+    /// `.dateAdded` is labelled **"Last Played"** rather than "Date Added":
+    /// Jellyfin's `Track` projection exposes only `UserData.lastPlayedAt`,
+    /// not `DateCreated`, so the rule actually filters on last-played date.
+    /// The case raw value stays `dateAdded` (a stable persisted storage key
+    /// that must not be renamed); only the user-facing label is honest about
+    /// the semantics. See `TrackFacts.dateAdded`.
     var displayName: String {
         switch self {
-        case .genre: return "Genre"
-        case .artist: return "Artist"
-        case .album: return "Album"
-        case .year: return "Year"
-        case .playCount: return "Play Count"
-        case .isFavorite: return "Favorite"
-        case .dateAdded: return "Date Added"
+        case .genre: return String(localized: "smart_playlist.field.genre", bundle: .main)
+        case .artist: return String(localized: "smart_playlist.field.artist", bundle: .main)
+        case .album: return String(localized: "smart_playlist.field.album", bundle: .main)
+        case .year: return String(localized: "smart_playlist.field.year", bundle: .main)
+        case .playCount: return String(localized: "smart_playlist.field.play_count", bundle: .main)
+        case .isFavorite: return String(localized: "smart_playlist.field.favorite", bundle: .main)
+        case .dateAdded: return String(localized: "smart_playlist.field.last_played", bundle: .main)
         }
     }
 }
@@ -104,12 +114,12 @@ enum SmartPlaylistOperator: String, Codable, CaseIterable, Hashable, Sendable {
 
     var displayName: String {
         switch self {
-        case .is: return "is"
-        case .isNot: return "is not"
-        case .contains: return "contains"
-        case .greaterThan: return "greater than"
-        case .lessThan: return "less than"
-        case .inLast: return "in the last (days)"
+        case .is: return String(localized: "smart_playlist.op.is", bundle: .main)
+        case .isNot: return String(localized: "smart_playlist.op.is_not", bundle: .main)
+        case .contains: return String(localized: "smart_playlist.op.contains", bundle: .main)
+        case .greaterThan: return String(localized: "smart_playlist.op.greater_than", bundle: .main)
+        case .lessThan: return String(localized: "smart_playlist.op.less_than", bundle: .main)
+        case .inLast: return String(localized: "smart_playlist.op.in_last", bundle: .main)
         }
     }
 
@@ -137,8 +147,8 @@ enum SmartPlaylistMatchMode: String, Codable, CaseIterable, Hashable, Sendable {
 
     var displayName: String {
         switch self {
-        case .all: return "all"
-        case .any: return "any"
+        case .all: return String(localized: "smart_playlist.match_mode.all", bundle: .main)
+        case .any: return String(localized: "smart_playlist.match_mode.any", bundle: .main)
         }
     }
 }
@@ -209,6 +219,37 @@ struct SmartPlaylistRule: Codable, Identifiable, Hashable, Sendable {
         var fixed = SmartPlaylistRule.defaultRule(for: field)
         fixed.id = id
         return fixed
+    }
+
+    /// Return this rule with its `field` changed to `newField`, normalizing
+    /// the operator **and the value** for the new field's value kind.
+    ///
+    /// Unlike `repaired()` (which only fixes an *illegal* operator and so
+    /// preserves the old value when the operator happens to stay legal), this
+    /// resets the value to the new kind's default whenever the **value kind**
+    /// changes — even if the operator survives. Without that reset, switching
+    /// e.g. a text rule (`Artist is "Pink Floyd"`) to `Favorite` keeps the
+    /// stale `"Pink Floyd"` value: `.is` is legal for booleans, so the
+    /// operator-only repair leaves it, the boolean editor *displays* "yes",
+    /// but `booleanMatch` can't parse `"Pink Floyd"` and the saved playlist
+    /// silently matches nothing. Resetting on a kind change keeps the
+    /// displayed state and the stored/evaluated state in agreement.
+    ///
+    /// When the value kind is unchanged (e.g. Artist → Album, both text) the
+    /// user's typed value is preserved and only the operator is repaired.
+    func changingField(to newField: SmartPlaylistField) -> SmartPlaylistRule {
+        guard newField != field else { return repaired() }
+        var next = self
+        next.field = newField
+        if newField.valueKind != field.valueKind {
+            // Value kind changed → the stored value is meaningless for the new
+            // kind; seed the kind's default (and a legal operator with it).
+            var fresh = SmartPlaylistRule.defaultRule(for: newField)
+            fresh.id = id
+            return fresh
+        }
+        // Same kind → keep the value, just fix the operator if needed.
+        return next.repaired()
     }
 }
 

@@ -119,6 +119,61 @@ pub fn budget_bytes(db: &Database) -> u64 {
         .unwrap_or(0)
 }
 
+/// Validate a track id as a filename stem.
+///
+/// The id is server-supplied and flows straight into the on-disk path
+/// (`<dir>/<id>.<ext>`), so an id containing path separators or `..` could
+/// escape the downloads directory on write — and, because the same id is later
+/// used to locate the file for deletion, on delete too. Jellyfin item ids are
+/// GUIDs rendered as 32 lowercase hex chars (some deployments dash-group them),
+/// so we accept only ASCII alphanumerics and `-`. Anything else (a separator,
+/// `.`, NUL, whitespace, a leading dot) is rejected. An empty id is rejected.
+///
+/// Returns the id unchanged when valid, or [`LyrebirdError::InvalidInput`] when
+/// it is not safe to use as a filename stem.
+fn safe_filename_stem(track_id: &str) -> Result<&str> {
+    let ok = !track_id.is_empty()
+        && track_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if ok {
+        Ok(track_id)
+    } else {
+        Err(LyrebirdError::InvalidInput(format!(
+            "refusing to download track with unsafe id: {track_id:?}"
+        )))
+    }
+}
+
+/// Build the on-disk destination for a track's audio and assert it stays inside
+/// `dir`.
+///
+/// Defence in depth over [`safe_filename_stem`]: even with a sanitized stem we
+/// normalise the joined path and require it to remain a child of `dir`, so a
+/// future change to the naming scheme can't silently reintroduce a traversal.
+/// `dir` itself isn't required to exist yet (the fetch path creates it lazily),
+/// so we compare against `dir` lexically rather than canonicalising it.
+fn dest_within_dir(dir: &Path, stem: &str, ext: &str) -> Result<PathBuf> {
+    let dest = dir.join(format!("{stem}.{ext}"));
+    // The joined path must have `dir` as a prefix and contribute exactly one
+    // additional, normal path component (the file name). `Path::join` on an
+    // absolute / separator-bearing component would replace or escape `dir`;
+    // `safe_filename_stem` already forbids those, this is the belt-and-braces.
+    let within = dest.starts_with(dir)
+        && dest.file_name().is_some()
+        && dest
+            .strip_prefix(dir)
+            .map(|rest| rest.components().count() == 1)
+            == Ok(true);
+    if within {
+        Ok(dest)
+    } else {
+        Err(LyrebirdError::Storage(format!(
+            "computed download path {dest:?} escapes the downloads directory {dir:?}"
+        )))
+    }
+}
+
 /// Pick a file extension for the downloaded audio.
 ///
 /// Prefers the track's known `container`; otherwise infers from the server's
@@ -247,12 +302,16 @@ fn ensure_budget_for(db: &Database, budget: u64, incoming_bytes: u64) -> Result<
         )));
     }
     let (mut used, _) = db.download_used_bytes()?;
-    if used + incoming_bytes <= budget {
+    // `estimate_bytes` is derived from unvalidated server-supplied
+    // bitrate × duration, so a pathological estimate (or a corrupt `used`
+    // sum) could wrap a plain `used + incoming_bytes` and slip past the
+    // `<= budget` check. Saturate so an overflow can never *pass* the gate.
+    if used.saturating_add(incoming_bytes) <= budget {
         return Ok(());
     }
     // Evict LRU completed downloads until the incoming track fits.
     for (track_id, path, size) in db.download_completed_lru()? {
-        if used + incoming_bytes <= budget {
+        if used.saturating_add(incoming_bytes) <= budget {
             break;
         }
         // Remove the row + file; subtract its size from the running total.
@@ -285,16 +344,26 @@ fn estimate_bytes(track: &Track) -> u64 {
 /// Download a queued track's audio to disk and mark it `done`.
 ///
 /// The full pipeline for one track:
-/// 1. Enforce the budget (evict LRU / refuse) using a pre-fetch size estimate.
-/// 2. Mark the row `downloading`.
-/// 3. Stream bytes to `<dir>/<track_id>.<ext>` via [`JellyfinClient::download_to_file`].
-/// 4. Re-check the budget against the *true* byte size; if the real file blew
-///    past the budget, evict to make room (keeping this download).
-/// 5. Mark the row `done` with its path + size.
+/// 1. Acquire a transfer permit (caps parallel fetches per #819 — default 2).
+/// 2. Under the budget lock: enforce the budget (evict LRU / refuse) using a
+///    pre-fetch size estimate, then mark the row `downloading`.
+/// 3. Stream bytes to `<dir>/<sanitized_track_id>.<ext>` via
+///    [`JellyfinClient::download_to_file`] (lock released — only the cap bounds
+///    concurrency here).
+/// 4. Under the budget lock again: re-check the budget against the *true* byte
+///    size (now reflecting any sibling that committed while we streamed); if the
+///    real file blew past the budget, evict to make room, then mark the row
+///    `done`. Doing the final size check + commit under the lock is what closes
+///    the check-then-act race between concurrent fetches.
 ///
 /// On any failure the row is flipped to `failed` with the error recorded, and
 /// the error is returned so the caller (UI) can surface it. The partial file is
 /// cleaned up by `download_to_file` itself.
+///
+/// `budget_lock` serialises budget planning + the size-checked commit so two
+/// concurrent fetches can't each pass the budget check and collectively exceed
+/// it. `permits` bounds how many transfers stream at once. Both are owned by
+/// `LyrebirdCore` and shared across all `download_track` calls.
 ///
 /// `now` is the completion timestamp the caller passes (Unix seconds) so tests
 /// can pin it.
@@ -304,29 +373,59 @@ pub async fn fetch(
     data_dir: &Path,
     track: &Track,
     now: i64,
+    permits: &tokio::sync::Semaphore,
+    budget_lock: &tokio::sync::Mutex<()>,
 ) -> Result<DownloadEntry> {
     let dir = download_dir(db, data_dir);
     let budget = budget_bytes(db);
 
-    // 1. Pre-fetch budget planning against an estimate.
-    if let Err(e) = ensure_budget_for(db, budget, estimate_bytes(track)) {
-        let _ = db.download_mark_failed(&track.id, &e.to_string());
-        return Err(e);
+    // Validate the server-supplied id before it ever touches the filesystem,
+    // and fix the destination up front so a single sanitized path is used for
+    // both the write here and any later delete. `?` here propagates the error
+    // without writing a row, mirroring `enqueue`'s up-front validation; mark the
+    // row failed too so an already-queued retry doesn't spin forever.
+    let stem = match safe_filename_stem(&track.id) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = db.download_mark_failed(&track.id, &e.to_string());
+            return Err(e);
+        }
+    };
+    let provisional_ext = extension_for(track.container.as_deref(), None);
+    let dest = match dest_within_dir(&dir, stem, &provisional_ext) {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = db.download_mark_failed(&track.id, &e.to_string());
+            return Err(e);
+        }
+    };
+
+    // 1. Cap parallel transfers. The permit is held for the whole fetch; the
+    //    semaphore is never closed, so acquire only fails on a poisoned runtime,
+    //    which we surface rather than unwrap.
+    let _permit = permits
+        .acquire()
+        .await
+        .map_err(|e| LyrebirdError::Other(format!("download semaphore closed: {e}")))?;
+
+    // 2. Pre-fetch budget planning against an estimate + in-progress marker,
+    //    serialised against other fetches' planning/commit.
+    {
+        let _budget = budget_lock.lock().await;
+        if let Err(e) = ensure_budget_for(db, budget, estimate_bytes(track)) {
+            let _ = db.download_mark_failed(&track.id, &e.to_string());
+            return Err(e);
+        }
+        db.download_mark_downloading(&track.id)?;
     }
 
-    // 2. In-progress marker so the UI shows a spinner.
-    db.download_mark_downloading(&track.id)?;
-
     // 3. Stream to disk. We don't yet know the real extension until the
-    //    response arrives, but the destination path must be fixed up front; use
-    //    the track's container hint, then settle the file's final name after we
-    //    learn the content-type. To keep it simple and avoid a rename dance, we
-    //    pick the extension from the container hint when present, else `bin`,
-    //    download, then (if the content-type disagrees) the file already plays
-    //    via byte-sniffing regardless. Most Jellyfin music carries a container.
-    let provisional_ext = extension_for(track.container.as_deref(), None);
-    let dest = dir.join(format!("{}.{provisional_ext}", track.id));
-
+    //    response arrives, but the destination path must be fixed up front; we
+    //    pick the extension from the container hint when present, else `bin`.
+    //    If the content-type later disagrees, the file still plays via
+    //    AVFoundation byte-sniffing. Most Jellyfin music carries a container.
+    //    The budget lock is intentionally NOT held across this network I/O —
+    //    only the transfer permit bounds concurrency here.
     let (size, content_type) = match client.download_to_file(&track.id, &dest).await {
         Ok(v) => v,
         Err(e) => {
@@ -335,12 +434,15 @@ pub async fn fetch(
         }
     };
 
-    // 4. Reconcile against the true size. If the real file pushed us over a
-    //    non-zero budget, evict *other* completed downloads to make room;
+    // 4. Reconcile against the true size and commit, under the budget lock so a
+    //    sibling that committed while we streamed is reflected in `used` and we
+    //    can't collectively overshoot the budget. If the real file pushed us
+    //    over a non-zero budget, evict *other* completed downloads to make room;
     //    never delete the file we just fetched.
+    let _budget = budget_lock.lock().await;
     if budget > 0 {
         let (used, _) = db.download_used_bytes()?;
-        if used + size > budget {
+        if used.saturating_add(size) > budget {
             // Evict LRU (excluding this track, which isn't `done` yet) until it
             // fits. If it still can't fit even an otherwise-empty store, fail
             // the download and remove the file.
@@ -392,5 +494,58 @@ mod unit {
         assert_eq!(parse_state("queued"), DownloadState::Queued);
         assert_eq!(parse_state("done"), DownloadState::Done);
         assert_eq!(parse_state("garbage"), DownloadState::Failed);
+    }
+
+    #[test]
+    fn safe_filename_stem_accepts_guid_shapes() {
+        // 32-hex GUID (Jellyfin's usual rendering) and the dash-grouped form.
+        assert!(safe_filename_stem("0f8fad5bd9cb469fa16570867728950e").is_ok());
+        assert!(safe_filename_stem("0f8fad5b-d9cb-469f-a165-70867728950e").is_ok());
+        assert!(safe_filename_stem("Track123").is_ok());
+    }
+
+    #[test]
+    fn safe_filename_stem_rejects_traversal_and_separators() {
+        for bad in [
+            "",
+            "..",
+            "../../etc/passwd",
+            "a/b",
+            "a\\b",
+            "a.b", // a dot would split the extension / hide a second ext
+            "with space",
+            ".hidden",
+            "a\0b",
+            "abc/../def",
+        ] {
+            assert!(
+                matches!(safe_filename_stem(bad), Err(LyrebirdError::InvalidInput(_))),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn dest_within_dir_keeps_path_inside() {
+        let dir = Path::new("/var/data/downloads");
+        let dest = dest_within_dir(dir, "abc123", "mp3").unwrap();
+        assert_eq!(dest, Path::new("/var/data/downloads/abc123.mp3"));
+        assert!(dest.starts_with(dir));
+    }
+
+    #[test]
+    fn dest_within_dir_rejects_escape() {
+        let dir = Path::new("/var/data/downloads");
+        // A stem with a separator would `join` to escape `dir`. (Such stems are
+        // already blocked by `safe_filename_stem`; this is the second gate.)
+        assert!(matches!(
+            dest_within_dir(dir, "../evil", "mp3"),
+            Err(LyrebirdError::Storage(_))
+        ));
+        // An absolute "stem" replaces `dir` entirely under `Path::join`.
+        assert!(matches!(
+            dest_within_dir(dir, "/etc/cron.d/evil", "mp3"),
+            Err(LyrebirdError::Storage(_))
+        ));
     }
 }
