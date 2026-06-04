@@ -82,12 +82,27 @@ final class ThemePresetTests: XCTestCase {
     }
 
     func testAppearanceThemeMapsToVerifiedPreset() {
+        // Every offered `AppearanceTheme` maps one-to-one to a verified
+        // `ThemePreset`. Sunset / Peanut were dropped from `AppearanceTheme`
+        // (they had no backing pair and silently folded into Purple), so the
+        // picker only offers themes the engine can actually render.
         XCTAssertEqual(ThemePreset(appearanceTheme: .ocean), .ocean)
         XCTAssertEqual(ThemePreset(appearanceTheme: .forest), .forest)
-        // Presets without a verified CVD pair fall back to purple.
-        XCTAssertEqual(ThemePreset(appearanceTheme: .sunset), .purple)
-        XCTAssertEqual(ThemePreset(appearanceTheme: .peanut), .purple)
         XCTAssertEqual(ThemePreset(appearanceTheme: .purple), .purple)
+    }
+
+    /// Guards the picker against silently re-acquiring a theme the engine can't
+    /// render: every `AppearanceTheme` case must back a real `ThemePreset` whose
+    /// swatch is derived from that preset's primary (no hard-coded swatch that
+    /// could drift from what the theme would actually apply).
+    func testEveryAppearanceThemeBacksAVerifiedPreset() {
+        for theme in AppearanceTheme.allCases {
+            let preset = ThemePreset(appearanceTheme: theme)
+            XCTAssertEqual(
+                theme.swatch, Color(hex: preset.primaryHex),
+                "\(theme.rawValue) swatch must derive from its ThemePreset primary"
+            )
+        }
     }
 }
 

@@ -101,6 +101,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.handleWake()
         }
 
+        // Restore the persistent "Show in menu bar" (General) preference at
+        // launch, before any window appears. The toggle's only other call
+        // sites live in PreferencesGeneral (the setter + its onAppear), so a
+        // user who enabled the icon in a prior session would otherwise see no
+        // icon until they reopened Settings ▸ General. `MenuBarController`'s
+        // `setVisible(_:)` is idempotent, so re-applying the stored value here
+        // is safe even if the pane later reconciles it. The key is the same
+        // `@AppStorage("general.showInMenuBar")` PreferencesGeneral writes.
+        MenuBarController.shared.setVisible(
+            UserDefaults.standard.bool(forKey: PreferencesGeneral.showInMenuBarKey)
+        )
+
         // First-launch "move to Applications" prompt (LetsMove). Self-gates:
         // shows only for a release build running from outside /Applications
         // that isn't translocated/on a DMG and hasn't been suppressed. See #193.

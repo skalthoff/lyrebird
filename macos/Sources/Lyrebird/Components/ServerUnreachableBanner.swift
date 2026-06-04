@@ -12,14 +12,19 @@ import SwiftUI
 /// `AppModel`. Hides automatically when a subsequent fetch succeeds
 /// (`ServerReachability.noteSuccess`).
 ///
+/// All user-facing copy is localized through `Localizable.xcstrings` (the
+/// `banner.server_unreachable.*` keys + the shared `common.retry`), matching
+/// the rest of the UI and the sibling `OfflineBanner`.
+///
 /// ## Variants
 ///
 /// - **Default** — `ServerUnreachableBanner(onRetry:)` renders the generic
-///   copy ("Can't reach your server.") for backwards compatibility with the
-///   existing call site in `MainShell`.
-/// - **Named server** — `ServerUnreachableBanner(host:onRetry:)` threads
-///   the configured host (optionally `host:port`) into the copy, matching
-///   issue #101's "Can't reach {server}. Trying again…" design.
+///   copy from `banner.server_unreachable.generic` for backwards compatibility
+///   with the existing call site in `MainShell`.
+/// - **Named server** — `ServerUnreachableBanner(host:onRetry:)` threads the
+///   configured host (optionally `host:port`) into the
+///   `banner.server_unreachable.named %@` format, matching issue #101's
+///   "Can't reach {server}. Trying again…" design.
 struct ServerUnreachableBanner: View {
     /// Host (or `host:port`) displayed in the copy. `nil` falls back to the
     /// generic "your server" wording.
@@ -31,11 +36,17 @@ struct ServerUnreachableBanner: View {
         self.onRetry = onRetry
     }
 
-    private var message: String {
+    /// Resolved banner copy as a `LocalizedStringKey`. The named-server variant
+    /// interpolates the user-supplied host — it's user data, not a translatable
+    /// phrase, so only the surrounding scaffolding comes from the catalog
+    /// (`banner.server_unreachable.named %@`). The generic fallback goes through
+    /// `banner.server_unreachable.generic`. Matches the sibling `OfflineBanner`,
+    /// which routes its strings through the catalog the same way.
+    private var message: LocalizedStringKey {
         if let host, !host.isEmpty {
-            return "Can't reach \(host). Trying again\u{2026}"
+            return "banner.server_unreachable.named \(host)"
         }
-        return "Can't reach your server."
+        return "banner.server_unreachable.generic"
     }
 
     var body: some View {
@@ -54,7 +65,7 @@ struct ServerUnreachableBanner: View {
             Spacer(minLength: 12)
 
             Button(action: onRetry) {
-                Text("Retry")
+                Text("common.retry")
                     .font(Theme.font(12, weight: .bold))
                     .foregroundStyle(Theme.ink)
                     .padding(.horizontal, 12)
@@ -69,7 +80,7 @@ struct ServerUnreachableBanner: View {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Retry server connection")
+            .accessibilityLabel("banner.server_unreachable.retry.a11y")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -80,9 +91,13 @@ struct ServerUnreachableBanner: View {
                 .fill(Theme.warning)
                 .frame(width: 3)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(message)
-        .accessibilityAddTraits(.isStaticText)
+        // `children: .contain` keeps the banner as a single VoiceOver container
+        // while preserving its descendants as individually focusable elements —
+        // critically the Retry Button, which a `.combine` flatten would fold into
+        // one inert static-text element and make unreachable. The icon is already
+        // `accessibilityHidden`, so VoiceOver lands on the message Text and then
+        // the actionable Retry button.
+        .accessibilityElement(children: .contain)
     }
 }
 

@@ -172,6 +172,27 @@ final class SidebarAutoHideTests: XCTestCase {
         }
     }
 
+    // MARK: - Preference gating (sidebar audit)
+
+    /// Width-driven auto-hide is opt-in: only the `.autoHide` Appearance
+    /// preference enables it. `.visible` and `.hidden` skip the reducer so the
+    /// rail stays put — which is what makes the three picker options
+    /// behaviourally distinct (previously `.autoHide` was a no-op alias for
+    /// `.visible` because the reducer ran for everyone).
+    func testAutoHideIsEnabledOnlyForAutoHidePreference() {
+        XCTAssertTrue(SidebarAutoHide.isEnabled(for: .autoHide))
+        XCTAssertFalse(SidebarAutoHide.isEnabled(for: .visible))
+        XCTAssertFalse(SidebarAutoHide.isEnabled(for: .hidden))
+    }
+
+    /// Every `AppearanceSidebar` case has a defined enablement, and exactly one
+    /// (`.autoHide`) opts in — a guard so a future case added to the enum is
+    /// forced to make an explicit choice here rather than silently defaulting.
+    func testExactlyOneSidebarPreferenceEnablesAutoHide() {
+        let enabled = AppearanceSidebar.allCases.filter { SidebarAutoHide.isEnabled(for: $0) }
+        XCTAssertEqual(enabled, [.autoHide])
+    }
+
     // MARK: - Persistence key stability
 
     /// The `@AppStorage` key is a stable on-disk identifier; renaming it
@@ -215,6 +236,16 @@ final class SidebarAutoHideTests: XCTestCase {
                       "The Toggle Sidebar button must register a manual override")
         XCTAssertTrue(code.contains("userDidOverrideAutoHide = true"),
                       "The manual override must be persisted via @AppStorage")
+    }
+
+    /// The width-driven auto-hide must be gated on the Appearance `Sidebar`
+    /// preference so the reducer only runs for `.autoHide` (sidebar audit). A
+    /// regression that drops the gate would make `.autoHide` a no-op alias for
+    /// `.visible` again.
+    func testMainShellGatesAutoHideOnPreference() throws {
+        let code = try mainShellSource()
+        XCTAssertTrue(code.contains("SidebarAutoHide.isEnabled(for:"),
+                      "applySidebarAutoHide must gate the reducer on the Sidebar preference")
     }
 
     // MARK: - Helpers

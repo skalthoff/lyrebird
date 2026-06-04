@@ -97,6 +97,42 @@
         }
       }
     },
+    "banner.server_unreachable.generic" : {
+      "comment" : "ServerUnreachableBanner message when the configured server is failing to answer and no host is available to name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't reach your server."
+          }
+        }
+      }
+    },
+    "banner.server_unreachable.named %@" : {
+      "comment" : "ServerUnreachableBanner message naming the configured host. %@ is the user's server host (or host:port) and is interpolated verbatim as user data.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't reach %@. Trying again\u2026"
+          }
+        }
+      }
+    },
+    "banner.server_unreachable.retry.a11y" : {
+      "comment" : "VoiceOver label for the Retry button on the server-unreachable banner.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry server connection"
+          }
+        }
+      }
+    },
     "breadcrumb.album.fallback" : {
       "comment" : "Breadcrumb segment when the current album hasn't resolved its name yet.",
       "extractionState" : "manual",

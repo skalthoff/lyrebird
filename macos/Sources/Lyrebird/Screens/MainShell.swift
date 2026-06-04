@@ -361,7 +361,16 @@ struct MainShell: View {
     /// launch is honoured. Only assigns `columnVisibility` when the reducer
     /// asks for a transition, so a redundant write never stomps an in-flight
     /// collapse / reveal animation.
+    ///
+    /// Gated on the Appearance `Sidebar` preference: width-driven auto-hide is
+    /// the behaviour `.autoHide` opts into, so `.visible` / `.hidden` skip it
+    /// entirely (the rail stays where the user / restored state put it). That
+    /// gating is what makes the three picker options behaviourally distinct —
+    /// without it, `.autoHide` was a no-op alias for `.visible`.
     private func applySidebarAutoHide(width: CGFloat) {
+        let preference = AppearanceSidebar(rawValue: sidebarPreferenceRaw) ?? .visible
+        guard SidebarAutoHide.isEnabled(for: preference) else { return }
+
         var state = sidebarAutoHide
         state.userDidOverride = userDidOverrideAutoHide
         let decision = SidebarAutoHide.decide(

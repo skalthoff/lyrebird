@@ -265,14 +265,18 @@ enum ThemePreset: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Map from the persisted `AppearanceTheme` selection. Presets that don't
-    /// yet ship a colour-blind-verified pair (sunset / peanut) fall back to
-    /// `purple` so callers always get a concrete, validated palette.
+    /// Map from the persisted `AppearanceTheme` selection. `AppearanceTheme`
+    /// now offers only presets with a colour-blind-verified pair, so each maps
+    /// one-to-one. Any legacy on-disk value (e.g. a "sunset"/"peanut" string
+    /// written before those cases were dropped) never reaches here: the
+    /// `@AppStorage` getter decodes through `AppearanceTheme(rawValue:) ??
+    /// .purple`, so an unknown string already collapses to `.purple` — a
+    /// concrete, validated palette — before this initializer sees it.
     init(appearanceTheme: AppearanceTheme) {
         switch appearanceTheme {
         case .ocean: self = .ocean
         case .forest: self = .forest
-        default: self = .purple
+        case .purple: self = .purple
         }
     }
 

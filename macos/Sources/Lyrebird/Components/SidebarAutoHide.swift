@@ -104,6 +104,23 @@ enum SidebarAutoHide {
     static func registeringManualToggle(_ state: State) -> State {
         State(didAutoCollapse: false, userDidOverride: true)
     }
+
+    /// Whether width-driven auto-hide should run for a given Appearance
+    /// `Sidebar` preference. Only `.autoHide` opts in — that's the whole point
+    /// of the preference, and it's what makes the three picker options
+    /// behaviourally distinct (#318 / sidebar audit):
+    ///
+    ///   * `.autoHide` — the rail collapses on narrow windows and restores when
+    ///     they widen (this reducer drives it).
+    ///   * `.visible` — the rail stays put; width never collapses it.
+    ///   * `.hidden` — starts collapsed (handled by `WindowStateStore`); the
+    ///     width reducer doesn't force it open.
+    ///
+    /// Returning `false` means the view should skip the reducer entirely and
+    /// leave `columnVisibility` to the user / restored state.
+    static func isEnabled(for preference: AppearanceSidebar) -> Bool {
+        preference == .autoHide
+    }
 }
 
 /// Stable `@AppStorage` key for the sidebar auto-hide override (#318).
