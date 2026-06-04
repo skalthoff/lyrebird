@@ -453,6 +453,16 @@ struct LyrebirdCommands: Commands {
             }
             .keyboardShortcut("?", modifiers: .command)
 
+            // Re-open the first-run feature tour (coach marks) on demand
+            // (#113). Disabled while signed out — the tour points at the main
+            // shell's affordances, which only exist once the user is in.
+            // `MainShell` observes `model.isFeatureTourPresented` and mounts
+            // the overlay.
+            Button("menu.help.show_tour") {
+                model.presentFeatureTour()
+            }
+            .disabled(model.session == nil)
+
             Divider()
 
             // Export Diagnostic Bundle… (#455). Writes a sanitized .zip of

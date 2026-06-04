@@ -725,6 +725,22 @@ final class AppModel {
     /// See #327.
     var instantMixSeedLabel: String?
 
+    /// Whether the first-run feature tour (coach marks) overlay is presented.
+    /// `MainShell` also auto-shows the tour on first launch via its own
+    /// `@AppStorage` flag; this flag is the *explicit re-open* channel for the
+    /// Help ▸ "Show Tour" command, so a returning user can replay it without
+    /// resetting the persisted seen flag. Driven out of `AppModel` (like
+    /// `isCommandPaletteOpen`) so the menu command doesn't need a SwiftUI
+    /// environment round-trip. See #113 and `FeatureTour` / `FeatureTourOverlay`.
+    var isFeatureTourPresented: Bool = false
+
+    /// Re-open the feature tour on demand. Wired to the Help ▸ "Show Tour"
+    /// menu command; `MainShell` renders `FeatureTourOverlay` whenever this is
+    /// set and clears it on dismiss. See #113.
+    func presentFeatureTour() {
+        isFeatureTourPresented = true
+    }
+
     /// A single verb entry in the command palette's action list. See
     /// `paletteActions` for the live roster and `executePaletteAction(id:)`
     /// for the dispatcher. Actions are intentionally held by id + closure

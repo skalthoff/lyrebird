@@ -1801,6 +1801,198 @@
           }
         }
       }
+    },
+    "menu.help.show_tour" : {
+      "comment" : "Help menu entry that re-opens the first-run feature tour (coach marks).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Tour"
+          }
+        }
+      }
+    },
+    "tour.a11y.container" : {
+      "comment" : "Accessibility label for the feature-tour overlay container.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feature tour"
+          }
+        }
+      }
+    },
+    "tour.a11y.progress %lld %lld" : {
+      "comment" : "Accessibility label for the feature-tour progress dots; first number is the current step, second is the total.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Step %1$lld of %2$lld"
+          }
+        }
+      }
+    },
+    "tour.a11y.shortcut %@" : {
+      "comment" : "Accessibility label for a feature-tour card's keyboard-shortcut pill; %@ is the chord, e.g. ⌘F.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard shortcut %@"
+          }
+        }
+      }
+    },
+    "tour.back" : {
+      "comment" : "Feature-tour button: go to the previous card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
+          }
+        }
+      }
+    },
+    "tour.done" : {
+      "comment" : "Feature-tour button: close the tour on the final card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        }
+      }
+    },
+    "tour.mini_player.body" : {
+      "comment" : "Feature-tour card body: detachable mini player.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press ⌘⌥P for a compact, always-on-top player you can tuck into a corner while you work."
+          }
+        }
+      }
+    },
+    "tour.mini_player.title" : {
+      "comment" : "Feature-tour card title: detachable mini player.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pop out the mini player"
+          }
+        }
+      }
+    },
+    "tour.next" : {
+      "comment" : "Feature-tour button: advance to the next card.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next"
+          }
+        }
+      }
+    },
+    "tour.right_click.body" : {
+      "comment" : "Feature-tour card body: right-click context menus.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right-click any track, album, artist, or playlist for quick actions — play next, add to a playlist, start a radio station, and more."
+          }
+        }
+      }
+    },
+    "tour.right_click.title" : {
+      "comment" : "Feature-tour card title: right-click context menus.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right-click for more"
+          }
+        }
+      }
+    },
+    "tour.search.body" : {
+      "comment" : "Feature-tour card body: search shortcut.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Press ⌘F to jump straight to search and find any song, album, or artist in your library."
+          }
+        }
+      }
+    },
+    "tour.search.title" : {
+      "comment" : "Feature-tour card title: search shortcut.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find anything fast"
+          }
+        }
+      }
+    },
+    "tour.skip" : {
+      "comment" : "Feature-tour button: dismiss the tour without finishing.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip"
+          }
+        }
+      }
+    },
+    "tour.space.body" : {
+      "comment" : "Feature-tour card body: Space play/pause shortcut.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap the Space bar anywhere outside a text field to play or pause the current track."
+          }
+        }
+      }
+    },
+    "tour.space.title" : {
+      "comment" : "Feature-tour card title: Space play/pause shortcut.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play and pause with Space"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

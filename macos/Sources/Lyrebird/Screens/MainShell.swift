@@ -51,6 +51,14 @@ struct MainShell: View {
     /// `AppearanceSidebar` enum into real behaviour (#10).
     @AppStorage(AppearanceKeys.sidebar) private var sidebarPreferenceRaw: String = AppearanceSidebar.visible.rawValue
 
+    /// First-run feature-tour flag (#113). `false` until the coach-mark tour
+    /// has been shown once; flipped `true` when it closes (either path). The
+    /// key is owned by `FeatureTourSeenStore`, so this `@AppStorage` and the
+    /// store read/write the same on-disk bool. Distinct from
+    /// `hasCompletedOnboarding`: that gates the *connect* flow, this gates the
+    /// post-connect *teaching* overlay.
+    @AppStorage(FeatureTourSeenStore.seenKey) private var hasSeenFeatureTour: Bool = false
+
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
@@ -253,6 +261,25 @@ struct MainShell: View {
                 .opacity(0)
                 .accessibilityHidden(true)
         )
+        // First-run feature tour (coach marks) — see #113. Auto-appears once
+        // on the first launch after connect (`!hasSeenFeatureTour`) and can be
+        // replayed any time via Help ▸ "Show Tour"
+        // (`model.isFeatureTourPresented`). `MainShell` only renders for a live
+        // session, so the tour can never collide with the connect onboarding.
+        // The overlay persists the seen flag itself on close; we clear the
+        // explicit re-open flag here so a second Help invocation re-triggers.
+        .overlay {
+            if shouldShowFeatureTour {
+                FeatureTourOverlay(onClose: {
+                    model.isFeatureTourPresented = false
+                })
+                .transition(.opacity)
+            }
+        }
+        .animation(
+            reduceMotion ? nil : .easeOut(duration: 0.12),
+            value: shouldShowFeatureTour
+        )
         // Auth-expired prompt — see #303. One-shot modal; on "Sign in" we
         // drop the stored token and clear the session so `RootView` routes
         // back to `LoginView`, which prefills the remembered server URL and
@@ -306,6 +333,15 @@ struct MainShell: View {
             Text(verbatim: "\u{201C}\(playlist.name)\u{201D}\n")
                 + Text("playlist.delete.message")
         }
+    }
+
+    /// Whether the feature-tour overlay should be on screen right now (#113).
+    /// True on the very first launch after connect (the persisted seen flag is
+    /// still `false`) or whenever the user explicitly re-opens it from
+    /// Help ▸ "Show Tour". Either path renders the same `FeatureTourOverlay`,
+    /// which records the seen flag when it closes.
+    private var shouldShowFeatureTour: Bool {
+        !hasSeenFeatureTour || model.isFeatureTourPresented
     }
 
     /// Toolbar `Toggle Sidebar` handler (#318). Flips `columnVisibility` and
