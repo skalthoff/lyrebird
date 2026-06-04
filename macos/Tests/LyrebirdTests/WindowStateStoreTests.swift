@@ -30,7 +30,7 @@ final class WindowStateStoreTests: XCTestCase {
     /// Every `Screen` round-trips through its persisted raw value, so
     /// `@SceneStorage` can decode whatever it wrote.
     func testScreenRawValueRoundTrips() {
-        let all: [AppModel.Screen] = [.home, .discover, .library, .favorites, .search, .settings]
+        let all: [AppModel.Screen] = [.home, .discover, .radio, .library, .favorites, .search, .settings]
         for screen in all {
             XCTAssertEqual(
                 AppModel.Screen(persistedRawValue: screen.persistedRawValue),
@@ -45,6 +45,7 @@ final class WindowStateStoreTests: XCTestCase {
     func testScreenStableRawValues() {
         XCTAssertEqual(AppModel.Screen.home.persistedRawValue, "home")
         XCTAssertEqual(AppModel.Screen.discover.persistedRawValue, "discover")
+        XCTAssertEqual(AppModel.Screen.radio.persistedRawValue, "radio")
         XCTAssertEqual(AppModel.Screen.library.persistedRawValue, "library")
         XCTAssertEqual(AppModel.Screen.favorites.persistedRawValue, "favorites")
         XCTAssertEqual(AppModel.Screen.search.persistedRawValue, "search")

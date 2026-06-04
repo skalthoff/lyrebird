@@ -29,7 +29,7 @@ final class AppModel {
     /// Active root tab. Drill destinations (album / artist / playlist /
     /// nowPlaying) live on `navPath` instead so back navigation is handled
     /// by `NavigationStack` natively. See #1 / #4.
-    enum Screen: Hashable { case home, discover, library, favorites, search, settings }
+    enum Screen: Hashable { case home, discover, radio, library, favorites, search, settings }
     var screen: Screen = .library
 
     /// Typed value-type for `NavigationStack` destinations. Root tabs and
@@ -39,6 +39,7 @@ final class AppModel {
     enum Route: Hashable {
         case home
         case discover
+        case radio
         case library
         case favorites
         case search

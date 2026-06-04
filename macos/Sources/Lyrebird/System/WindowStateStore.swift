@@ -36,6 +36,7 @@ extension AppModel.Screen {
         switch self {
         case .home: return "home"
         case .discover: return "discover"
+        case .radio: return "radio"
         case .library: return "library"
         case .favorites: return "favorites"
         case .search: return "search"
@@ -49,6 +50,7 @@ extension AppModel.Screen {
         switch raw {
         case "home": self = .home
         case "discover": self = .discover
+        case "radio": self = .radio
         case "library": self = .library
         case "favorites": self = .favorites
         case "search": self = .search

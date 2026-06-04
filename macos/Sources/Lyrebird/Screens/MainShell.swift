@@ -377,6 +377,8 @@ struct MainShell: View {
             HomeView()
         case .discover:
             DiscoverView()
+        case .radio:
+            RadioView()
         case .library:
             LibraryView()
         case .favorites:
@@ -447,6 +449,8 @@ struct MainShell: View {
             FavoritesView()
         case .discover:
             DiscoverView()
+        case .radio:
+            RadioView()
         case .search:
             SearchView()
         case .settings:
@@ -486,6 +490,7 @@ struct MainShell: View {
         switch model.screen {
         case .home: segments.append("Home")
         case .discover: segments.append("Discover")
+        case .radio: segments.append("Radio")
         case .library: segments.append("Library")
         case .favorites: segments.append("Favorites")
         case .search: segments.append("Search")
@@ -531,7 +536,7 @@ struct MainShell: View {
             segments.append("Now Playing")
         case .fullQueue?:
             segments.append("Play Queue")
-        case .home?, .discover?, .library?, .favorites?, .search?, .settings?, nil:
+        case .home?, .discover?, .radio?, .library?, .favorites?, .search?, .settings?, nil:
             break
         }
         return segments

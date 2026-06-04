@@ -67,6 +67,7 @@ struct Sidebar: View {
                 navItem("house", label: "sidebar.nav.home", screen: .home)
                 navItem("music.note.list", label: "sidebar.nav.library", screen: .library)
                 navItem("sparkles", label: "sidebar.nav.discover", screen: .discover)
+                navItem("dot.radiowaves.left.and.right", label: "sidebar.nav.radio", screen: .radio)
                 navItem("magnifyingglass", label: "sidebar.nav.search", screen: .search)
             }
             .padding(.horizontal, 10)

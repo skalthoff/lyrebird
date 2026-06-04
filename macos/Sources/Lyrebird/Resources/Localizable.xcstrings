@@ -997,6 +997,18 @@
         }
       }
     },
+    "sidebar.nav.radio" : {
+      "comment" : "Sidebar primary nav item: Radio.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Radio"
+          }
+        }
+      }
+    },
     "sidebar.nav.library" : {
       "comment" : "Sidebar primary nav item: Library.",
       "extractionState" : "manual",
