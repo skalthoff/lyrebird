@@ -103,21 +103,96 @@ enum MoveToApplications {
         return path == root || path.hasPrefix(root + "/")
     }
 
-    /// Heuristic for "this path is a translocation mount, a still-mounted disk
-    /// image, or a quarantined download we shouldn't try to relocate yet".
-    ///
-    /// - **App Translocation**: Gatekeeper runs quarantined apps from a
-    ///   randomized, read-only mount under
-    ///   `/private/var/folders/.../AppTranslocation/`. The move is pointless
-    ///   there — the bytes are a shadow copy.
-    /// - **Mounted DMG**: a path under `/Volumes/` means the user double-
-    ///   clicked the app inside the disk image. We don't move *out* of a DMG
-    ///   (the source is read-only and the user expects to drag it themselves),
-    ///   so we hold the prompt until they've copied it somewhere writable.
-    static func isTranslocatedOrEphemeral(path: String) -> Bool {
+    /// Flags describing the volume a bundle lives on, used to tell a mounted
+    /// disk image apart from a persistent secondary disk. Injected in tests so
+    /// the volume-based branch of `isTranslocatedOrEphemeral` is exercisable
+    /// without a real mount; resolved from `URLResourceValues` in production.
+    struct VolumeFlags {
+        var isReadOnly: Bool
+        var isInternal: Bool
+        var isRemovable: Bool
+        var isEjectable: Bool
+    }
+
+    /// Whether `path` is a Gatekeeper App Translocation mount. Gatekeeper runs
+    /// quarantined apps from a randomized, read-only mount under
+    /// `/private/var/folders/.../AppTranslocation/`; a move from there is
+    /// pointless because the bytes are a shadow copy. Pure and path-based —
+    /// the marker is always present in the path itself.
+    static func isTranslocated(path: String) -> Bool {
         path.contains("/AppTranslocation/")
-            || path.hasPrefix("/Volumes/")
-            || path.contains("/.dmg/")
+    }
+
+    /// Whether a bundle on a `/Volumes/`-mounted volume with the given flags is
+    /// running from an ephemeral disk image (a mounted DMG) rather than a
+    /// persistent secondary disk.
+    ///
+    /// A mounted DMG presents as read-only (you can't write back into the
+    /// image) and, being a synthesized device, is not an internal volume. A
+    /// persistent external SSD or a secondary internal partition mounted at
+    /// `/Volumes/<Disk>` is writable (or, if read-only, is a real removable
+    /// disk the user can eject and re-mount) — those are supported install
+    /// locations and must *not* suppress the prompt.
+    ///
+    /// The discriminator is "read-only **and** not a real removable device":
+    /// a DMG is read-only and neither ejectable nor removable in the
+    /// physical-media sense, whereas a write-protected USB stick reports
+    /// `isRemovable`/`isEjectable` and is left alone here (we don't try to move
+    /// *onto* read-only removable media, but we also don't misclassify it as a
+    /// DMG shadow copy).
+    static func isEphemeralVolume(path: String, flags: VolumeFlags) -> Bool {
+        guard path.hasPrefix("/Volumes/") else { return false }
+        // A disk image is read-only and not backed by internal storage, and is
+        // not a physically removable/ejectable device.
+        return flags.isReadOnly && !flags.isInternal && !flags.isRemovable && !flags.isEjectable
+    }
+
+    /// Heuristic for "this path is a translocation mount or a still-mounted
+    /// disk image we shouldn't try to relocate yet".
+    ///
+    /// - **App Translocation** — handled by `isTranslocated(path:)`.
+    /// - **Mounted DMG** — a path under `/Volumes/` whose volume reports
+    ///   disk-image flags (`isEphemeralVolume`). We don't move *out* of a DMG
+    ///   (the source is read-only and the user expects to drag it themselves),
+    ///   so we hold the prompt until they've copied it somewhere writable. A
+    ///   persistent secondary disk mounted at `/Volumes/<Disk>/Applications`
+    ///   is a supported, writable install location and is *not* treated as
+    ///   ephemeral.
+    ///
+    /// Volume flags are read from `URLResourceValues`; if they can't be
+    /// resolved we conservatively treat a `/Volumes/` path as ephemeral (the
+    /// same fail-safe as before — better to skip the prompt than to copy out
+    /// of something that turns out to be read-only).
+    static func isTranslocatedOrEphemeral(path: String) -> Bool {
+        if isTranslocated(path: path) { return true }
+        guard path.hasPrefix("/Volumes/") else { return false }
+        guard let flags = volumeFlags(forPath: path) else { return true }
+        return isEphemeralVolume(path: path, flags: flags)
+    }
+
+    /// Resolve the live volume flags for `path` via `URLResourceValues`.
+    /// Returns `nil` when the values can't be read (a missing path or a
+    /// filesystem that doesn't vend them), leaving the fail-safe to the caller.
+    private static func volumeFlags(forPath path: String) -> VolumeFlags? {
+        let url = URL(fileURLWithPath: path)
+        guard let values = try? url.resourceValues(forKeys: [
+            .volumeIsReadOnlyKey,
+            .volumeIsInternalKey,
+            .volumeIsRemovableKey,
+            .volumeIsEjectableKey,
+        ]) else { return nil }
+        guard
+            let readOnly = values.volumeIsReadOnly,
+            let isInternal = values.volumeIsInternal,
+            let removable = values.volumeIsRemovable,
+            let ejectable = values.volumeIsEjectable
+        else { return nil }
+        return VolumeFlags(
+            isReadOnly: readOnly,
+            isInternal: isInternal,
+            isRemovable: removable,
+            isEjectable: ejectable
+        )
     }
 
     // MARK: - Runtime entry point
@@ -195,10 +270,12 @@ enum MoveToApplications {
     /// Move the running bundle into `/Applications` and relaunch from the new
     /// location, then terminate the current (old-location) instance.
     ///
-    /// Uses `FileManager` for the copy/replace and `NSWorkspace` to relaunch.
-    /// On any failure the move is abandoned and the app keeps running from its
-    /// current location — a failed move must never strand the user without a
-    /// running app. Errors surface in Console under the `app` category.
+    /// Uses `FileManager` for the copy and a detached `/bin/sh` trampoline plus
+    /// `open` for the relaunch. On any failure the move is abandoned and the app
+    /// keeps running from its current location — a failed move must never strand
+    /// the user without a running app. Errors surface in Console under the `app`
+    /// category and, where the user is left with a non-obvious state, via an
+    /// `NSAlert`.
     @MainActor
     private static func move(fromBundlePath bundlePath: String) {
         let fileManager = FileManager.default
@@ -206,41 +283,212 @@ enum MoveToApplications {
         let appName = sourceURL.lastPathComponent
         let destURL = URL(fileURLWithPath: applicationsRoot).appendingPathComponent(appName)
 
-        do {
-            // Replace any stale copy already sitting at the destination
-            // (e.g. an older version the user dragged over before) so the
-            // copy below doesn't fail with "file exists".
-            if fileManager.fileExists(atPath: destURL.path) {
-                try fileManager.removeItem(at: destURL)
+        // A copy may already sit at the destination. Only clear it after
+        // confirming it's safe to do so — a different app/version there must
+        // not be silently destroyed, and a *running* different instance must
+        // not be clobbered at all.
+        if fileManager.fileExists(atPath: destURL.path) {
+            switch resolveExistingDestination(source: sourceURL, destination: destURL) {
+            case .sameApp:
+                // Same bundle identifier — replacing our own prior install is
+                // expected. Recycle (Trash) rather than hard-remove so a botched
+                // copy below is recoverable, and so removing a copy that might be
+                // open elsewhere can't leave a half-deleted bundle.
+                guard recycle(destURL) else {
+                    presentMoveFailure(
+                        "Lyrebird couldn’t replace the existing copy in your "
+                            + "Applications folder. Move “\(appName)” to the Trash "
+                            + "manually and try again."
+                    )
+                    return
+                }
+            case .differentRunning:
+                // A different app with the same name is live at the destination.
+                // Tearing it down underneath itself corrupts that app, so refuse.
+                presentMoveFailure(
+                    "A different app named “\(appName)” is already open from your "
+                        + "Applications folder. Quit it first, or move it aside, "
+                        + "then try moving Lyrebird again."
+                )
+                return
+            case .differentIdle:
+                // A different (not-running) app/version is at the destination.
+                // Confirm before replacing it, and recycle rather than destroy.
+                guard confirmOverwriteDifferentApp(named: appName) else { return }
+                guard recycle(destURL) else {
+                    presentMoveFailure(
+                        "Lyrebird couldn’t move the existing “\(appName)” to the "
+                            + "Trash. Move it aside manually and try again."
+                    )
+                    return
+                }
             }
+        }
+
+        do {
             try fileManager.copyItem(at: sourceURL, to: destURL)
         } catch {
             Log.app.error(
                 "MoveToApplications copy failed: \(error.localizedDescription, privacy: .public)"
             )
+            presentMoveFailure(
+                "Lyrebird couldn’t copy itself to your Applications folder "
+                    + "(\(error.localizedDescription)). It will keep running from "
+                    + "its current location."
+            )
             return
         }
 
-        // Relaunch from the installed copy, then quit this instance. The new
-        // process opening is what lets us tear the old one down cleanly.
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: destURL, configuration: configuration) { _, error in
-            if let error {
-                Log.app.error(
-                    "MoveToApplications relaunch failed: \(error.localizedDescription, privacy: .public)"
-                )
-                // The copy already succeeded; leaving the old instance running
-                // is the safe fallback rather than terminating into nothing.
-                return
-            }
-            DispatchQueue.main.async {
-                // Best-effort cleanup of the old (source) copy once the new
-                // instance is up. A failure here is cosmetic — the installed
-                // copy is already running — so it's logged, not surfaced.
-                try? fileManager.removeItem(at: sourceURL)
-                NSApp.terminate(nil)
-            }
+        // Relaunch via a detached trampoline that waits for *this* process to
+        // exit before opening the installed copy and deleting the source. This
+        // guarantees only one instance is ever live: we terminate immediately
+        // below, and the new instance is opened only after we're gone — so the
+        // two never overlap holding the core mutex / writing persisted state.
+        guard spawnRelaunchTrampoline(source: sourceURL, destination: destURL) else {
+            // Couldn't even start the trampoline. Roll the copy back so the user
+            // isn't left with a silent duplicate, and keep running where we are.
+            try? fileManager.removeItem(at: destURL)
+            presentMoveFailure(
+                "Lyrebird couldn’t relaunch from your Applications folder, so the "
+                    + "move was undone. It will keep running from its current "
+                    + "location."
+            )
+            return
         }
+
+        // Hand off: quit now so the trampoline's `open` brings up the installed
+        // copy as the sole live instance.
+        NSApp.terminate(nil)
+    }
+
+    /// Classification of whatever already occupies the move destination.
+    private enum ExistingDestination {
+        /// Same bundle identifier as the source — our own earlier install.
+        case sameApp
+        /// A different bundle that is currently running.
+        case differentRunning
+        /// A different bundle that is not running.
+        case differentIdle
+    }
+
+    /// Compare the app already at `destination` against the `source` we're about
+    /// to install. Identity is the bundle identifier (a version bump keeps the
+    /// same id, so an upgrade reads as `sameApp`); a missing/unreadable id at
+    /// either side is treated as "different" so we err toward asking rather than
+    /// destroying.
+    @MainActor
+    private static func resolveExistingDestination(
+        source: URL,
+        destination: URL
+    ) -> ExistingDestination {
+        let sourceID = Bundle(url: source)?.bundleIdentifier
+        let destID = Bundle(url: destination)?.bundleIdentifier
+        let sameIdentity = sourceID != nil && sourceID == destID
+        if sameIdentity {
+            return .sameApp
+        }
+        // Different (or unknowable) identity: is that app live right now?
+        let running = NSWorkspace.shared.runningApplications.contains { app in
+            app.bundleURL?.standardizedFileURL == destination.standardizedFileURL
+        }
+        return running ? .differentRunning : .differentIdle
+    }
+
+    /// Move `url` to the Trash, returning whether it succeeded. Recoverable by
+    /// design — the user can restore from the Trash if the subsequent copy
+    /// fails.
+    ///
+    /// Uses the synchronous `FileManager.trashItem(at:resultingItemURL:)`
+    /// rather than the async `NSWorkspace.recycle(_:completionHandler:)`. This
+    /// is reached from `move(...)`, a synchronous `@MainActor` function invoked
+    /// after `alert.runModal()` returns — i.e. while the main run loop is
+    /// blocked. `NSWorkspace.recycle` delivers its completion handler on the
+    /// main thread, so blocking the main thread on a semaphore until that
+    /// handler fires deadlocks permanently (the handler can never run). The
+    /// `FileManager` variant returns on the calling thread and never hangs,
+    /// matching the original synchronous removal's non-blocking behaviour while
+    /// keeping the to-Trash recoverability.
+    @MainActor
+    private static func recycle(_ url: URL) -> Bool {
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            return true
+        } catch {
+            Log.app.error(
+                "MoveToApplications recycle failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// Ask the user before replacing a *different* app of the same name already
+    /// installed in `/Applications`. Returns `true` if they confirm the replace.
+    @MainActor
+    private static func confirmOverwriteDifferentApp(named appName: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Replace the existing “\(appName)”?"
+        alert.informativeText = """
+        A different version of “\(appName)” is already in your Applications \
+        folder. Moving Lyrebird there will move the existing copy to the Trash. \
+        You can restore it from the Trash if you change your mind.
+        """
+        alert.alertStyle = .warning
+        let replace = alert.addButton(withTitle: "Move to Trash and Replace")
+        replace.keyEquivalent = "\r"
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// Surface a move failure to the user. The move flow is rare and one-shot,
+    /// so a silent log line isn't enough — the user needs to know whether they
+    /// still have a working app and where it is.
+    @MainActor
+    private static func presentMoveFailure(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn’t move Lyrebird"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    /// Spawn a detached `/bin/sh` that waits for this process (`getpid()`) to
+    /// exit, then deletes the source bundle and opens the installed copy.
+    /// Returns whether the helper was launched. Running the relaunch from a
+    /// process that outlives us is what lets us terminate *first*, so only one
+    /// app instance is ever live.
+    @MainActor
+    private static func spawnRelaunchTrampoline(source: URL, destination: URL) -> Bool {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        // Poll until our PID is gone, then clean up the source and relaunch.
+        // `kill -0` probes liveness without signalling; `rm -rf` clears the
+        // now-stale source copy; `open` brings up the installed bundle.
+        let script = """
+        while /bin/kill -0 \(pid) >/dev/null 2>&1; do
+            /bin/sleep 0.1
+        done
+        /bin/rm -rf \(shellQuoted(source.path))
+        /usr/bin/open \(shellQuoted(destination.path))
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        do {
+            try process.run()
+            return true
+        } catch {
+            Log.app.error(
+                "MoveToApplications trampoline launch failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return false
+        }
+    }
+
+    /// Single-quote a path for safe interpolation into the `/bin/sh` trampoline,
+    /// escaping any embedded single quotes. Paths under `/Applications` and
+    /// `/Volumes` can contain spaces and other shell metacharacters.
+    static func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

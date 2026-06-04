@@ -128,6 +128,10 @@ final class MoveToApplicationsTests: XCTestCase {
     }
 
     func testMountedDMGVolumeIsEphemeral() {
+        // A /Volumes/ path whose volume flags can't be resolved (this one
+        // doesn't exist) falls back to the conservative "treat as ephemeral"
+        // branch, so a DMG-shaped path still suppresses the prompt. The actual
+        // disk-image discrimination is exercised purely in `isEphemeralVolume`.
         XCTAssertTrue(
             MoveToApplications.isTranslocatedOrEphemeral(path: "/Volumes/Lyrebird 2.0/Lyrebird.app"),
             "an app opened from a mounted DMG (/Volumes) must not move out of it"
@@ -144,6 +148,126 @@ final class MoveToApplicationsTests: XCTestCase {
     func testInstalledPathIsNotEphemeral() {
         XCTAssertFalse(
             MoveToApplications.isTranslocatedOrEphemeral(path: "/Applications/Lyrebird.app")
+        )
+    }
+
+    // MARK: - isTranslocated (pure)
+
+    func testIsTranslocatedMatchesAppTranslocationMarker() {
+        let path = "/private/var/folders/ab/cd/X/AppTranslocation/EF-12/d/Lyrebird.app"
+        XCTAssertTrue(MoveToApplications.isTranslocated(path: path))
+    }
+
+    func testIsTranslocatedIsFalseForOrdinaryPaths() {
+        XCTAssertFalse(MoveToApplications.isTranslocated(path: "/Applications/Lyrebird.app"))
+        XCTAssertFalse(
+            MoveToApplications.isTranslocated(path: "/Volumes/External SSD/Applications/Lyrebird.app")
+        )
+    }
+
+    // MARK: - isEphemeralVolume (pure, injected flags)
+
+    func testMountedDiskImageIsEphemeral() {
+        // A DMG is read-only, not internal, and not a physically removable or
+        // ejectable device — the disk-image fingerprint.
+        let flags = MoveToApplications.VolumeFlags(
+            isReadOnly: true,
+            isInternal: false,
+            isRemovable: false,
+            isEjectable: false
+        )
+        XCTAssertTrue(
+            MoveToApplications.isEphemeralVolume(path: "/Volumes/Lyrebird 2.0/Lyrebird.app", flags: flags),
+            "a read-only synthesized mount under /Volumes is a DMG and must not be a move source"
+        )
+    }
+
+    func testPersistentSecondaryDiskIsNotEphemeral() {
+        // A writable secondary disk mounted at /Volumes/<Disk>/Applications is a
+        // supported, persistent install location — it must still prompt.
+        let flags = MoveToApplications.VolumeFlags(
+            isReadOnly: false,
+            isInternal: false,
+            isRemovable: false,
+            isEjectable: false
+        )
+        XCTAssertFalse(
+            MoveToApplications.isEphemeralVolume(
+                path: "/Volumes/Macintosh SSD/Applications/Lyrebird.app",
+                flags: flags
+            ),
+            "a writable secondary volume is a permanent install location, not a DMG"
+        )
+    }
+
+    func testWriteProtectedRemovableMediaIsNotTreatedAsDiskImage() {
+        // A read-only USB stick reports removable/ejectable; it's real media,
+        // not a DMG shadow copy, so it isn't classified as ephemeral here.
+        let flags = MoveToApplications.VolumeFlags(
+            isReadOnly: true,
+            isInternal: false,
+            isRemovable: true,
+            isEjectable: true
+        )
+        XCTAssertFalse(
+            MoveToApplications.isEphemeralVolume(
+                path: "/Volumes/THUMBDRIVE/Lyrebird.app",
+                flags: flags
+            ),
+            "read-only removable media is a physical device, not a mounted disk image"
+        )
+    }
+
+    func testNonVolumesPathIsNeverEphemeralVolume() {
+        // The volume branch only applies under /Volumes/; a Downloads path is
+        // never reclassified by volume flags.
+        let dmgLikeFlags = MoveToApplications.VolumeFlags(
+            isReadOnly: true,
+            isInternal: false,
+            isRemovable: false,
+            isEjectable: false
+        )
+        XCTAssertFalse(
+            MoveToApplications.isEphemeralVolume(
+                path: "/Users/jane/Downloads/Lyrebird.app",
+                flags: dmgLikeFlags
+            )
+        )
+    }
+
+    // MARK: - shellQuoted (relaunch trampoline safety)
+
+    func testShellQuotedWrapsPlainPath() {
+        XCTAssertEqual(
+            MoveToApplications.shellQuoted("/Applications/Lyrebird.app"),
+            "'/Applications/Lyrebird.app'"
+        )
+    }
+
+    func testShellQuotedPreservesSpaces() {
+        // Spaces survive intact inside the single quotes — no word-splitting.
+        XCTAssertEqual(
+            MoveToApplications.shellQuoted("/Volumes/External SSD/Lyrebird.app"),
+            "'/Volumes/External SSD/Lyrebird.app'"
+        )
+    }
+
+    func testShellQuotedEscapesEmbeddedSingleQuote() {
+        // An embedded apostrophe (e.g. a volume named "Jane's Disk") is closed,
+        // escaped, and reopened so the shell can't break out of the quoting.
+        XCTAssertEqual(
+            MoveToApplications.shellQuoted("/Volumes/Jane's Disk/Lyrebird.app"),
+            "'/Volumes/Jane'\\''s Disk/Lyrebird.app'"
+        )
+    }
+
+    func testShellQuotedNeutralizesMetacharacters() {
+        // Shell metacharacters are inert inside single quotes; the round-trip
+        // value is the literal path bracketed by quotes.
+        let path = "/tmp/a b;rm -rf $HOME/Lyrebird.app"
+        XCTAssertEqual(
+            MoveToApplications.shellQuoted(path),
+            "'" + path + "'"
         )
     }
 
