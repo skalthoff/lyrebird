@@ -4,20 +4,32 @@ import SwiftUI
 ///
 /// Launch-at-login, menu-bar presence, and language.
 ///
-/// - **Language**: only English ships; the picker is present so the setting
-///   is visible and the user can see i18n is on the roadmap. Real wiring is
-///   tracked in `TODO(i18n-#345)`.
+/// - **Language**: in-app localization isn't wired yet (#345) — nothing reads
+///   `general.language` back to re-render the UI, and `AppLanguage` only offers
+///   System / English (both no-ops). The picker is therefore gated behind
+///   `AppModel.supportsLanguageSelection` so it isn't presented as a working
+///   setting while inert; it reappears once the strings catalog ships real
+///   locales and a runtime override is wired.
 /// - **Auto-start on login**: wired to `SMAppService.mainApp` via
 ///   `LaunchAtLogin`. The stored `@AppStorage` value shadows the system
 ///   registration so the toggle reflects the true state on every launch.
 /// - **Show in menu bar**: wired to `MenuBarController.shared`. The
-///   `NSStatusItem` is created on enable and released on disable.
+///   `NSStatusItem` is created on enable and released on disable. The persisted
+///   value is re-applied at app launch from `AppDelegate` so the icon survives
+///   relaunch without the user reopening this pane.
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 66 top-level General bullet.
 struct PreferencesGeneral: View {
+    /// Stable `@AppStorage` key for the persistent "Show in menu bar" toggle.
+    /// Shared with `AppDelegate`, which re-applies the stored value at launch
+    /// so the icon survives relaunch without the pane being opened.
+    static let showInMenuBarKey = "general.showInMenuBar"
+
+    @Environment(AppModel.self) private var model
+
     @AppStorage("general.language") private var languageRaw: String = AppLanguage.system.rawValue
     @AppStorage("general.autoStartOnLogin") private var autoStartOnLogin: Bool = false
-    @AppStorage("general.showInMenuBar") private var showInMenuBar: Bool = false
+    @AppStorage(PreferencesGeneral.showInMenuBarKey) private var showInMenuBar: Bool = false
 
     private var language: Binding<AppLanguage> {
         Binding(
@@ -58,23 +70,29 @@ struct PreferencesGeneral: View {
         VStack(alignment: .leading, spacing: 24) {
             header
 
-            PreferenceSection(
-                title: "Language",
-                footnote: "Only English ships today — additional languages will appear as translations land."
-            ) {
-                PreferenceRow(
-                    label: "Language",
-                    help: language.wrappedValue.subtitle
+            // Language picker is gated behind `supportsLanguageSelection`
+            // (#345). The control is inert today — nothing consumes
+            // `general.language` — so we hide it rather than present a dead
+            // setting. It returns once localization is wired.
+            if model.supportsLanguageSelection {
+                PreferenceSection(
+                    title: "Language",
+                    footnote: "Only English ships today — additional languages will appear as translations land."
                 ) {
-                    Picker("", selection: language) {
-                        ForEach(AppLanguage.allCases) { option in
-                            Text(option.label).tag(option)
+                    PreferenceRow(
+                        label: "Language",
+                        help: language.wrappedValue.subtitle
+                    ) {
+                        Picker("", selection: language) {
+                            ForEach(AppLanguage.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
                         }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 180)
+                        .accessibilityLabel("Application language")
                     }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 180)
-                    .accessibilityLabel("Application language")
                 }
             }
 
@@ -130,7 +148,9 @@ struct PreferencesGeneral: View {
             Text("General")
                 .font(Theme.font(28, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
-            Text("Language, startup, and menu-bar presence.")
+            Text(model.supportsLanguageSelection
+                ? "Language, startup, and menu-bar presence."
+                : "Startup and menu-bar presence.")
                 .font(Theme.font(13, weight: .medium))
                 .foregroundStyle(Theme.ink3)
         }
@@ -163,6 +183,10 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 }
 
 #Preview {
+    // Real rendering requires an `AppModel` in the environment; the Settings
+    // scene in `LyrebirdApp` injects one. Previews without a model will crash
+    // on `@Environment(AppModel.self)` — this preview is kept as documentation
+    // for where the view lives.
     PreferencesGeneral()
         .frame(width: 560, height: 520)
         .padding(32)

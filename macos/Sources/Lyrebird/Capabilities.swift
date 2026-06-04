@@ -42,4 +42,22 @@ extension AppModel {
     /// `supportsMarkPlayed` / `supportsArtistPlayShuffle` for the same
     /// pattern.
     var supportsGenreActions: Bool { true }
+
+    /// In-app UI localization (#345). Gates the General ▸ Language picker.
+    /// The picker only persists `general.language` today — nothing reads it
+    /// back to set `AppleLanguages`, override the bundle locale, or otherwise
+    /// re-render the UI in another language, and `AppLanguage` only offers
+    /// System / English (both no-ops). Flag stays `false` so the inert control
+    /// isn't presented as a working setting; flips to `true` once the strings
+    /// catalog ships real locales and the runtime override is wired.
+    var supportsLanguageSelection: Bool { false }
+
+    /// Theme selection (#405). Gates the Appearance ▸ Theme picker. Choosing a
+    /// swatch persists `appearance.theme`, but no live surface reads it back —
+    /// `Theme.primary` / `Theme.accent` are still fixed brand constants, so the
+    /// selection can't recolour the UI yet (the theme engine wiring is #405).
+    /// Flag stays `false` so the picker renders as a disabled "coming soon"
+    /// preview rather than masquerading as a working selector; flips to `true`
+    /// once `Theme` resolves its accent/primary from the persisted preset.
+    var supportsThemeSelection: Bool { false }
 }

@@ -2,12 +2,17 @@ import SwiftUI
 
 // MARK: - Persisted enums
 
-/// Theme preset. Matches the five presets from the design prototype's
-/// `THEMES` table (Purple / Ocean / Forest / Sunset / Peanut). Only `purple`
-/// is fully wired today — selecting another preset persists the choice so the
-/// Tweaks palette and theme engine (#313 / #405) pick it up when they land.
+/// Theme preset. The picker offers only the presets the theme engine can
+/// actually render: Purple (the shipping default) plus the two colour-blind-
+/// verified alternatives, Ocean and Forest, each backed by a real
+/// `ThemePreset` primary/accent pair. The design prototype's `THEMES` table
+/// also listed Sunset and Peanut, but those never had a backing `ThemePreset`
+/// case — `ThemePreset(appearanceTheme:)` silently folded them into Purple, so
+/// offering them would promise a palette the engine can't produce. They're
+/// dropped here until a verified pair is designed for each (the getter's
+/// `?? .purple` fallback keeps any user who persisted "sunset"/"peanut" valid).
 enum AppearanceTheme: String, CaseIterable, Identifiable {
-    case purple, ocean, forest, sunset, peanut
+    case purple, ocean, forest
 
     var id: String { rawValue }
 
@@ -16,25 +21,15 @@ enum AppearanceTheme: String, CaseIterable, Identifiable {
         case .purple: return "Purple"
         case .ocean: return "Ocean"
         case .forest: return "Forest"
-        case .sunset: return "Sunset"
-        case .peanut: return "Peanut"
         }
     }
 
-    /// Representative swatch color used in the theme picker. For presets that
-    /// ship a colour-blind-verified pair (Ocean / Forest), the swatch is
-    /// derived from `ThemePreset.primaryHex` so the picker preview always
-    /// matches the WCAG-verified accent the preset applies — the two can never
-    /// drift apart. Other presets are sampled from the design's `primary`
-    /// token in `design/project/src/tokens.jsx`.
+    /// Representative swatch color used in the theme picker. Every case ships a
+    /// colour-blind-verified `ThemePreset`, so the swatch is derived from
+    /// `ThemePreset.primaryHex` — the picker preview always matches the
+    /// WCAG-verified accent the preset applies and the two can never drift apart.
     var swatch: Color {
-        switch self {
-        case .purple: return Color(hex: 0x887BFF)
-        case .ocean: return Color(hex: ThemePreset.ocean.primaryHex)
-        case .forest: return Color(hex: ThemePreset.forest.primaryHex)
-        case .sunset: return Color(hex: 0xFF6625)
-        case .peanut: return Color(hex: 0xD4A360)
-        }
+        Color(hex: ThemePreset(appearanceTheme: self).primaryHex)
     }
 }
 
@@ -135,11 +130,16 @@ enum AppearanceKeys {
 
 /// Appearance pane — theme, mode, density, sidebar visibility.
 ///
-/// Only the color-scheme mode is wired end-to-end today (via
-/// `LyrebirdApp.preferredColorScheme`). The other controls persist the user's
-/// choice so the theme engine (#405) and sidebar chrome (#162) pick them up
-/// when that work lands. Source: `research/06-screen-specs.md` Issue 64.
+/// The color-scheme mode (via `LyrebirdApp.preferredColorScheme`), density
+/// (via the track-list density work), and sidebar visibility are wired
+/// end-to-end. The Theme picker is gated behind `AppModel.supportsThemeSelection`
+/// and rendered as a disabled "coming soon" preview: choosing a swatch would
+/// only persist `appearance.theme`, which no live surface reads yet — the
+/// theme engine that resolves `Theme.primary` / `Theme.accent` from the
+/// preset is #405. Source: `research/06-screen-specs.md` Issue 64.
 struct AppearancePane: View {
+    @Environment(AppModel.self) private var model
+
     @AppStorage(AppearanceKeys.theme) private var themeRaw: String = AppearanceTheme.purple.rawValue
     @AppStorage(AppearanceKeys.mode) private var modeRaw: String = AppearanceMode.dark.rawValue
     @AppStorage(AppearanceKeys.density) private var densityRaw: String = AppearanceDensity.roomy.rawValue
@@ -189,17 +189,23 @@ struct AppearancePane: View {
         )
     }
 
-    /// Theme-section helper text. When the system asks apps to convey meaning
-    /// without relying on colour alone (System Settings → Accessibility →
-    /// Display → "Differentiate without color"), steer toward the Ocean preset
-    /// whose primary/accent pair stays distinguishable for every colour-blind
-    /// type. Otherwise show the default copy.
+    /// Theme-section helper text. While theme selection is gated off
+    /// (`!supportsThemeSelection`) the picker is a disabled preview, so the copy
+    /// says so plainly rather than implying the swatch is actionable. Once the
+    /// theme engine (#405) lands and the picker is live, the copy steers users
+    /// who have asked the system to convey meaning without relying on colour
+    /// alone (System Settings → Accessibility → Display → "Differentiate without
+    /// color") toward the Ocean preset, whose primary/accent pair stays
+    /// distinguishable for every colour-blind type.
     private var themeHint: String {
+        guard model.supportsThemeSelection else {
+            return "Theme colours are coming soon — the picker previews the palettes; the rest of the app still uses the Purple theme for now."
+        }
         if ThemePreset.suggestedForAccessibility() == .ocean,
            (AppearanceTheme(rawValue: themeRaw) ?? .purple) != .ocean {
             return "Your system prefers colour-independent contrast — the Ocean theme keeps the accent distinguishable for every colour-blind type."
         }
-        return "Purple is the shipping default. Other presets persist today and render once the theme engine lands."
+        return "Purple is the shipping default. Pick Ocean or Forest for a colour-blind-verified accent pair."
     }
 
     var body: some View {
@@ -210,7 +216,7 @@ struct AppearancePane: View {
                 title: "Theme",
                 hint: themeHint
             ) {
-                ThemePicker(selection: theme)
+                ThemePicker(selection: theme, isEnabled: model.supportsThemeSelection)
             }
 
             AppearanceSection(
@@ -242,7 +248,7 @@ struct AppearancePane: View {
 
             AppearanceSection(
                 title: "Sidebar",
-                hint: "Auto-hide wires up alongside the sidebar chrome work."
+                hint: "Auto-hide collapses the sidebar on narrow windows and restores it when they widen. Visible keeps it pinned; Hidden starts collapsed."
             ) {
                 SegmentedPicker(
                     options: AppearanceSidebar.allCases,
@@ -300,21 +306,54 @@ private struct AppearanceSection<Content: View>: View {
 
 // MARK: - Theme picker
 
-/// Horizontal row of five colored swatches. The active swatch draws a ring
-/// in `Theme.accent` and inks the label. Tapping a swatch updates the
-/// binding. Purely visual today — the theme engine itself lands in #405.
+/// Horizontal row of colored swatches. The active swatch draws a ring in
+/// `Theme.accent` and inks the label.
+///
+/// When `isEnabled` is false the row is a disabled "coming soon" preview: the
+/// swatches still show the palettes (and the ring marks the persisted choice),
+/// but taps are inert and the row dims, so the picker never masquerades as a
+/// working selector while the theme engine (#405) that would consume the
+/// selection is still unwired. Once `isEnabled` flips true, tapping a swatch
+/// updates the binding.
 private struct ThemePicker: View {
     @Binding var selection: AppearanceTheme
+    var isEnabled: Bool = true
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .top, spacing: 14) {
             ForEach(AppearanceTheme.allCases) { theme in
                 swatch(theme)
             }
+            if !isEnabled {
+                comingSoonBadge
+            }
             Spacer(minLength: 0)
         }
+        .opacity(isEnabled ? 1 : 0.55)
+        .disabled(!isEnabled)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Theme")
+        // Surface the disabled state to assistive tech so VoiceOver announces
+        // the picker as unavailable rather than reading the swatches as
+        // tappable selectors.
+        .accessibilityValue(isEnabled ? "" : "Coming soon")
+    }
+
+    private var comingSoonBadge: some View {
+        Text("SOON")
+            .font(Theme.font(9, weight: .bold))
+            .tracking(1)
+            .foregroundStyle(Theme.ink3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(Theme.surface)
+            )
+            .overlay(
+                Capsule().stroke(Theme.border, lineWidth: 1)
+            )
+            .padding(.top, 12)
+            .accessibilityHidden(true)
     }
 
     private func swatch(_ target: AppearanceTheme) -> some View {
@@ -405,6 +444,10 @@ private struct SegmentedPicker<Option: Identifiable & Hashable>: View {
 }
 
 #Preview {
+    // Real rendering requires an `AppModel` in the environment; the Settings
+    // scene in `LyrebirdApp` injects one. Previews without a model will crash
+    // on `@Environment(AppModel.self)` — this preview is kept as documentation
+    // for where the view lives.
     AppearancePane()
         .padding(32)
         .frame(width: 560, height: 520)
