@@ -30,6 +30,7 @@ struct HomeView: View {
                 // not meaningful here. Re-enable once the ranked data sources
                 // land (#206, #209).
                 recentlyPlayedSection
+                artistsYouLoveSection
                 jumpBackInSection
                 recentlyPlayedTracksSection
                 yourPlaylistsSection
@@ -396,6 +397,46 @@ struct HomeView: View {
             }
         }
     }
+
+    /// "Artists You Love" — a circle-card carousel of the artists the user
+    /// has favorited (#207). Reuses `ArtistCard` (the same circular tile the
+    /// Library Artists grid and Favorites screen render) over the
+    /// favorites-driven `model.favoriteArtists` slice, so it never drifts
+    /// from the Favorites screen's Artists section. Tapping a card pushes
+    /// `Route.artist` via `ArtistCard`'s own button; "See All" jumps to the
+    /// Favorites tab. Hidden when the user has no favorited artists so a
+    /// fresh library doesn't render an empty shelf.
+    ///
+    /// `ArtistCard` stretches to `maxWidth: .infinity` (it's built for a
+    /// grid cell), so each card is pinned to a fixed width here — otherwise
+    /// the cards would collapse inside the horizontal `HStack`. The row is
+    /// capped so it stays bounded for power users with hundreds of
+    /// favorited artists.
+    @ViewBuilder
+    private var artistsYouLoveSection: some View {
+        if !model.favoriteArtists.isEmpty {
+            carouselSection(
+                icon: "heart.circle.fill",
+                iconColor: Theme.accentHot,
+                title: "Artists You Love",
+                subtitle: "The artists you've hearted",
+                onSeeAll: { model.selectTab(.favorites) }
+            ) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(model.favoriteArtists.prefix(artistsYouLoveLimit), id: \.id) { artist in
+                        ArtistCard(artist: artist)
+                            .frame(width: 150)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// Cap on how many circles the "Artists You Love" row renders. Keeps the
+    /// horizontal scroll bounded for users with a large favorites set; the
+    /// "See All" button routes to the full Favorites screen for the rest.
+    private var artistsYouLoveLimit: Int { 18 }
 
     /// Pick a short list of artists to surface as radio seeds. Prefer
     /// favorites → top-listened → library order. Favorites and top-listened

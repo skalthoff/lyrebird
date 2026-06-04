@@ -273,6 +273,13 @@ final class AppModel {
     /// 12. Re-derived every time the backing set is refreshed so the view
     /// doesn't have to know about the shuffle.
     var favoriteAlbumsVisible: [Album] = []
+    /// Favorite artists for the Home "Artists You Love" carousel (#207).
+    /// A circle-card row of the artists the user has hearted, sorted by
+    /// name (server-side `SortName` ascending via `loadFavoriteArtists`).
+    /// Reuses the same favorites signal as the Favorites screen's Artists
+    /// section, so the two never drift. Hidden in the Home layout when
+    /// empty — a fresh user with no favorited artists sees no shelf.
+    var favoriteArtists: [Artist] = []
     /// Server-curated "You might like" tracks for the Home discovery row
     /// (#145). Backed by `core.suggestions()`, which hits Jellyfin's
     /// `/Items/Suggestions` endpoint. Up to 20 tracks. Hidden until data
@@ -1041,6 +1048,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        favoriteArtists = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1109,6 +1117,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        favoriteArtists = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1269,6 +1278,7 @@ final class AppModel {
         await refreshRecentlyAdded()
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
+        await refreshFavoriteArtists()
         await refreshSuggestions()
     }
 
@@ -1756,6 +1766,16 @@ final class AppModel {
     /// the server.
     func reshuffleFavoriteAlbumsVisible() {
         self.favoriteAlbumsVisible = Array(favoriteAlbumsAll.shuffled().prefix(12))
+    }
+
+    /// Refresh the "Artists You Love" carousel (#207). Reuses
+    /// `loadFavoriteArtists` — the same favorites-driven fetch that backs
+    /// the Favorites screen's Artists section — so the Home circle row and
+    /// the Favorites grid stay in lock-step. The list arrives sorted by
+    /// name; the view caps how many circles it renders. Best-effort: an
+    /// empty or errored result just leaves the shelf hidden.
+    func refreshFavoriteArtists() async {
+        self.favoriteArtists = await loadFavoriteArtists(limit: 100)
     }
 
     /// Refresh the "You might like" discovery row (#145). Calls
