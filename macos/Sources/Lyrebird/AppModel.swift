@@ -3488,6 +3488,15 @@ final class AppModel {
         playInstantMix(seedId: seedId)
     }
 
+    /// Start a radio station seeded from a pinned-station subject (#253). The
+    /// Home "Pinned Stations" row routes artist / mood / mix tiles here; the
+    /// stored id is a real Jellyfin item id (or a mood/mix seed), which
+    /// `core.instantMix` accepts polymorphically. Genre and playlist tiles
+    /// take their own routes (`browseGenre` / `navigate(to:.playlist)`).
+    func startStationRadio(seedId: String) {
+        playInstantMix(seedId: seedId)
+    }
+
     /// Re-seed the Instant Mix with a different track than the current one.
     /// Picks a random track from `recentlyPlayed` excluding the currently-
     /// playing track, so "Generate new mix" actually sounds different. Falls

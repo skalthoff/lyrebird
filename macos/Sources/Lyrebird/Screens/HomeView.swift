@@ -40,10 +40,7 @@ struct HomeView: View {
                 quickPicksSection
                 suggestionsSection
                 favoritesSection
-                // pinnedStationsRow — hidden for v1.0: section is backed by
-                // @AppStorage mock data only; tapping tiles or the + button
-                // does nothing. Re-enable once the real pin infrastructure
-                // lands (#144, #253).
+                pinnedStationsRow
                 artistRadioRow
                 Spacer(minLength: 24)
             }
@@ -273,31 +270,30 @@ struct HomeView: View {
         }
     }
 
-    /// Pinned Stations row (#253). A user-curated shelf of station "presets"
-    /// — artist radios, playlists, moods. The real pin infrastructure (server
-    /// or core-backed) doesn't exist yet, so we back the row with a local
-    /// `@AppStorage` array of `PinnedStation` triples. When empty we show an
-    /// empty-state card with a "Pin a station" CTA; the CTA and the end-of-row
-    /// "+ Add station" pill are both inert pending the pin UI.
+    /// Pinned Stations row (#253). A user-curated shelf of station "presets".
+    /// Today the only pin source is the genre Pin button / context menu
+    /// (`AppModel.pinGenreToHome`), which persists into `PinnedStationsStore`;
+    /// this row is its reader, so a pinned genre shows up here one click away.
+    /// Like every other Home shelf it hides itself when empty (no pins yet)
+    /// rather than render a permanent empty band — the user pins from a genre
+    /// page, so there is no in-row "add" affordance to show.
     @ViewBuilder
     private var pinnedStationsRow: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "pin.fill")
-                    .foregroundStyle(Theme.primary)
-                    .font(.system(size: 14, weight: .bold))
-                    .rotationEffect(.degrees(-15))
-                Text("Pinned Stations")
-                    .font(Theme.font(18, weight: .bold))
-                    .foregroundStyle(Theme.ink)
-                Text("Your radio presets — always one click away")
-                    .font(Theme.font(12, weight: .medium))
-                    .foregroundStyle(Theme.ink3)
-            }
+        if !pinnedStations.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "pin.fill")
+                        .foregroundStyle(Theme.primary)
+                        .font(.system(size: 14, weight: .bold))
+                        .rotationEffect(.degrees(-15))
+                    Text("Pinned Stations")
+                        .font(Theme.font(18, weight: .bold))
+                        .foregroundStyle(Theme.ink)
+                    Text("Your radio presets — always one click away")
+                        .font(Theme.font(12, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
+                }
 
-            if pinnedStations.isEmpty {
-                PinnedStationsEmptyState(action: handlePinAction)
-            } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(pinnedStations) { station in
@@ -307,7 +303,6 @@ struct HomeView: View {
                                 action: { handleStationTap(station) }
                             )
                         }
-                        PinnedStationAddPill(action: handlePinAction)
                     }
                     .padding(.vertical, 4)
                 }
@@ -339,18 +334,9 @@ struct HomeView: View {
         }
     }
 
-    /// Inert handler for the "Pin a station" / "+ Add station" CTAs. The pin
-    /// picker UI hasn't been built yet (see #253 follow-up) — log and bail.
-    private func handlePinAction() {
-        // TODO: #253 follow-up — open the pin picker / station library
-        // modal. For now, just log so we can see the hit rate in console.
-        print("[HomeView] Pin a station tapped — pin picker UI not yet built (#253).")
-    }
-
-    /// Handler for a tapped pinned station. Dispatches on `station.type`.
-    /// Genre routing browses the genre detail screen (#823 Wave 2).
-    /// Artist / playlist / mood / mix routing still waits on the Instant
-    /// Mix FFI (#144) and the typed pin model.
+    /// Handler for a tapped pinned station. Dispatches on `station.type` to
+    /// the same destinations the rest of the app uses for each kind, so a
+    /// pinned tile behaves exactly like opening that subject elsewhere.
     private func handleStationTap(_ station: PinnedStation) {
         switch station.type {
         case .genre:
@@ -359,10 +345,14 @@ struct HomeView: View {
             // Construct a name-only Genre and let browseGenre resolve the
             // real Jellyfin UUID via the /MusicGenres cache before pushing.
             model.browseGenre(genre: Genre(name: station.title))
-        case .artist, .playlist, .mood, .mix:
-            // TODO: #144 / #253 — route to start the corresponding station
-            // once the typed pin model + Instant Mix FFI land.
-            Log.app.notice("PinnedStation tap (type=\(station.type.rawValue, privacy: .public) id=\(station.id, privacy: .public)) — routing not yet wired")
+        case .playlist:
+            // The id is a real Jellyfin playlist UUID — drill into it.
+            model.navigate(to: .playlist(station.id))
+        case .artist, .mood, .mix:
+            // Start a radio seeded from the station's subject. Artist radio,
+            // mood, and auto-mix all reduce to an Instant Mix off the stored
+            // id (an artist UUID or a mood/mix seed).
+            model.startStationRadio(seedId: station.id)
         }
     }
 
@@ -523,10 +513,12 @@ struct HomeView: View {
         }
     }
 
-    /// Track-level Recently Played (#52) — compact rows with a 48pt
-    /// thumbnail. Distinct from the existing tile-based `recentlyPlayed`
-    /// row above: this variant is denser and prioritises "tap to replay"
-    /// over "browse art". Hidden when there's no history.
+    /// Track-level "Recent Tracks" (#52) — compact rows with a 48pt
+    /// thumbnail. Distinct from the tile-based `recentlyPlayedSection` above:
+    /// both read `model.recentlyPlayed`, so this variant carries a different
+    /// title/subtitle to avoid two "Recently Played" headers stacked on one
+    /// screen. It is denser and prioritises "tap to replay" over "browse art".
+    /// Hidden when there's no history.
     ///
     /// Jellyfin tracks `DatePlayed` via its playback-reporting pipeline,
     /// which is always on for the stock server install. If a user has
@@ -539,8 +531,8 @@ struct HomeView: View {
             carouselSection(
                 icon: "clock.arrow.circlepath",
                 iconColor: Theme.accent,
-                title: "Recently Played",
-                subtitle: "Your latest listens, one click away",
+                title: "Recent Tracks",
+                subtitle: "Jump back into a recent track",
                 onSeeAll: nil
             ) {
                 HStack(alignment: .top, spacing: 12) {
@@ -804,8 +796,7 @@ struct HomeView: View {
     }
 
     /// Empty-state card shown when the user hasn't favorited any albums
-    /// yet. Mirrors the shape of `PinnedStationsEmptyState` so the Home
-    /// layout has a consistent "tap this to fill the shelf" vocabulary.
+    /// yet, giving the Home layout a "tap this to fill the shelf" affordance.
     private var favoritesEmptyState: some View {
         HStack(spacing: 16) {
             ZStack {

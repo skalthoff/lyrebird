@@ -31,9 +31,9 @@ struct PinnedStation: Codable, Hashable, Identifiable {
 
 /// Horizontal tile for the Pinned Stations row on Home (#253). Displays a
 /// pulsing "on air" dot, the station name in italic 20pt, and a short
-/// subtitle ("42 tracks · updated today"-style). Tapping the tile just logs
-/// today — the actual "start this station" routing waits on the Instant Mix
-/// FFI (#144) and the typed pin infrastructure.
+/// subtitle ("42 tracks · updated today"-style). Tapping the tile runs the
+/// row's `action`, which `HomeView.handleStationTap` routes to the station's
+/// subject (browse the genre, open the playlist, or start a seeded radio).
 struct PinnedStationTile: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let station: PinnedStation
@@ -129,105 +129,6 @@ struct PinnedStationTile: View {
         case .genre: return "GENRE"
         case .mix: return "MIX"
         }
-    }
-}
-
-/// End-cap for the Pinned Stations row — a ghost "+ Add station" pill. Today
-/// it's inert (TODO below); once the pin UI lands it opens the picker.
-struct PinnedStationAddPill: View {
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Theme.ink2)
-                Text("Add station")
-                    .font(Theme.font(13, weight: .semibold))
-                    .foregroundStyle(Theme.ink2)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 14)
-            .frame(height: 140)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Theme.surface.opacity(isHovering ? 0.8 : 0.4))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(
-                        Theme.borderStrong.opacity(isHovering ? 0.9 : 0.5),
-                        style: StrokeStyle(lineWidth: 1.5, dash: [5, 4])
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .help("Pin a station")
-        .accessibilityLabel("Add station")
-    }
-}
-
-/// Larger, prominent empty-state CTA shown when no stations are pinned. Shares
-/// its action with the end-of-row `PinnedStationAddPill` so both routes land
-/// in the (future) pin picker.
-struct PinnedStationsEmptyState: View {
-    let action: () -> Void
-    @State private var isHovering = false
-
-    var body: some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(Theme.surface2)
-                    .frame(width: 56, height: 56)
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(Theme.primary)
-                    .rotationEffect(.degrees(-15))
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("No pinned stations yet")
-                    .font(Theme.font(15, weight: .bold))
-                    .foregroundStyle(Theme.ink)
-                Text("Pin your favorite radios, playlists, and moods for quick access here.")
-                    .font(Theme.font(12, weight: .medium))
-                    .foregroundStyle(Theme.ink2)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 12)
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Pin a station")
-                        .font(Theme.font(13, weight: .bold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Capsule().fill(Theme.accent))
-                .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-            .onHover { isHovering = $0 }
-            .scaleEffect(isHovering ? 1.03 : 1.0)
-            .animation(.easeOut(duration: 0.12), value: isHovering)
-            .help("Pin a station — coming soon")
-            .accessibilityLabel("Pin a station")
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Theme.surface.opacity(0.6))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Theme.border, lineWidth: 1)
-        )
     }
 }
 
