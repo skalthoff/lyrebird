@@ -27,6 +27,19 @@ struct FullQueueView: View {
     @State private var showSaveSheet = false
     @State private var saveDraftName = ""
 
+    /// The currently-playing track id, read once here so each row can be told
+    /// whether *it* is active via a plain `String?` rather than each row
+    /// reaching into `model.status` itself. Under `@Observable`, a row that
+    /// observes `model.status` re-renders on every 1Hz poll tick; threading a
+    /// narrow value down means only the row whose active/playing state actually
+    /// changed gets rebuilt (#119).
+    private var currentTrackId: String? { model.status.currentTrack?.id }
+
+    /// Whether the active track is currently playing (vs paused). Combined with
+    /// `currentTrackId` this is the only status-derived signal rows need, so
+    /// they no longer depend on the full `PlayerStatus` value.
+    private var isPlaying: Bool { model.status.state == .playing }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -114,11 +127,21 @@ struct FullQueueView: View {
 
     @ViewBuilder
     private var sessionHistorySection: some View {
+        let history = model.sessionPlayHistory
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Recently in this session")
-            VStack(spacing: 2) {
-                ForEach(Array(model.sessionPlayHistory.enumerated()), id: \.offset) { _, track in
-                    FullQueueTrackRow(track: track, queue: model.sessionPlayHistory)
+            // LazyVStack so off-screen history rows aren't materialized for a
+            // long session (#119). `id: \.offset` keeps duplicate track ids
+            // (a song replayed in-session) as distinct rows.
+            LazyVStack(spacing: 2) {
+                ForEach(Array(history.enumerated()), id: \.offset) { index, track in
+                    FullQueueTrackRow(
+                        track: track,
+                        queue: history,
+                        index: index,
+                        currentTrackId: currentTrackId,
+                        isPlayingActive: isPlaying
+                    )
                 }
             }
         }
@@ -131,27 +154,55 @@ struct FullQueueView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Now Playing")
             if let track = model.status.currentTrack {
-                FullQueueTrackRow(track: track, queue: [track])
+                // Hand the Now Playing row the *whole* reconstructed queue
+                // (current + user-added + auto tail) at index 0, so tapping it
+                // re-seeks the current track without collapsing the queue to a
+                // single entry (#134). The earlier `queue: [track]` form rebuilt
+                // the queue with just this track, wiping Up Next / Playing From.
+                FullQueueTrackRow(
+                    track: track,
+                    queue: reconstructedQueue,
+                    index: 0,
+                    currentTrackId: currentTrackId,
+                    isPlayingActive: isPlaying
+                )
             } else {
                 emptyRow("Nothing is playing.")
             }
         }
     }
 
+    /// The full forward queue as the player sees it: the current track, then
+    /// the user-added Up Next entries, then the auto-queue tail. Used so the
+    /// Now Playing row can re-seek to index 0 without clobbering everything
+    /// after it. Logic lives in `FullQueuePlayback` so it stays testable.
+    private var reconstructedQueue: [Track] {
+        FullQueuePlayback.reconstructedQueue(
+            current: model.status.currentTrack,
+            upNextUserAdded: model.upNextUserAdded.map(\.track),
+            upNextAutoQueue: model.upNextAutoQueue.map(\.track)
+        )
+    }
+
     // MARK: - Up Next
 
     @ViewBuilder
     private var upNextSection: some View {
+        let entries = model.upNextUserAdded
+        let tracks = entries.map(\.track)
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader("Up Next")
-            if model.upNextUserAdded.isEmpty {
+            if entries.isEmpty {
                 emptyRow("Nothing queued. Use \u{2318}-click \u{2192} Play Next on a track.")
             } else {
-                VStack(spacing: 2) {
-                    ForEach(model.upNextUserAdded) { entry in
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                         FullQueueTrackRow(
                             track: entry.track,
-                            queue: model.upNextUserAdded.map(\.track)
+                            queue: tracks,
+                            index: index,
+                            currentTrackId: currentTrackId,
+                            isPlayingActive: isPlaying
                         )
                     }
                 }
@@ -163,14 +214,19 @@ struct FullQueueView: View {
 
     @ViewBuilder
     private var playingFromSection: some View {
-        if !model.upNextAutoQueue.isEmpty {
+        let entries = model.upNextAutoQueue
+        let tracks = entries.map(\.track)
+        if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader(playingFromTitle)
-                VStack(spacing: 2) {
-                    ForEach(model.upNextAutoQueue) { entry in
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                         FullQueueTrackRow(
                             track: entry.track,
-                            queue: model.upNextAutoQueue.map(\.track)
+                            queue: tracks,
+                            index: index,
+                            currentTrackId: currentTrackId,
+                            isPlayingActive: isPlaying
                         )
                     }
                 }
@@ -232,12 +288,59 @@ struct FullQueueView: View {
     }
 }
 
+// MARK: - Playback planning
+
+/// Pure helpers behind the full-queue rows' tap-to-play behaviour, kept out of
+/// the SwiftUI views so they're unit-testable without a scene graph (mirrors
+/// `TrackSelectionResolver`). Two decisions live here:
+///
+///   * `reconstructedQueue` — the forward queue handed to the Now Playing row
+///     so a tap re-seeks index 0 instead of collapsing the queue (#134).
+///   * `plan(queue:tappedIndex:)` — the `(tracks, startIndex)` pair for a tap,
+///     resolved by the tapped row's *position* so a duplicate track id starts
+///     at the row the user actually clicked (#340).
+enum FullQueuePlayback {
+    /// The full forward queue as the player sees it: the current track, then
+    /// the user-added Up Next entries, then the auto-queue tail. Mirrors the
+    /// order `saveQueueAsPlaylist` persists. Empty when nothing is playing.
+    static func reconstructedQueue(
+        current: Track?,
+        upNextUserAdded: [Track],
+        upNextAutoQueue: [Track]
+    ) -> [Track] {
+        guard let current else { return [] }
+        return [current] + upNextUserAdded + upNextAutoQueue
+    }
+
+    /// Resolve the `(tracks, startIndex)` pair for a tapped row. Uses the row's
+    /// own `tappedIndex` rather than `firstIndex(by id)` so a duplicate track
+    /// id elsewhere in the queue starts at the tapped row (#340). Falls back to
+    /// a single-track queue (`fallbackTrack`, the row's own track) at index 0
+    /// when `tappedIndex` is out of bounds — defensive only; call sites always
+    /// pass an in-range index.
+    static func plan(
+        queue: [Track],
+        tappedIndex: Int,
+        fallbackTrack: Track
+    ) -> (tracks: [Track], startIndex: Int) {
+        guard queue.indices.contains(tappedIndex) else {
+            return ([fallbackTrack], 0)
+        }
+        return (queue, tappedIndex)
+    }
+}
+
 // MARK: - Row
 
 /// One track row in the full-page queue. Click plays the track in the
 /// context of its surrounding list (`queue`) so auto-advance continues
 /// naturally — the same contract `TopTrackRow` uses. Right-click surfaces
 /// the shared `TrackContextMenu` (Play Next / Add to Queue / favorite / …).
+///
+/// Active/playing state is passed in as plain values (`currentTrackId` +
+/// `isPlayingActive`) rather than read from `model.status` inside the row, so
+/// only the row whose state actually changed re-renders on a status tick
+/// instead of the whole list every 1Hz poll (#119).
 private struct FullQueueTrackRow: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -246,14 +349,25 @@ private struct FullQueueTrackRow: View {
     /// The list this row belongs to, passed to `play(tracks:startIndex:)` so
     /// playback continues through the rest of the section.
     let queue: [Track]
+    /// This row's position within `queue`. Threaded explicitly so a duplicate
+    /// track id elsewhere in the queue (e.g. a song replayed in session
+    /// history) starts playback at *this* row, not the first matching id
+    /// (#340).
+    let index: Int
+    /// Id of the track currently loaded in the player, or nil. Compared against
+    /// `track.id` to decide whether this row is the active one.
+    let currentTrackId: String?
+    /// Whether the active track is playing (vs paused). Only meaningful when
+    /// this row is the active one.
+    let isPlayingActive: Bool
 
     @State private var isHovering = false
 
     private var isActive: Bool {
-        model.status.currentTrack?.id == track.id
+        currentTrackId == track.id
     }
     private var isPlaying: Bool {
-        isActive && model.status.state == .playing
+        isActive && isPlayingActive
     }
 
     var body: some View {
@@ -335,13 +449,17 @@ private struct FullQueueTrackRow: View {
     }
 
     /// Start playback at this row, handing the surrounding list to
-    /// `play(tracks:startIndex:)` so the rest of the section queues up.
+    /// `play(tracks:startIndex:)` so the rest of the section queues up. Uses
+    /// the row's own `index` rather than `firstIndex(by id)` so a duplicate
+    /// track id in the queue starts at the tapped row (#340). Planning logic
+    /// lives in `FullQueuePlayback` so it stays testable.
     private func playFromHere() {
-        guard let idx = queue.firstIndex(where: { $0.id == track.id }) else {
-            model.play(tracks: [track], startIndex: 0)
-            return
-        }
-        model.play(tracks: queue, startIndex: idx)
+        let plan = FullQueuePlayback.plan(
+            queue: queue,
+            tappedIndex: index,
+            fallbackTrack: track
+        )
+        model.play(tracks: plan.tracks, startIndex: plan.startIndex)
     }
 }
 
