@@ -1,9 +1,10 @@
 import AppKit
+import Nuke
 import SwiftUI
 
 /// Advanced / Developer / Debug preferences pane. Closes #267.
 ///
-/// Surfaces three sections of developer-oriented controls:
+/// Surfaces two sections of developer-oriented controls:
 ///
 /// 1. **Diagnostic logs** — toggle to enable verbose tracing. The flag is
 ///    stored in `@AppStorage("advanced.verboseLogging")` so it survives
@@ -19,14 +20,11 @@ import SwiftUI
 ///    - *Reset onboarding* writes `false` to `hasCompletedOnboarding`
 ///      (same key used by `OnboardingView`) so the welcome / server-setup
 ///      flow re-runs on the next launch.
-///    - *Clear caches* removes the `~/Library/Caches/<bundle-id>/` tree —
-///      artwork tiles and other ephemeral data. Does not touch stored
-///      credentials or user preferences.
-///
-/// 3. **Show internal IDs** — toggle stored in
-///    `@AppStorage("advanced.showInternalIds")`. When enabled, detail views
-///    can surface the raw Jellyfin UUID alongside the display name so
-///    engineers can copy item IDs for API calls without leaving the app.
+///    - *Clear caches* evicts **only** the artwork cache (the same Nuke
+///      pipeline cache the Library pane clears) and its on-disk directory.
+///      It deliberately does **not** touch the caches root, so offline
+///      downloads (`Caches/Downloads`, see `PreferencesDownloads`), stored
+///      credentials, and user preferences all survive.
 ///
 /// All controls use `@AppStorage` — no AppModel mutations, no core FFI.
 /// Destructive buttons are guarded by `confirmationDialog` alerts so
@@ -38,8 +36,11 @@ struct PreferencesAdvanced: View {
     // MARK: - Stored preferences
 
     @AppStorage("advanced.verboseLogging") private var verboseLogging: Bool = false
-    @AppStorage("advanced.showInternalIds") private var showInternalIds: Bool = false
-    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = true
+    // Default must match the other two declarations (LyrebirdApp.swift,
+    // OnboardingView.swift) so the absent-key state agrees app-wide: a
+    // never-written key reads `false` everywhere, which means onboarding
+    // runs on a fresh install.
+    @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding: Bool = false
 
     // MARK: - Ephemeral UI state
 
@@ -47,6 +48,8 @@ struct PreferencesAdvanced: View {
     @State private var showClearCachesConfirm = false
     @State private var onboardingResetDone = false
     @State private var cachesClearedDone = false
+    @State private var cachesClearInProgress = false
+    @State private var cachesClearError: String?
     @State private var copyCommandDone = false
     @State private var consoleHintShown = false
 
@@ -58,7 +61,6 @@ struct PreferencesAdvanced: View {
 
             diagnosticLogsSection
             resetStateSection
-            internalIDsSection
 
             Spacer(minLength: 0)
         }
@@ -82,11 +84,21 @@ struct PreferencesAdvanced: View {
         ) {
             Button("Clear Caches", role: .destructive) {
                 clearCaches()
-                cachesClearedDone = true
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Artwork tiles and other temporary data will be removed. Your music library and settings are not affected.")
+            Text("Cached artwork will be removed. Your music library, offline downloads, and settings are not affected.")
+        }
+        .alert(
+            "Couldn't Clear Caches",
+            isPresented: Binding(
+                get: { cachesClearError != nil },
+                set: { if !$0 { cachesClearError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { cachesClearError = nil }
+        } message: {
+            Text(cachesClearError ?? "")
         }
     }
 
@@ -176,8 +188,8 @@ struct PreferencesAdvanced: View {
             PreferenceRow(
                 label: "Caches",
                 help: cachesClearedDone
-                    ? "Cleared — artwork and temporary files have been removed."
-                    : "Removes artwork tiles and other temporary files. Credentials and preferences are preserved."
+                    ? "Cleared — cached artwork has been removed."
+                    : "Removes cached artwork. Offline downloads, credentials, and preferences are preserved."
             ) {
                 Button {
                     showClearCachesConfirm = true
@@ -199,26 +211,7 @@ struct PreferencesAdvanced: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear caches")
-                .accessibilityHint("Deletes temporary files including artwork. Your library and settings are untouched.")
-            }
-        }
-    }
-
-    private var internalIDsSection: some View {
-        PreferenceSection(
-            title: "Show Internal IDs",
-            footnote: "Useful when filing issues or testing API calls. IDs appear alongside display names in track, album, and artist detail views."
-        ) {
-            PreferenceRow(
-                label: "Show UUIDs in detail views",
-                help: showInternalIds
-                    ? "On — Jellyfin item IDs are displayed beside names in detail views."
-                    : "Off — detail views show display names only."
-            ) {
-                Toggle("", isOn: $showInternalIds)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .accessibilityLabel("Show internal item IDs")
+                .accessibilityHint("Removes cached artwork. Your library, offline downloads, and settings are untouched.")
             }
         }
     }
@@ -340,17 +333,124 @@ struct PreferencesAdvanced: View {
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// Removes the app's `Caches` sandbox directory subtree. This clears
-    /// artwork tiles and any other ephemeral blobs the app has written.
-    /// Credentials (Keychain), preferences (UserDefaults / AppStorage),
-    /// and downloaded offline tracks are stored elsewhere and are not
-    /// affected.
+    /// Clears the artwork cache only — the same Nuke pipeline cache the
+    /// Library pane evicts (`Artwork.pipeline.cache.removeAll()`), plus the
+    /// pipeline's on-disk `DataCache` directory.
+    ///
+    /// It deliberately does **not** delete the caches root. Offline
+    /// downloads live at `Caches/Downloads` (see `PreferencesDownloads`);
+    /// nuking the whole caches tree would destroy them, contradicting the
+    /// dialog's promise that the library isn't affected. Credentials
+    /// (Keychain) and preferences (UserDefaults) live outside Caches and
+    /// are untouched either way.
+    ///
+    /// The in-memory eviction and the artwork directory's URL are read on
+    /// the MainActor (Nuke's `ImagePipeline` / `DataCache` are main-actor
+    /// isolated in this module); the filesystem delete + verify runs off
+    /// the main thread so the recursive walk doesn't block the UI, and the
+    /// success / failure result is marshalled back to the MainActor.
     private func clearCaches() {
+        guard !cachesClearInProgress else { return }
+        cachesClearInProgress = true
+        cachesClearError = nil
+
+        // Memory cache eviction is cheap and main-actor isolated.
+        Artwork.pipeline.cache.removeAll()
+
+        // Resolve the on-disk artwork directory on main, then hand only that
+        // URL (Sendable) to the background task — never the caches root.
+        let artworkDir = (Artwork.pipeline.configuration.dataCache as? DataCache)?.path
+
+        Task {
+            // Do the recursive delete + recreate off the main thread so the
+            // filesystem walk never blocks the UI.
+            let result = await Task.detached(priority: .utility) {
+                Self.clearArtworkCacheDirectory(at: artworkDir)
+            }.value
+
+            // Marshal the outcome back to the MainActor for the @State writes.
+            await MainActor.run {
+                cachesClearInProgress = false
+                switch result {
+                case .success:
+                    cachesClearedDone = true
+                    // Auto-reset the row's "Cleared" affordance so it doesn't
+                    // stay stuck on the success copy forever.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        cachesClearedDone = false
+                    }
+                case .failure(let error):
+                    cachesClearedDone = false
+                    cachesClearError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Pure filesystem step: delete the artwork `DataCache` directory and
+    /// recreate it empty, returning the outcome instead of swallowing it.
+    ///
+    /// Safety: refuses to operate on the caches root or on a `Downloads`
+    /// directory, so a future config change can never turn this into the
+    /// download-destroying recursive nuke this used to be. A `nil` URL
+    /// (no on-disk cache configured) is a no-op success — the in-memory
+    /// eviction in `clearCaches()` already did the meaningful work.
+    ///
+    /// `nonisolated static` so it carries no `self`/MainActor capture and
+    /// can run on a background executor; unit-testable in isolation.
+    nonisolated static func clearArtworkCacheDirectory(
+        at directory: URL?
+    ) -> Result<Void, Error> {
+        guard let directory else { return .success(()) }
+
+        guard isSafeArtworkCacheDirectory(directory) else {
+            return .failure(CacheClearError.refusedUnsafePath(directory.path))
+        }
+
         let fm = FileManager.default
-        guard let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
-        try? fm.removeItem(at: caches)
-        // Recreate the directory so subsequent writes don't fail.
-        try? fm.createDirectory(at: caches, withIntermediateDirectories: true)
+        do {
+            if fm.fileExists(atPath: directory.path) {
+                try fm.removeItem(at: directory)
+            }
+            // Recreate so the next artwork write doesn't fail on a missing dir,
+            // then verify it actually exists before reporting success.
+            try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+            guard fm.fileExists(atPath: directory.path) else {
+                return .failure(CacheClearError.recreateFailed(directory.path))
+            }
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Guards against ever deleting the caches root itself or a downloads
+    /// store. The artwork cache is always a named subdirectory (Nuke uses
+    /// `com.lyrebird.macos.artwork`), so a target whose last path component
+    /// is `Caches` or `Downloads` is rejected.
+    nonisolated static func isSafeArtworkCacheDirectory(_ directory: URL) -> Bool {
+        let last = directory.lastPathComponent
+        if last == "Downloads" || last == "Caches" || last.isEmpty || last == "/" {
+            return false
+        }
+        return true
+    }
+
+    /// Errors surfaced to the user when the artwork-cache clear can't
+    /// complete, so a failed or partial clear is visible instead of being
+    /// silently reported as success.
+    enum CacheClearError: LocalizedError {
+        case refusedUnsafePath(String)
+        case recreateFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .refusedUnsafePath(let path):
+                return "The cache location looked unsafe to delete (\(path)), so nothing was removed."
+            case .recreateFailed(let path):
+                return "The cache was cleared but the folder couldn't be recreated at \(path)."
+            }
+        }
     }
 }
 
