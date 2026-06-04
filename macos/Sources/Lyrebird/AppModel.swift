@@ -336,10 +336,23 @@ final class AppModel {
     /// render as "nothing here for this scope yet".
     var searchPageResults: [String: [SearchItem]] = [:]
 
-    /// The query that drove `searchPageResults`. Stored separately from
-    /// `searchQuery` so the page doesn't race with whatever the instant
-    /// dropdown is showing when that surface lands.
+    /// Raw, user-facing text of the full-search field. Bound directly to
+    /// the `TextField` on `SearchView` (and the toolbar field on
+    /// `MainShell`), so it must reflect exactly what the user typed —
+    /// including any trailing/leading whitespace mid-edit. `runFullSearch`
+    /// deliberately does NOT write a trimmed value back here, otherwise a
+    /// debounced pass would silently delete a space the user just typed.
+    /// The trimmed query that actually drove the results lives in
+    /// `searchPageActiveQuery`.
     var searchPageQuery: String = ""
+
+    /// The trimmed query that produced the current `searchPageResults`.
+    /// Distinct from the user-facing `searchPageQuery` binding so that
+    /// pagination (`loadMoreFullSearch`) and "what drove these results"
+    /// checks read a stable, normalized value without ever mutating the
+    /// text the user is editing. Stored separately from `searchQuery` so
+    /// the page doesn't race with whatever the instant dropdown is showing.
+    var searchPageActiveQuery: String = ""
 
     /// Scope chip the user has selected on the full search page. `.all`
     /// shows every section; anything else filters the page down to a single
@@ -360,6 +373,27 @@ final class AppModel {
     /// A full-search pass is in flight. Views use this to show a spinner
     /// and to debounce re-entrant submits from the Return key.
     var isLoadingFullSearch: Bool = false
+
+    /// Set once the server has nothing further to give for the current
+    /// query: either `searchPageLoaded` has reached `searchPageTotal`, or
+    /// a `loadMoreFullSearch` page came back with zero *new* deduplicated
+    /// items in the paged buckets. The latter guard matters because
+    /// `searchPageTotal` is the server's raw `TotalRecordCount` (it can
+    /// count item types we don't page, or be deduplicated server-side),
+    /// so `searchPageLoaded < searchPageTotal` can stay true after the
+    /// server has actually returned everything it will. Without this flag
+    /// the "Load more" button would stay live forever. Reset on every
+    /// fresh `runFullSearch`.
+    var searchPageExhausted: Bool = false
+
+    /// Whether a follow-up `loadMoreFullSearch` could plausibly yield new
+    /// rows from the server. False once we've hit the total or a page
+    /// added nothing. Only meaningful for the server-paged scopes
+    /// (artists / albums / tracks); derived scopes (genres) and
+    /// not-yet-paged scopes (playlists) never consult this.
+    var searchPageHasMore: Bool {
+        !searchPageExhausted && searchPageLoaded < Int(searchPageTotal)
+    }
 
     /// Combined page size for `runFullSearch`. Chosen so each typed
     /// section (artists / albums / tracks) usually gets well above the
@@ -1324,9 +1358,11 @@ final class AppModel {
         searchTask = nil
         searchPageResults = [:]
         searchPageQuery = ""
+        searchPageActiveQuery = ""
         activeSearchScope = .all
         searchPageTotal = 0
         searchPageLoaded = 0
+        searchPageExhausted = false
         isLoadingFullSearch = false
 
         currentTrackPeople = []
@@ -1398,9 +1434,11 @@ final class AppModel {
         searchTask = nil
         searchPageResults = [:]
         searchPageQuery = ""
+        searchPageActiveQuery = ""
         activeSearchScope = .all
         searchPageTotal = 0
         searchPageLoaded = 0
+        searchPageExhausted = false
         isLoadingFullSearch = false
 
         currentTrackPeople = []
@@ -3832,18 +3870,24 @@ final class AppModel {
     func runFullSearch(query: String, scope: SearchScope) async {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         activeSearchScope = scope
-        searchPageQuery = trimmed
+        // Record the normalized query that drives the results, but do NOT
+        // touch `searchPageQuery` — that's the live binding for the text
+        // field, and writing a trimmed value back into it would delete a
+        // space the user just typed mid-edit. The view owns the field text.
+        searchPageActiveQuery = trimmed
 
         guard !trimmed.isEmpty else {
             searchPageResults = [:]
             searchPageTotal = 0
             searchPageLoaded = 0
+            searchPageExhausted = false
             isLoadingFullSearch = false
             return
         }
 
         isLoadingFullSearch = true
         defer { isLoadingFullSearch = false }
+        searchPageExhausted = false
         do {
             let pageSize = searchPagePageSize
             let results = try await Task.detached(priority: .userInitiated) { [core] in
@@ -3852,6 +3896,13 @@ final class AppModel {
             searchPageResults = Self.bucketSearchResults(results)
             searchPageTotal = results.totalRecordCount
             searchPageLoaded = results.artists.count + results.albums.count + results.tracks.count
+            // A first page that already returns fewer raw items than it
+            // asked for means the server has nothing more — mark exhausted
+            // so the per-section "Load more" can't promise a phantom page.
+            let firstPageRaw = results.artists.count + results.albums.count + results.tracks.count
+            if firstPageRaw < Int(pageSize) || searchPageLoaded >= Int(searchPageTotal) {
+                searchPageExhausted = true
+            }
             serverReachability.noteSuccess()
         } catch {
             if handleAuthError(error) { return }
@@ -3869,12 +3920,14 @@ final class AppModel {
     /// with per-id dedupe so flaky ordering on Jellyfin's side doesn't
     /// double a row. No-op when the buckets already cover `searchPageTotal`.
     func loadMoreFullSearch() async {
-        guard !isLoadingFullSearch, !searchPageQuery.isEmpty else { return }
-        guard searchPageLoaded < Int(searchPageTotal) else { return }
+        // Page off the normalized query that produced the current results,
+        // not the live field text (which the user may still be editing).
+        guard !isLoadingFullSearch, !searchPageActiveQuery.isEmpty else { return }
+        guard searchPageHasMore else { return }
         isLoadingFullSearch = true
         defer { isLoadingFullSearch = false }
         let offset = UInt32(searchPageLoaded)
-        let query = searchPageQuery
+        let query = searchPageActiveQuery
         do {
             let pageSize = searchPagePageSize
             let page = try await Task.detached(priority: .userInitiated) { [core] in
@@ -3883,17 +3936,29 @@ final class AppModel {
 
             var merged = searchPageResults
             let incoming = Self.bucketSearchResults(page)
+            var addedNewItems = false
             for (key, newItems) in incoming {
                 var existing = merged[key] ?? []
                 var seen = Set(existing.map(\.id))
                 for item in newItems where seen.insert(item.id).inserted {
                     existing.append(item)
+                    addedNewItems = true
                 }
                 merged[key] = existing
             }
             searchPageResults = merged
             searchPageTotal = page.totalRecordCount
-            searchPageLoaded += page.artists.count + page.albums.count + page.tracks.count
+            let pageRaw = page.artists.count + page.albums.count + page.tracks.count
+            searchPageLoaded += pageRaw
+            // Exhaustion guard: `searchPageLoaded < searchPageTotal` alone
+            // can never settle because `searchPageTotal` may count types we
+            // don't page (or be deduped server-side). Treat the search as
+            // done the moment a page returns no new deduplicated items, a
+            // short raw page, or we've caught up to the total. This is what
+            // keeps "Load more" from becoming a perpetual no-op.
+            if !addedNewItems || pageRaw < Int(pageSize) || searchPageLoaded >= Int(searchPageTotal) {
+                searchPageExhausted = true
+            }
             serverReachability.noteSuccess()
         } catch {
             if handleAuthError(error) { return }
@@ -3914,9 +3979,11 @@ final class AppModel {
         buckets[SearchScope.artists.storageKey] = results.artists.map(SearchItem.artist)
         buckets[SearchScope.albums.storageKey] = results.albums.map(SearchItem.album)
         buckets[SearchScope.tracks.storageKey] = results.tracks.map(SearchItem.track)
-        // Playlists aren't surfaced by the current `core.search` endpoint.
-        // Leave the bucket absent; the view renders an empty scope state
-        // for the user when the Playlists chip is active.
+        // Playlists aren't surfaced by the current `core.search` endpoint,
+        // so this bucket stays empty and the Playlists scope is hidden in
+        // the UI behind `supportsPlaylistSearch`. When core gains playlist
+        // search, populate this from the response (e.g.
+        // `results.playlists.map(SearchItem.playlist)`) and flip the flag.
         buckets[SearchScope.playlists.storageKey] = []
         // Genres: harvest distinct names from every album and artist in
         // the response. Uses case-insensitive de-dupe so "Rock" vs "rock"
@@ -6933,6 +7000,20 @@ enum SearchScope: String, Hashable, CaseIterable, Sendable {
     /// in one place.
     var sectionHeader: String {
         label
+    }
+
+    /// Whether this scope's rows come from the server's paged `search`
+    /// response (so a "Load more" can fetch a follow-up page), or are
+    /// derived / not-yet-paged locally (so "Load more" can only ever
+    /// reveal more of the already-buffered bucket). Genres are harvested
+    /// client-side from album/artist `genres`; playlists aren't returned
+    /// by `core.search` at all. Both must ignore the global server
+    /// has-more signal, otherwise their button would be perpetual.
+    var isServerPaged: Bool {
+        switch self {
+        case .artists, .albums, .tracks, .all: return true
+        case .genres, .playlists: return false
+        }
     }
 }
 

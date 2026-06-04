@@ -53,14 +53,6 @@ struct SearchView: View {
     /// Increment applied when the user taps "Load more" for a scope.
     private let revealStep = 10
 
-    /// Soft cap on how many items a single scope section will render
-    /// from the already-fetched bucket. Aligns with the "about 20 per
-    /// category" intent — once the user has revealed this many, any
-    /// further "Load more" triggers a backend fetch through
-    /// `AppModel.loadMoreFullSearch`. Chosen on the higher side (30)
-    /// so a tall Tracks bucket gets room to breathe before we round-trip.
-    private let perSectionLocalCap = 30
-
     var body: some View {
         @Bindable var model = model
         ScrollView {
@@ -301,11 +293,8 @@ struct SearchView: View {
     @ViewBuilder
     private var sectionedResults: some View {
         VStack(alignment: .leading, spacing: 28) {
-            let allScopes: [SearchScope] = model.supportsGenreActions
-                ? [.artists, .albums, .tracks, .playlists, .genres]
-                : [.artists, .albums, .tracks, .playlists]
             let scopes = model.activeSearchScope == .all
-                ? allScopes
+                ? composedScopes
                 : [model.activeSearchScope]
             ForEach(scopes, id: \.self) { scope in
                 SectionView(
@@ -320,14 +309,31 @@ struct SearchView: View {
         }
     }
 
+    /// The ordered scopes the `.all` view composes. Genres and playlists
+    /// are each gated by a capability flag so the page never renders a
+    /// section that can only say "no … matched this query": genres via
+    /// `supportsGenreActions`, playlists via `supportsPlaylistSearch`
+    /// (the core search backend doesn't return playlists yet).
+    private var composedScopes: [SearchScope] {
+        var scopes: [SearchScope] = [.artists, .albums, .tracks]
+        if model.supportsPlaylistSearch { scopes.append(.playlists) }
+        if model.supportsGenreActions { scopes.append(.genres) }
+        return scopes
+    }
+
     /// Scope chips to render in the chip row. Drops `.genres` when the
-    /// genre actions feature is hidden so users can't navigate to a scope
-    /// where every action is a stub.
+    /// genre actions feature is hidden, and `.playlists` until the core
+    /// search backend returns playlists (`supportsPlaylistSearch`), so
+    /// users can't navigate to a scope that is either all-stub (genres)
+    /// or permanently empty (playlists).
     private var visibleScopes: [SearchScope] {
-        if model.supportsGenreActions {
-            return SearchScope.allCases
+        SearchScope.allCases.filter { scope in
+            switch scope {
+            case .genres: return model.supportsGenreActions
+            case .playlists: return model.supportsPlaylistSearch
+            default: return true
+            }
         }
-        return SearchScope.allCases.filter { $0 != .genres }
     }
 
     private func bucket(for scope: SearchScope) -> [SearchItem] {
@@ -341,42 +347,41 @@ struct SearchView: View {
     }
 
     /// "Load more" is visible when there's another row to reveal in the
-    /// local bucket, OR when the local bucket is exhausted but the server
-    /// has more results for the overall query.
+    /// local bucket, OR — for server-paged scopes only — when the local
+    /// bucket is exhausted but the server still has more results for the
+    /// overall query. Derived / not-yet-paged scopes (genres, playlists)
+    /// never consult the server signal, so their button disappears the
+    /// moment the whole bucket is on screen instead of staying perpetual.
     private func canLoadMore(for scope: SearchScope) -> Bool {
-        let loaded = bucket(for: scope).count
         let revealed = revealedCount(for: scope)
-        if revealed < loaded { return true }
-        // Locally exhausted — does the server still have more?
-        return model.searchPageLoaded < Int(model.searchPageTotal)
+        if revealed < bucket(for: scope).count { return true }
+        // Locally exhausted — only server-paged scopes can fetch more.
+        return scope.isServerPaged && model.searchPageHasMore
     }
 
-    /// Bump the reveal count for this scope and, if that exhausts the
-    /// local bucket, fetch a follow-up page from the server. The
-    /// revealed count is bumped *past* the current bucket end when a
-    /// server fetch is kicked off so new rows coming back land inside
-    /// the visible window without forcing a second click.
+    /// Bump the reveal count for this scope by `revealStep`, and — for a
+    /// server-paged scope whose buffered bucket is fully revealed — kick
+    /// off a follow-up page fetch. The reveal grows straight to
+    /// `bucketSize` (no artificial sub-page cap) so every locally-loaded
+    /// row is reachable; the page size already bounds how much arrives at
+    /// once. When a server fetch is started the reveal window is nudged
+    /// one step past the current bucket end so freshly-fetched rows land
+    /// inside the visible window without forcing a second click.
     private func handleLoadMore(for scope: SearchScope) {
         let key = scope.storageKey
         let current = revealedCount(for: scope)
         let bucketSize = bucket(for: scope).count
-        let serverHasMore = model.searchPageLoaded < Int(model.searchPageTotal)
+        let serverHasMore = scope.isServerPaged && model.searchPageHasMore
 
-        // Cap the in-bucket reveal at `perSectionLocalCap`, but if the
-        // server has more rows we want the reveal window to spill past
-        // the current bucket so freshly-fetched rows are visible straight
-        // away. `nextLocalCap` is the bucket-bounded target; we extend
-        // past it when there's more to fetch.
-        let nextLocalCap = min(current + revealStep, max(bucketSize, current), perSectionLocalCap)
-        let next = serverHasMore
-            ? max(nextLocalCap, current + revealStep)
-            : nextLocalCap
-
-        if next > current {
-            revealedCounts[key] = next
-        }
-
-        if (current + revealStep) > bucketSize && serverHasMore {
+        if current < bucketSize {
+            // Still rows buffered locally — reveal the next chunk, clamped
+            // to what the bucket actually holds.
+            revealedCounts[key] = min(current + revealStep, bucketSize)
+        } else if serverHasMore {
+            // Bucket fully revealed and the server has more: spill the
+            // window past the current end so the incoming page is visible
+            // on arrival, then fetch it.
+            revealedCounts[key] = current + revealStep
             Task { await model.loadMoreFullSearch() }
         }
     }
@@ -389,9 +394,13 @@ struct SearchView: View {
     private func commitQuery(_ query: String) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // Cancel any pending debounce so the committed search isn't chased
+        // ~300ms later by a duplicate that would also cancel this request
+        // mid-flight. `clearQuery` cancels both; mirror that here.
+        searchDebounce?.cancel()
+        searchTask?.cancel()
         AppModel.addRecentSearch(trimmed, into: &recentSearchesJSON)
         revealedCounts = [:]
-        searchTask?.cancel()
         let scope = model.activeSearchScope
         searchTask = Task { await model.runFullSearch(query: trimmed, scope: scope) }
     }
