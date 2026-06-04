@@ -7233,27 +7233,7 @@ async fn structured_error_rate_limit_parses_retry_after() {
 
     let mut client = mock_client(&server.uri());
     client.authenticate_by_name("n", "pw").await.unwrap();
-    let client = std::sync::Arc::new(client);
-
-    // Pause AFTER the real auth round-trip so reqwest's connection setup ran
-    // on the live clock. From here `advance` drives the retry backoff.
-    tokio::time::pause();
-    let call = tokio::spawn({
-        let client = std::sync::Arc::clone(&client);
-        async move { client.albums(Paging::new(0, 10)).await }
-    });
-
-    // Pump virtual time: each retry waits 5s, so step in 1s ticks (yielding
-    // so the spawned request can hit wiremock + the backoff timer can fire)
-    // for well past the two 5s backoffs.
-    for _ in 0..15 {
-        tokio::time::advance(std::time::Duration::from_secs(1)).await;
-        for _ in 0..8 {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    let err = call.await.unwrap().unwrap_err();
+    let err = client.albums(Paging::new(0, 10)).await.unwrap_err();
     match err {
         crate::error::LyrebirdError::RateLimit { retry_after } => {
             assert_eq!(retry_after, Some(42));

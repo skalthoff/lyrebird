@@ -243,7 +243,7 @@ impl CredentialStore {
     }
 
     /// Persist the ListenBrainz scrobble token in the OS keyring (same secure
-    /// store as the Jellyfin access token), keyed on [`SCROBBLE_ACCOUNT`].
+    /// store as the Jellyfin access token), keyed on `SCROBBLE_ACCOUNT`.
     pub fn save_scrobble_token(token: &str) -> Result<()> {
         let entry = keyring::Entry::new(SERVICE, SCROBBLE_ACCOUNT)?;
         entry.set_password(token)?;

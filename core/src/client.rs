@@ -2119,7 +2119,7 @@ impl JellyfinClient {
     /// dropped. Positional insert is a separate primitive on
     /// `POST /Playlists/{id}/Items` (deferred; see #282).
     ///
-    /// Sent via [`Self::send_mutation_no_retry`] because it creates a
+    /// Sent via `Self::send_mutation_no_retry` because it creates a
     /// resource: a blanket transport/5xx retry could create a *duplicate*
     /// playlist if the first POST committed but its response was lost.
     ///
@@ -2548,7 +2548,7 @@ impl JellyfinClient {
     /// Rename a playlist by updating its `Name` field via `POST /Items/{id}`.
     ///
     /// The `POST /Items/{id}` (UpdateItem) endpoint does a *blind assign* of
-    /// the posted [`BaseItemDto`] onto the stored item: every editable field
+    /// the posted `BaseItemDto` onto the stored item: every editable field
     /// it reads is overwritten with whatever the body carries, and fields
     /// absent from the body are reset. So we must fetch the existing item with
     /// the full editable field projection first and round-trip it intact,
