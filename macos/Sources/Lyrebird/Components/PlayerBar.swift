@@ -118,11 +118,20 @@ struct PlayerBar: View {
                     "shuffle",
                     label: "Shuffle",
                     tint: model.status.shuffle ? Theme.accent : Theme.ink2
-                ) { model.mediaSessionSetShuffle(!model.status.shuffle) }
+                ) {
+                    Haptics.levelChange()
+                    model.mediaSessionSetShuffle(!model.status.shuffle)
+                }
                     .help("Shuffle")
-                iconBtn("backward.fill", label: "Previous track", size: 16) { model.skipPrevious() }
+                iconBtn("backward.fill", label: "Previous track", size: 16) {
+                    Haptics.transport()
+                    model.skipPrevious()
+                }
                     .help("Previous · ⌘←")
-                Button(action: model.togglePlayPause) {
+                Button(action: {
+                    Haptics.transport()
+                    model.togglePlayPause()
+                }) {
                     Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 15))
                         .foregroundStyle(Theme.bg)
@@ -135,13 +144,17 @@ struct PlayerBar: View {
                 // about to take. See #331.
                 .accessibilityLabel(Text(isPlaying ? "Pause" : "Play"))
                 .help(isPlaying ? "Pause · Space" : "Play · Space")
-                iconBtn("forward.fill", label: "Next track", size: 16) { model.skipNext() }
+                iconBtn("forward.fill", label: "Next track", size: 16) {
+                    Haptics.transport()
+                    model.skipNext()
+                }
                     .help("Next · ⌘→")
                 iconBtn(
                     model.status.repeatMode == .one ? "repeat.1" : "repeat",
                     label: "Repeat",
                     tint: model.status.repeatMode != .off ? Theme.accent : Theme.ink2
                 ) {
+                    Haptics.levelChange()
                     let next: RepeatMode = {
                         switch model.status.repeatMode {
                         case .off: return .all
@@ -195,7 +208,10 @@ struct PlayerBar: View {
                         } else {
                             // Drag ended — commit the seek and release the
                             // local position so the next polling tick can
-                            // pull the thumb back to the live position.
+                            // pull the thumb back to the live position. The
+                            // alignment tap gives the commit a tactile
+                            // "snap" the same way the system volume HUD does.
+                            Haptics.scrubCommit()
                             model.seek(toSeconds: scrubPosition)
                             isScrubbing = false
                         }
