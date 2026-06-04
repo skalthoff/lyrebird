@@ -12,7 +12,7 @@ import SwiftUI
 ///     ─
 ///     Rename (inline), Duplicate, Delete (with confirm)
 ///     ─
-///     Export as .m3u8…, Copy Link
+///     Export as M3U…, Export as JSON…, Copy Link  (#237)
 ///
 /// BATCH-06b (#71 / #75):
 ///   - **Rename** flips the sidebar row into an inline `TextField` (see
@@ -60,8 +60,11 @@ struct PlaylistContextMenu: View {
 
         Divider()
 
-        Button("Export as .m3u8…", systemImage: "square.and.arrow.up.on.square") {
+        Button("Export as M3U…", systemImage: "square.and.arrow.up.on.square") {
             model.exportPlaylist(playlist: playlist)
+        }
+        Button("Export as JSON…", systemImage: "curlybraces") {
+            model.exportPlaylistJSON(playlist: playlist)
         }
         Button("Copy Link", systemImage: "link") { model.copyShareLink(playlist: playlist) }
             .disabled(model.webURL(for: playlist) == nil)

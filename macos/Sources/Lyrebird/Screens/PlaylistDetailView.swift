@@ -238,8 +238,15 @@ struct PlaylistDetailView: View {
                     Button("Add to Queue") { model.addToQueue(playlist: playlist) }
                         .disabled(true)
                     Divider()
+                    Button("Export as M3U…") { model.exportPlaylist(playlist: playlist) }
+                        .disabled(tracks.isEmpty)
+                    Button("Export as JSON…") { model.exportPlaylistJSON(playlist: playlist) }
+                        .disabled(tracks.isEmpty)
+                    Divider()
                     Button("Copy Link") { model.copyShareLink(playlist: playlist) }
+                        .disabled(model.webURL(for: playlist) == nil)
                     Button("Open in Jellyfin") { model.openInJellyfin(playlist: playlist) }
+                        .disabled(model.webURL(for: playlist) == nil)
                 }
             } label: {
                 Image(systemName: "ellipsis")

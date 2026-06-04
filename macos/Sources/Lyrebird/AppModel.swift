@@ -4367,10 +4367,10 @@ final class AppModel {
         Task { await duplicatePlaylist(id: playlist.id) }
     }
 
-    /// Present a save panel and write the playlist to disk as an `.m3u8` file.
-    /// Fetches the playlist's tracks via `playlist_tracks` FFI, then builds an
-    /// extended M3U file with `#EXTINF` metadata per track. Stream URLs are
-    /// written without auth tokens so the file is safe to share (#76).
+    /// Present a save panel and write the playlist to disk as an extended-M3U
+    /// (`.m3u8`) file. Fetches the playlist's tracks via `playlist_tracks` FFI,
+    /// then delegates the string-building to `PlaylistExport.m3u8`. Stream URLs
+    /// are written without auth tokens so the file is safe to share (#76 / #237).
     func exportPlaylist(playlist: Playlist) {
         Task {
             // Fetch tracks before opening the panel so we know the export
@@ -4380,39 +4380,74 @@ final class AppModel {
                 errorMessage = "No tracks to export for \"\(playlist.name)\"."
                 return
             }
+            let content = PlaylistExport.m3u8(
+                playlistName: playlist.name,
+                tracks: tracks,
+                serverURL: serverURL
+            )
+            writeExport(
+                content,
+                suggestedName: "\(playlist.name).m3u8",
+                fileExtension: "m3u8",
+                panelTitle: "Export Playlist as .m3u8"
+            )
+        }
+    }
 
-            // Build the extended M3U content. runtimeTicks is in 100-nanosecond
-            // units; divide by 10_000_000 to get whole seconds for #EXTINF.
-            var lines: [String] = ["#EXTM3U"]
-            let base = serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL
-            for track in tracks {
-                let durationSec = Int(track.runtimeTicks / 10_000_000)
-                let inf = "#EXTINF:\(durationSec),\(track.artistName) - \(track.name)"
-                // Use the auth-free universal-stream path: no query parameters,
-                // no api_key. Works with servers that allow unauthenticated
-                // download (many local setups), and is safe to share even when
-                // that's not the case.
-                let streamPath = "\(base)/Audio/\(track.id)/universal"
-                lines.append(inf)
-                lines.append(streamPath)
+    /// Present a save panel and write the playlist to disk as a JSON manifest
+    /// (`.json`). Fetches the playlist's tracks via `playlist_tracks` FFI, then
+    /// delegates serialization to `PlaylistExport.json`. The manifest is a
+    /// stable, self-contained projection (id + ordered tracks) suitable for
+    /// backup / re-import / scripting (#237).
+    func exportPlaylistJSON(playlist: Playlist) {
+        Task {
+            let tracks = await loadPlaylistTracks(playlist: playlist)
+            guard !tracks.isEmpty else {
+                errorMessage = "No tracks to export for \"\(playlist.name)\"."
+                return
             }
-            let m3u8Content = lines.joined(separator: "\n") + "\n"
-
-            // Present the save panel on the main actor.
-            let panel = NSSavePanel()
-            panel.title = "Export Playlist as .m3u8"
-            panel.nameFieldStringValue = "\(playlist.name).m3u8"
-            panel.allowedContentTypes = [.init(filenameExtension: "m3u8") ?? .plainText]
-            panel.canCreateDirectories = true
-
-            let response = panel.runModal()
-            guard response == .OK, let url = panel.url else { return }
-
+            let content: String
             do {
-                try m3u8Content.write(to: url, atomically: true, encoding: .utf8)
+                content = try PlaylistExport.json(
+                    playlistId: playlist.id,
+                    playlistName: playlist.name,
+                    tracks: tracks
+                )
             } catch {
                 errorMessage = "Export failed: \(error.localizedDescription)"
+                return
             }
+            writeExport(
+                content,
+                suggestedName: "\(playlist.name).json",
+                fileExtension: "json",
+                panelTitle: "Export Playlist as JSON"
+            )
+        }
+    }
+
+    /// Shared `NSSavePanel` IO for the playlist export formats. Presents the
+    /// panel on the main actor and writes `content` to the chosen URL, routing
+    /// any failure to `errorMessage`. A user cancel is a silent no-op.
+    private func writeExport(
+        _ content: String,
+        suggestedName: String,
+        fileExtension: String,
+        panelTitle: String
+    ) {
+        let panel = NSSavePanel()
+        panel.title = panelTitle
+        panel.nameFieldStringValue = suggestedName
+        panel.allowedContentTypes = [.init(filenameExtension: fileExtension) ?? .plainText]
+        panel.canCreateDirectories = true
+
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+
+        do {
+            try content.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            errorMessage = "Export failed: \(error.localizedDescription)"
         }
     }
 
@@ -4704,10 +4739,12 @@ final class AppModel {
     /// Jellyfin web URL for a playlist, e.g.
     /// `https://server.example.com/web/#/details?id=<playlistId>`. The Jellyfin
     /// web UI uses the same `details` route for albums, artists, and playlists.
+    ///
+    /// Routes through `PlaylistExport.webURL`, which strips any embedded
+    /// credentials / query / fragment from the stored server URL so a copied
+    /// "Copy Link" never leaks a password or token (#237).
     func webURL(for playlist: Playlist) -> URL? {
-        guard !serverURL.isEmpty else { return nil }
-        let base = serverURL.hasSuffix("/") ? String(serverURL.dropLast()) : serverURL
-        return URL(string: "\(base)/web/#/details?id=\(playlist.id)")
+        PlaylistExport.webURL(serverURL: serverURL, itemId: playlist.id)
     }
 
     /// Copy the playlist's web URL to the system pasteboard.
