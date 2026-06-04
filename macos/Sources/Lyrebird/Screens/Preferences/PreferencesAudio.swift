@@ -40,6 +40,12 @@ struct PreferencesAudio: View {
     /// and maps to an empty UID.
     @State private var devices: [AudioOutputDevice] = []
 
+    /// Watches Core Audio for device hot-plug/unplug so the list refreshes
+    /// while the pane is open instead of freezing at its on-appear snapshot.
+    /// Started in `.task`, torn down in `.onDisappear` to avoid leaking the HAL
+    /// listener.
+    @State private var deviceObserver = AudioOutputDeviceObserver()
+
     private var transcoding: Binding<TranscodingPreference> {
         Binding(
             get: { TranscodingPreference(rawValue: transcodingRaw) ?? .directPlay },
@@ -135,7 +141,7 @@ struct PreferencesAudio: View {
                     label: "Quality",
                     help: qualityAvailable ? streamingQuality.subtitle : "Coming soon."
                 ) {
-                    ExplicitQualityPicker(selection: $streamingQuality)
+                    AudioQualityPicker(selection: $streamingQuality)
                         .disabled(!qualityAvailable)
                         .accessibilityLabel("Streaming quality")
                 }
@@ -150,7 +156,7 @@ struct PreferencesAudio: View {
                     label: "Quality",
                     help: qualityAvailable ? downloadQuality.subtitle : "Coming soon."
                 ) {
-                    ExplicitQualityPicker(selection: $downloadQuality)
+                    AudioQualityPicker(selection: $downloadQuality)
                         .disabled(!qualityAvailable)
                         .accessibilityLabel("Download quality")
                 }
@@ -201,7 +207,16 @@ struct PreferencesAudio: View {
 
             Spacer(minLength: 0)
         }
-        .task { await loadDevices() }
+        .task {
+            await loadDevices()
+            // Refresh whenever a device is plugged in / removed while the pane
+            // is open. The callback runs on the main actor; loadDevices() hops
+            // the actual HAL read back off it.
+            deviceObserver.start {
+                Task { await loadDevices() }
+            }
+        }
+        .onDisappear { deviceObserver.stop() }
     }
 
     /// Enumerate output devices off the main actor (HAL property reads can
@@ -251,22 +266,18 @@ enum TranscodingPreference: String, CaseIterable, Identifiable {
     }
 }
 
-/// Segmented quality picker that shows all five explicit tiers (no Auto).
-/// Matches the #117 spec exactly. `.automatic` is intentionally absent — the
-/// spec asks for explicit choices — so a legacy on-disk `.automatic` simply
-/// shows nothing selected until the first tap.
-private struct ExplicitQualityPicker: View {
+/// Segmented quality picker covering every `PlaybackQuality` case, Auto
+/// included. The streaming default is `.automatic` and the codec/quality model
+/// treats Auto as a first-class choice ("Picked by Lyrebird"), so the control
+/// must offer a segment for it — otherwise a stored `.automatic` (the default,
+/// or any value migrated from the old shared keys) leaves the segmented control
+/// with nothing selected and the pane looks broken until the first tap.
+private struct AudioQualityPicker: View {
     @Binding var selection: PlaybackQuality
-
-    /// The five tiers the Audio pane cares about — Auto is deliberately
-    /// excluded because the spec asks for explicit choices. If the on-disk
-    /// value happens to be `.automatic` (legacy), the segmented control just
-    /// shows nothing selected; first tap commits to an explicit tier.
-    private static let tiers: [PlaybackQuality] = [.low, .normal, .high, .lossless, .original]
 
     var body: some View {
         Picker("", selection: $selection) {
-            ForEach(Self.tiers) { option in
+            ForEach(PlaybackQuality.allCases) { option in
                 Text(option.label).tag(option)
             }
         }

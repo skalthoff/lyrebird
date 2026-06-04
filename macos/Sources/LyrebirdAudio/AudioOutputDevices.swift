@@ -109,14 +109,21 @@ public enum AudioOutputDevices {
         return ids.first { stringProperty($0, kAudioDevicePropertyDeviceUID) == uid }
     }
 
-    // MARK: - HAL plumbing
-
-    private static func allDeviceIDs() -> [AudioDeviceID]? {
-        var address = AudioObjectPropertyAddress(
+    /// The `kAudioHardwarePropertyDevices` address on the system object — the
+    /// thing that changes when a device is plugged in or removed. Shared by the
+    /// enumeration above and the hot-plug observer below.
+    private static var devicesAddress: AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
+    }
+
+    // MARK: - HAL plumbing
+
+    private static func allDeviceIDs() -> [AudioDeviceID]? {
+        var address = devicesAddress
         var dataSize: UInt32 = 0
         var status = AudioObjectGetPropertyDataSize(
             AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &dataSize
@@ -182,6 +189,68 @@ public enum AudioOutputDevices {
         guard status == noErr, let value else { return nil }
         return value as String
     }
+}
+
+/// Observes Core Audio device hot-plug/unplug and fires a callback so a
+/// long-lived surface (the Preferences pane) can re-enumerate while it's open.
+///
+/// macOS posts `kAudioHardwarePropertyDevices` on the system object whenever a
+/// device is added or removed. The Preferences output-device list used to be
+/// read once on appear and then go stale — plug in headphones with the pane
+/// open and they'd never show up. This wraps the HAL listener so the view just
+/// owns one of these for its lifetime and tears it down on disappear; without
+/// the explicit `stop()` the registered block leaks (CLAUDE.md gap #2 calls out
+/// listeners that aren't removed).
+///
+/// The HAL invokes the listener block on an internal dispatch queue, so
+/// `onChange` is hopped to the main actor before it runs — callers can update
+/// `@State`/UI directly. The type is deliberately *not* `Sendable`: it owns
+/// `start()`/`stop()` lifecycle and is meant to live on one actor (the view's
+/// main actor), matching how `AudioEngine` owns its CoreAudio plumbing.
+public final class AudioOutputDeviceObserver {
+    private var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    private var block: AudioObjectPropertyListenerBlock?
+    private let queue = DispatchQueue(label: "org.lyrebird.desktop.audio-output-observer")
+
+    public init() {}
+
+    /// Register the HAL listener. `onChange` runs on the main actor on every
+    /// device add/remove. Idempotent: a second `start()` without a `stop()`
+    /// replaces the previous registration rather than stacking a duplicate.
+    public func start(onChange: @escaping @MainActor () -> Void) {
+        stop()
+        let block: AudioObjectPropertyListenerBlock = { _, _ in
+            Task { @MainActor in onChange() }
+        }
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, queue, block
+        )
+        guard status == noErr else {
+            deviceLog.error("AudioObjectAddPropertyListenerBlock(devices) failed: \(status)")
+            return
+        }
+        self.block = block
+    }
+
+    /// Remove the HAL listener. Safe to call when nothing is registered and
+    /// safe to call more than once. Invoked from `deinit` as a backstop so a
+    /// dropped observer never leaves a dangling registration.
+    public func stop() {
+        guard let block else { return }
+        let status = AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, queue, block
+        )
+        if status != noErr {
+            deviceLog.error("AudioObjectRemovePropertyListenerBlock(devices) failed: \(status)")
+        }
+        self.block = nil
+    }
+
+    deinit { stop() }
 }
 
 /// Failures surfaced by the output-device routing layer.
