@@ -3885,13 +3885,13 @@ final class AppModel {
             let json = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.fetchItem(
                     itemId: albumId,
-                    fields: ["People", "Studios", "PremiereDate", "DateCreated", "ProductionYear"]
+                    fields: ["People", "Studios", "PremiereDate", "DateCreated", "ProductionYear", "Overview"]
                 )
             }.value
             return Self.parseAlbumDetail(from: json)
         } catch {
             _ = handleAuthError(error)
-            return AlbumDetail(label: nil, releaseDate: nil, people: [])
+            return AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
         }
     }
 
@@ -3902,7 +3902,7 @@ final class AppModel {
         guard let data = json.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
-            return AlbumDetail(label: nil, releaseDate: nil, people: [])
+            return AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
         }
 
         // Jellyfin ships `Studios` as an array of `{ Name, Id }` objects. Pick
@@ -3948,7 +3948,17 @@ final class AppModel {
             }
         }()
 
-        return AlbumDetail(label: label, releaseDate: releaseDate, people: people)
+        // Editorial blurb (#68). Kept raw here — the album detail view runs it
+        // through the same HTML strip as the artist bio before display.
+        // Whitespace-only collapses to `nil` so the "About this album" section
+        // never renders an empty shell.
+        let overview: String? = {
+            guard let raw = root["Overview"] as? String else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : raw
+        }()
+
+        return AlbumDetail(label: label, releaseDate: releaseDate, people: people, overview: overview)
     }
 
     /// Navigate to the artist detail screen for this album's artist, if known.
@@ -6038,6 +6048,11 @@ struct AlbumDetail: Equatable {
     /// these by role. Empty when the server didn't populate `People` (a
     /// surprising number don't).
     let people: [Person]
+    /// Editorial blurb from Jellyfin's album `Overview` field (populated
+    /// by metadata plugins such as TheAudioDB / MusicBrainz). May carry
+    /// light HTML; the view HTML-strips it before display and hides the
+    /// "About this album" section entirely when it's `nil`/empty (#68).
+    let overview: String?
 }
 
 // MARK: - Full search page types
