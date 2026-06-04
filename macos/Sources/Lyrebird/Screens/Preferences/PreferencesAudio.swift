@@ -3,11 +3,14 @@ import SwiftUI
 
 /// Audio quality preferences pane.
 ///
-/// Deliberately overlaps with the Playback pane's quality pickers — both read
-/// from `playback.streamingQuality` and `playback.downloadQuality` so changes
-/// in one surface show up in the other. Audio is the "proper" home per the
-/// System Settings-style layout (#114); Playback keeps its copy because a
-/// user hunting for "streaming quality" will look under Playback first.
+/// Canonical home for **Streaming Quality**, **Download Quality**, and the
+/// **Preferred Codec** (#117). These used to be duplicated in the Playback
+/// pane against the same `@AppStorage` keys; the duplicates were removed so
+/// each setting has exactly one editing surface here. The quality/codec
+/// pickers are gated behind `model.supportsStreamQualitySelection` and shown
+/// disabled until the core threads `MaxStreamingBitrate` + a `DeviceProfile`
+/// into the Jellyfin `PlaybackInfo` request (#260) — until then they would
+/// persist a preference nothing reads.
 ///
 /// Also houses the **Transcoding preference** — a two-option toggle between
 /// Direct Play (the server decides, prefers passthrough) and Always Transcode
@@ -15,10 +18,11 @@ import SwiftUI
 /// escape hatch for users hitting compatibility issues with a specific codec
 /// or container on their output device.
 ///
-/// Preference keys (user-facing `@AppStorage`, shared with Playback):
+/// Preference keys (user-facing `@AppStorage`):
 /// - `playback.streamingQuality`     — `PlaybackQuality`
 /// - `playback.downloadQuality`      — `PlaybackQuality`
-/// - `audio.transcodingPreference`   — `TranscodingPreference` (new)
+/// - `playback.preferredCodec`       — `PreferredAudioCodec`
+/// - `audio.transcodingPreference`   — `TranscodingPreference`
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 69 and GitHub issue #117.
 struct PreferencesAudio: View {
@@ -26,6 +30,7 @@ struct PreferencesAudio: View {
 
     @AppStorage("playback.streamingQuality") private var streamingQuality: PlaybackQuality = .automatic
     @AppStorage("playback.downloadQuality") private var downloadQuality: PlaybackQuality = .lossless
+    @AppStorage("playback.preferredCodec") private var preferredCodec: PreferredAudioCodec = .automatic
     @AppStorage("audio.transcodingPreference") private var transcodingRaw: String = TranscodingPreference.directPlay.rawValue
     @AppStorage(AudioOutputDevices.preferenceKey) private var outputDeviceUID: String = ""
     @AppStorage(AudioOutputDevices.exclusiveModePreferenceKey) private var exclusiveMode: Bool = false
@@ -73,6 +78,13 @@ struct PreferencesAudio: View {
         !outputDeviceUID.isEmpty && !devices.contains { $0.uid == outputDeviceUID }
     }
 
+    /// Whether the quality / codec pickers are wired into playback. Gated on
+    /// the capability flag (#260) — the core has no `MaxStreamingBitrate` /
+    /// `DeviceProfile` parameter on its `PlaybackInfo` request yet, so until it
+    /// does the pickers are shown disabled rather than persisting a preference
+    /// nothing reads.
+    private var qualityAvailable: Bool { model.supportsStreamQualitySelection }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             header
@@ -115,16 +127,20 @@ struct PreferencesAudio: View {
 
             PreferenceSection(
                 title: "Streaming Quality",
-                footnote: "Applied when playing over the network. Higher tiers use more bandwidth; Lossless and Original require your server (and your connection) to sustain them."
+                footnote: qualityAvailable
+                    ? "Applied when playing over the network. Higher tiers use more bandwidth; Lossless and Original require your server (and your connection) to sustain them."
+                    : "Quality and codec selection is planned. It needs server-side transcoding support that isn't available in this build yet."
             ) {
                 PreferenceRow(
                     label: "Quality",
-                    help: streamingQuality.subtitle
+                    help: qualityAvailable ? streamingQuality.subtitle : "Coming soon."
                 ) {
                     ExplicitQualityPicker(selection: $streamingQuality)
+                        .disabled(!qualityAvailable)
                         .accessibilityLabel("Streaming quality")
                 }
             }
+            .opacity(qualityAvailable ? 1 : 0.55)
 
             PreferenceSection(
                 title: "Download Quality",
@@ -132,12 +148,36 @@ struct PreferencesAudio: View {
             ) {
                 PreferenceRow(
                     label: "Quality",
-                    help: downloadQuality.subtitle
+                    help: qualityAvailable ? downloadQuality.subtitle : "Coming soon."
                 ) {
                     ExplicitQualityPicker(selection: $downloadQuality)
+                        .disabled(!qualityAvailable)
                         .accessibilityLabel("Download quality")
                 }
             }
+            .opacity(qualityAvailable ? 1 : 0.55)
+
+            PreferenceSection(
+                title: "Preferred Codec",
+                footnote: "Codec the server transcodes to when a direct stream isn't possible. \"Automatic\" trusts the server's default."
+            ) {
+                PreferenceRow(
+                    label: "Codec",
+                    help: qualityAvailable ? preferredCodec.subtitle : "Coming soon."
+                ) {
+                    Picker("", selection: $preferredCodec) {
+                        ForEach(PreferredAudioCodec.allCases) { codec in
+                            Text(codec.label).tag(codec)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: 140)
+                    .disabled(!qualityAvailable)
+                    .accessibilityLabel("Preferred audio codec")
+                }
+            }
+            .opacity(qualityAvailable ? 1 : 0.55)
 
             PreferenceSection(
                 title: "Transcoding",
@@ -212,9 +252,9 @@ enum TranscodingPreference: String, CaseIterable, Identifiable {
 }
 
 /// Segmented quality picker that shows all five explicit tiers (no Auto).
-/// Matches the #117 spec exactly — the Playback pane's `QualityPicker` also
-/// shows `automatic` because historically that pane's copy read "Let Lyrebird
-/// pick." A separate picker here avoids touching that surface.
+/// Matches the #117 spec exactly. `.automatic` is intentionally absent — the
+/// spec asks for explicit choices — so a legacy on-disk `.automatic` simply
+/// shows nothing selected until the first tap.
 private struct ExplicitQualityPicker: View {
     @Binding var selection: PlaybackQuality
 
