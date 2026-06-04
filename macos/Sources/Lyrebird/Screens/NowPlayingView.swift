@@ -108,8 +108,10 @@ struct NowPlayingView: View {
                 ),
                 seed: track.name,
                 size: artSide,
-                radius: 14
+                radius: 14,
+                decorative: false
             )
+            .accessibilityLabel(nowPlayingArtworkLabel(for: track))
             .frame(width: artSide, height: artSide)
             // Trailing alignment so the disc slides out past the art's right
             // edge rather than behind its center; the disc's own `+80pt`
@@ -185,6 +187,24 @@ struct NowPlayingView: View {
     private func heroArtSide(containerWidth: CGFloat?) -> CGFloat {
         let byWidth = containerWidth.map { max(240, $0 - 72) } ?? 320
         return min(520, byWidth)
+    }
+
+    /// VoiceOver label for the now-playing hero artwork. The hero is the
+    /// dominant identity of the screen and isn't wrapped in a labelled
+    /// control, so it's marked meaningful (`decorative: false`) and reads as
+    /// the cover for the album when known, falling back to the track when the
+    /// server ships no album name (singles). (#356)
+    private func nowPlayingArtworkLabel(for track: Track) -> String {
+        Self.nowPlayingArtworkLabel(trackName: track.name, albumName: track.albumName)
+    }
+
+    /// Pure label builder, split out so the fallback rule is unit-testable
+    /// without booting a SwiftUI scene.
+    static func nowPlayingArtworkLabel(trackName: String, albumName: String?) -> String {
+        if let album = albumName, !album.isEmpty {
+            return "Album artwork for \(album)"
+        }
+        return "Artwork for \(trackName)"
     }
 
     @ViewBuilder

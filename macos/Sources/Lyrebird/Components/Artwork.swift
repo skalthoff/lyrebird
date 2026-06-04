@@ -27,6 +27,23 @@ struct Artwork: View {
     var size: CGFloat = 120
     var radius: CGFloat = 8
     var overlayLabel: String?
+    /// Whether this artwork is purely decorative for VoiceOver / Switch Control.
+    ///
+    /// Defaults to `true` because the overwhelming majority of `Artwork` call
+    /// sites are thumbnails nested inside a card, tile, or row whose *parent*
+    /// already carries a meaningful `.accessibilityLabel` (e.g. an album tile
+    /// button labelled "Abbey Road, 1969 · 17 tracks"). In that context the
+    /// inner image — and especially the seeded-gradient fallback, which has no
+    /// inherent meaning — is redundant noise: VoiceOver would otherwise stop on
+    /// it and announce a contentless "image". Hiding it keeps the spoken output
+    /// to the single labelled container.
+    ///
+    /// Meaningful call sites — where the image is the dominant identity of the
+    /// surface and is *not* wrapped in an already-labelled element (an
+    /// album/artist/playlist detail hero) — pass `decorative: false` and supply
+    /// a real `.accessibilityLabel` (the album / artist / playlist name) so the
+    /// hero reads as a named image. See #356.
+    var decorative: Bool = true
     /// Target decode size in pixels. Nuke downscales during decode to avoid
     /// holding a 1024×1024 CGImage in memory when the cell renders at 180pt.
     /// Defaults to `size * 2` to match typical Retina displays — the 3x
@@ -87,6 +104,11 @@ struct Artwork: View {
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: radius))
         .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 4)
+        // Decorative by default — see the `decorative` property. When a caller
+        // marks the image meaningful it pairs this with its own
+        // `.accessibilityLabel`, so the label survives because the element is
+        // no longer hidden.
+        .accessibilityHidden(decorative)
     }
 
     /// Build the Nuke request with a resize processor that downscales at

@@ -76,8 +76,10 @@ struct AlbumDetailView: View {
                     url: model.imageURL(for: album.id, tag: album.imageTag, maxWidth: 480),
                     seed: album.name,
                     size: 240,
-                    radius: 6
+                    radius: 6,
+                    decorative: false
                 )
+                .accessibilityLabel("Album artwork for \(album.name)")
                 VStack(alignment: .leading, spacing: 6) {
                     Text("LONG-PLAYER · \(album.year.map(String.init) ?? "")")
                         .font(Theme.font(11, weight: .bold))

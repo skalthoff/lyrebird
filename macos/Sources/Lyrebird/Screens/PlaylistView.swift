@@ -451,7 +451,11 @@ private struct PlaylistCollage: View {
         // treatment so the slot is never a featureless gradient for
         // playlists that already carry a server-side cover.
         if quads.allSatisfy({ artURL(for: $0) == nil }) {
-            Artwork(url: fallbackURL, seed: seed, size: slotSize, radius: 6)
+            // Hero cover for the playlist — the collage path below labels its
+            // container "Playlist artwork"; mirror that here so the
+            // single-image fallback reads identically to VoiceOver. (#356)
+            Artwork(url: fallbackURL, seed: seed, size: slotSize, radius: 6, decorative: false)
+                .accessibilityLabel("Playlist artwork")
         } else {
             let cell = (slotSize - gap) / 2
             VStack(spacing: gap) {
