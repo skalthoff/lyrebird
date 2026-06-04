@@ -31,8 +31,8 @@ struct ArtistContextMenu: View {
             Button("Play All", systemImage: "play.fill") { model.playAll(artist: artist) }
             Button("Shuffle All", systemImage: "shuffle") { model.shuffle(artist: artist) }
         }
-        // Play Next falls through to top-tracks playback today, so it works
-        // without the artist-tracks FFI.
+        // Play Next inserts the artist's full catalog after the current track,
+        // matching album/track "Play Next" rather than only the top-tracks teaser.
         Button("Play Next", systemImage: "text.insert") { model.playNextArtist(artist: artist) }
 
         Divider()

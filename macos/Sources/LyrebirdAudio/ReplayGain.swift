@@ -182,30 +182,47 @@ public enum ReplayGain {
 
     /// Derive a best-effort dB adjustment from an iTunes `iTunNORM` atom.
     ///
-    /// `iTunNORM` is a string of ten space-separated 8-digit hex values; the
-    /// first two are the per-channel loudness measurements on a scale where
-    /// `1000` ≈ 0 dB. The volume adjustment for a channel is
+    /// `iTunNORM` is a string of ten space-separated 8-digit hex values. The
+    /// volume-base measurements live in two redundant pairs: fields 0/1 are the
+    /// 1000-relative bases for the left/right channels, and fields 2/3 are a
+    /// second base pair (often the more reliable of the two). Each value sits
+    /// on a scale where `1000` ≈ 0 dB, so a channel's adjustment is
     /// `-10 * log10(value / 1000)` — a value above 1000 means a loud channel
-    /// that should be attenuated. We take the *smaller-magnitude* (less
-    /// aggressive) of the two channels so a single hot channel can't drive the
-    /// whole track to silence, then clamp.
+    /// that wants attenuation (a negative dB), below means a quiet one.
+    ///
+    /// We gather every nonzero base across both pairs and take the **loudest**
+    /// channel — the most-negative adjustment — so a loud track is brought down
+    /// far enough to actually match quieter material rather than being left hot
+    /// by deferring to its quietest channel. Reading both pairs also means a
+    /// zeroed first pair (fields 0/1 == 0) falls through to the second instead
+    /// of giving up. The result keeps the `isFinite` guard and ±``maxAbsGainDb``
+    /// clamp.
     ///
     /// This is intentionally a fallback only — `iTunNORM` is iTunes' own
     /// loudness scheme, not ReplayGain, and is less precise. `nil` when the
-    /// atom is malformed or the channels read as zero.
+    /// atom is malformed or every base reads as zero.
     static func iTunNormDb(from raw: String) -> Double? {
         let fields = raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
         guard fields.count >= 2 else { return nil }
-        guard
-            let left = UInt32(fields[0], radix: 16),
-            let right = UInt32(fields[1], radix: 16)
-        else { return nil }
-        guard left > 0, right > 0 else { return nil }
-        let leftDb = -10.0 * log10(Double(left) / 1000.0)
-        let rightDb = -10.0 * log10(Double(right) / 1000.0)
-        // Less aggressive of the two channels (smaller absolute adjustment).
-        let chosen = abs(leftDb) <= abs(rightDb) ? leftDb : rightDb
-        guard chosen.isFinite else { return nil }
+
+        // Volume bases live in fields 0/1 and (when present) 2/3. Hex-parse
+        // each available base; a field that isn't valid hex sinks the whole
+        // parse since the atom is then malformed.
+        let baseCount = fields.count >= 4 ? 4 : 2
+        var bases: [UInt32] = []
+        bases.reserveCapacity(baseCount)
+        for index in 0..<baseCount {
+            guard let value = UInt32(fields[index], radix: 16) else { return nil }
+            bases.append(value)
+        }
+
+        // Drop zero bases (an unmeasured channel) and convert each to dB. The
+        // loudest channel is the most-negative adjustment, so `min` yields the
+        // largest attenuation across whichever bases were actually measured.
+        let adjustments = bases
+            .filter { $0 > 0 }
+            .map { -10.0 * log10(Double($0) / 1000.0) }
+        guard let chosen = adjustments.min(), chosen.isFinite else { return nil }
         return chosen.clamped(to: -maxAbsGainDb...maxAbsGainDb)
     }
 

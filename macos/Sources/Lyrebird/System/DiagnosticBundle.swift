@@ -133,29 +133,7 @@ enum DiagnosticBundle {
     /// - `music.example.com:8096` → `music.example.com`
     /// - `""` → `(not signed in)`
     static func redactServerHost(_ urlString: String) -> String {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "(not signed in)" }
-
-        // Try a structured parse first. `URLComponents` cleanly separates the
-        // host from userinfo / port / path / query.
-        if let host = URLComponents(string: trimmed)?.host, !host.isEmpty {
-            return host
-        }
-
-        // Fallback for bare `host[:port][/path]` strings with no scheme, which
-        // `URLComponents` parses as a path rather than a host. Strip any
-        // `scheme://`, then any `user:pw@` userinfo, then cut at the first
-        // `/`, `:`, or `?`.
-        var rest = trimmed
-        if let schemeRange = rest.range(of: "://") {
-            rest = String(rest[schemeRange.upperBound...])
-        }
-        if let atIndex = rest.firstIndex(of: "@") {
-            rest = String(rest[rest.index(after: atIndex)...])
-        }
-        let host = rest.prefix { $0 != "/" && $0 != ":" && $0 != "?" }
-        let result = String(host)
-        return result.isEmpty ? "(not signed in)" : result
+        ServerHostRedaction.host(from: urlString) ?? "(not signed in)"
     }
 
     // MARK: - Manifest

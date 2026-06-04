@@ -90,6 +90,33 @@ final class DiagnosticBundleTests: XCTestCase {
         XCTAssertEqual(DiagnosticBundle.redactServerHost("   "), "(not signed in)")
     }
 
+    func testRedactSchemelessUserinfoDoesNotLeakPassword() {
+        // A scheme-less URL with embedded credentials must drop the WHOLE
+        // `user:pw@` userinfo, not just the part before the first `@`. A
+        // password that itself contains `@` is the worst case.
+        XCTAssertEqual(
+            DiagnosticBundle.redactServerHost("admin:p@ssw0rd@host.internal:8443/jf"),
+            "host.internal",
+            "an embedded password (even one containing '@') must not leak into the host"
+        )
+        XCTAssertEqual(
+            DiagnosticBundle.redactServerHost("user:pw@bare.example.com:9000"),
+            "bare.example.com"
+        )
+    }
+
+    func testRedactMalformedSchemelessInputIsNotSignedIn() {
+        // Garbage that parses to a non-host (spaces / illegal chars) must NOT be
+        // written verbatim into the manifest — it falls back to "(not signed in)".
+        XCTAssertEqual(
+            DiagnosticBundle.redactServerHost("ht!tp://weird host/with space"),
+            "(not signed in)",
+            "a non-host candidate must not be emitted as the server host"
+        )
+        XCTAssertEqual(DiagnosticBundle.redactServerHost("???"), "(not signed in)")
+        XCTAssertEqual(DiagnosticBundle.redactServerHost("weird host"), "(not signed in)")
+    }
+
     // MARK: - Secret exclusion (the core safety property)
 
     func testBundleNeverContainsTokenOrPassword() throws {

@@ -130,6 +130,23 @@ final class AboutInfoTests: XCTestCase {
         )
     }
 
+    func testHostSchemelessUserinfoDoesNotLeakPassword() {
+        // The whole `user:pw@` userinfo must be dropped even when the password
+        // itself contains an `@` — splitting on the first `@` would leak it.
+        XCTAssertEqual(
+            AboutInfo.connectedServerHost(from: "admin:p@ssw0rd@host.internal:8443/jf"),
+            "host.internal"
+        )
+    }
+
+    func testHostMalformedSchemelessInputReturnsNil() {
+        // Garbage that parses to a space-containing non-host must map to nil so
+        // the About row hides rather than render junk.
+        XCTAssertNil(AboutInfo.connectedServerHost(from: "ht!tp://weird host/with space"))
+        XCTAssertNil(AboutInfo.connectedServerHost(from: "weird host"))
+        XCTAssertNil(AboutInfo.connectedServerHost(from: "???"))
+    }
+
     func testHostTrimsSurroundingWhitespace() {
         XCTAssertEqual(
             AboutInfo.connectedServerHost(from: "  https://music.example.com  "),
@@ -156,6 +173,12 @@ final class AboutInfoTests: XCTestCase {
             "music.example.com:8096",
             "http://10.0.0.5:8096/",
             "https://sub.domain.example.org/path/deeper?a=b&c=d",
+            // Scheme-less + embedded creds (incl. an `@` inside the password):
+            // both redactors must extract the same bare host. (Malformed inputs
+            // that yield NO host are the one intentional divergence — About →
+            // nil, bundle → "(not signed in)" — so they're asserted separately.)
+            "admin:p@ssw0rd@host.internal:8443/jf",
+            "user:pw@bare.example.com:9000",
         ]
         for input in inputs {
             XCTAssertEqual(
