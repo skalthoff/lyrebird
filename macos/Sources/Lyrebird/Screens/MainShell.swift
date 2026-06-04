@@ -275,6 +275,14 @@ struct MainShell: View {
                 model.trackInfoSubject = nil
             }
         }
+        // Instant Mix seed-picker — search/pick a track, album, artist, or
+        // genre to seed a radio station (#327). Driven by
+        // `AppModel.isShowingInstantMixPicker`; summoned from the View ▸
+        // "New Instant Mix…" menu command (⌘⌥M). Mounted here so it floats
+        // over whichever screen is active.
+        .sheet(isPresented: $model.isShowingInstantMixPicker) {
+            InstantMixSheet(model: model)
+        }
         // Playlist-delete confirmation — see #98 / #131. Triggered from
         // `PlaylistContextMenu` via `AppModel.confirmDelete(playlist:)`.
         .confirmationDialog(

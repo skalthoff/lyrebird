@@ -701,6 +701,21 @@ final class AppModel {
     /// #307 / #309.
     var isCommandPaletteOpen: Bool = false
 
+    /// Whether the Instant Mix seed-picker sheet is presented. Flipped by
+    /// the "New Instant Mix…" menu command (`presentInstantMixPicker`) and
+    /// cleared when the sheet dismisses or a mix is generated. Mounted on
+    /// `MainShell` so the picker floats over whichever screen is active.
+    /// The engine behind it (`playInstantMix` / `startGenreRadio`) was
+    /// already wired; this flag only drives the seed-picker UI. See #327.
+    var isShowingInstantMixPicker: Bool = false
+
+    /// Display name of the most recently generated Instant Mix seed (e.g.
+    /// "Radiohead", "OK Computer", "Jazz"). Surfaced as the sheet's
+    /// "Last mix" hint so a re-open offers a one-tap regenerate without
+    /// re-searching. `nil` until the first mix is generated this session.
+    /// See #327.
+    var instantMixSeedLabel: String?
+
     /// A single verb entry in the command palette's action list. See
     /// `paletteActions` for the live roster and `executePaletteAction(id:)`
     /// for the dispatcher. Actions are intentionally held by id + closure
@@ -3330,6 +3345,67 @@ final class AppModel {
         } else {
             startInstantMix()
         }
+    }
+
+    /// Present the Instant Mix seed-picker sheet (#327). The sheet lets the
+    /// user search for and pick any track / album / artist / genre to seed a
+    /// fresh radio station, rather than relying on the implicit "currently
+    /// playing" seed that `startInstantMix` uses. Mounted on `MainShell`
+    /// driven by `isShowingInstantMixPicker`; wired to the View ▸ "New
+    /// Instant Mix…" menu command.
+    func presentInstantMixPicker() {
+        isShowingInstantMixPicker = true
+    }
+
+    /// Generate an Instant Mix from an explicitly chosen seed (#327). The
+    /// seed-picker sheet hands back a heterogeneous `SearchItem`; we dispatch
+    /// on its case because the seed id semantics differ:
+    ///
+    /// - Tracks / albums / artists carry a real Jellyfin UUID, so they feed
+    ///   `playInstantMix` directly.
+    /// - Genres surfaced by search only carry the display name as their id
+    ///   (`Genre.init(name:)`), so they route through `startGenreRadio`,
+    ///   which resolves the name → real UUID before seeding. Playlists aren't
+    ///   offered as a seed by the picker today, but fall through to the
+    ///   direct path should the picker ever surface one.
+    ///
+    /// Records the seed's display name in `instantMixSeedLabel` so a re-open
+    /// of the picker can offer a one-tap regenerate, then dismisses the sheet.
+    func generateInstantMix(seed: SearchItem) {
+        switch seed {
+        case .track(let t):
+            instantMixSeedLabel = t.name
+            playInstantMix(seedId: t.id)
+        case .album(let a):
+            instantMixSeedLabel = a.name
+            playInstantMix(seedId: a.id)
+        case .artist(let a):
+            instantMixSeedLabel = a.name
+            playInstantMix(seedId: a.id)
+        case .playlist(let p):
+            instantMixSeedLabel = p.name
+            playInstantMix(seedId: p.id)
+        case .genre(let g):
+            instantMixSeedLabel = g.name
+            startGenreRadio(genre: g)
+        }
+        isShowingInstantMixPicker = false
+    }
+
+    /// Read-only search used by the Instant Mix seed picker (#327). Returns a
+    /// raw `SearchResults` without touching any of the page-level search
+    /// state (`searchResults`, `searchPageResults`, …) so opening the picker
+    /// never disturbs the standalone Search screen the user may have set up.
+    /// The FFI hop runs off the MainActor per CLAUDE.md gap pattern #2;
+    /// errors collapse to `nil` because the picker treats "no matches" and
+    /// "search failed" identically (an empty candidate list), and a flaky
+    /// keystroke shouldn't raise an error banner mid-typing.
+    func searchSeeds(query: String, limit: UInt32 = 20) async -> SearchResults? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return await Task.detached(priority: .userInitiated) { [core] in
+            try? core.search(query: trimmed, offset: 0, limit: limit)
+        }.value
     }
 
     /// Common driver for every "Start Radio" entry point. `core.instantMix`

@@ -1633,6 +1633,174 @@
           }
         }
       }
+    },
+    "instant_mix.picker.category.albums" : {
+      "comment" : "Instant Mix picker filter chip: albums only.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Albums"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.category.all" : {
+      "comment" : "Instant Mix picker filter chip: show every kind of seed candidate.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.category.artists" : {
+      "comment" : "Instant Mix picker filter chip: artists only.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Artists"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.category.genres" : {
+      "comment" : "Instant Mix picker filter chip: genres only.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genres"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.category.tracks" : {
+      "comment" : "Instant Mix picker filter chip: tracks only.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tracks"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.close" : {
+      "comment" : "Accessibility label for the close button on the Instant Mix seed-picker sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Instant Mix picker"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.empty_prompt" : {
+      "comment" : "Prompt shown in the Instant Mix picker before the user has typed a query.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search for something to build a mix around."
+          }
+        }
+      }
+    },
+    "instant_mix.picker.generate" : {
+      "comment" : "Primary action button that starts the Instant Mix from the chosen seed.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Generate"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.last_mix" : {
+      "comment" : "Prefix for the most recently used Instant Mix seed name, shown as a regenerate hint. Followed verbatim by the seed name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last mix:"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.no_matches" : {
+      "comment" : "Shown in the Instant Mix picker when a search returns no seed candidates.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matches"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.search_placeholder" : {
+      "comment" : "Placeholder for the search field in the Instant Mix seed picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search for a track, album, artist, or genre"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.selected" : {
+      "comment" : "Prefix for the currently selected Instant Mix seed name in the picker footer. Followed verbatim by the seed name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seed:"
+          }
+        }
+      }
+    },
+    "instant_mix.picker.title" : {
+      "comment" : "Title of the Instant Mix seed-picker sheet (#327).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Instant Mix"
+          }
+        }
+      }
+    },
+    "menu.nav.instant_mix" : {
+      "comment" : "View menu item that opens the Instant Mix seed-picker sheet (#327).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Instant Mix…"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
