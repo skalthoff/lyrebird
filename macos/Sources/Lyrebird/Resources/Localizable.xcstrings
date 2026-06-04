@@ -1225,6 +1225,18 @@
         }
       }
     },
+    "menu.file.new_window" : {
+      "comment" : "File > New Window menu item. Opens an additional main app window (\u21e7\u2318N). Playback and library are shared across windows.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Window"
+          }
+        }
+      }
+    },
     "menu.view.show_sidebar" : {
       "comment" : "View menu item to toggle the sidebar visibility (placeholder until #5 lands).",
       "extractionState" : "manual",
