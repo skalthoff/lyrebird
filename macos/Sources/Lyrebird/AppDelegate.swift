@@ -1,6 +1,7 @@
 import AppKit
 import LyrebirdCore
 import Observation
+import os
 import SwiftUI
 
 /// AppKit delegate for the SwiftUI app. Hosts platform plumbing that has no
@@ -26,6 +27,15 @@ import SwiftUI
 /// `LyrebirdApp`. It publishes itself on `AppDelegate.shared` right after
 /// `applicationDidFinishLaunching` so the SwiftUI side can hand over the
 /// live `AppModel` pointer via `bind(appModel:)`.
+///
+/// The whole type is `@MainActor`: every `NSApplicationDelegate` callback
+/// (`applicationDidFinishLaunching`, `applicationWillTerminate`,
+/// `applicationDockMenu`) and the Dock-menu `@objc` actions are documented to
+/// run on the main thread, and the body reads `@MainActor`-isolated `AppModel`
+/// state (`status`, `jumpBackIn`). Annotating the class makes those
+/// cross-actor reads *checked* by the compiler rather than an unchecked
+/// assumption under the Swift 5 language mode.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Weak shared pointer so views (that hold a strong reference to the
     /// `AppModel`) can drive the delegate without creating a retain cycle.
@@ -195,19 +205,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// updates ride the existing 1 s status poll via `refreshDockTile()`; this
     /// loop only catches the discrete play/pause/stop transitions so the ring
     /// flips its overlay the moment state changes rather than on the next tick.
-    @MainActor
+    ///
+    /// `model` is captured **weakly**: this is a long-lived loop that outlives
+    /// individual `bind(appModel:)` calls, and a strong capture would pin the
+    /// previous `AppModel` alive across a rebind. The per-suspension
+    /// continuation is wrapped in `withTaskCancellationHandler` so cancelling
+    /// `dockBadgeTask` (on rebind / `applicationWillTerminate`) resumes the
+    /// suspended task *immediately* instead of leaving it parked until the next
+    /// `status.state` transition — which, while paused, might never come.
     private func startDockBadgeObserver(model: AppModel) -> Task<Void, Never> {
-        Task { @MainActor [weak self] in
+        Task { @MainActor [weak self, weak model] in
             while !Task.isCancelled {
+                guard let model else { break }
                 // Only `status.state` is read inside the tracking closure, so the
                 // loop wakes solely on playback-state transitions rather than on
                 // every status mutation (position ticks, queue edits, etc.).
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    withObservationTracking {
-                        _ = model.status.state
-                    } onChange: {
-                        continuation.resume()
+                //
+                // `onChange` fires on the thread that mutated `status` (the main
+                // actor) while `onCancel` can fire synchronously on any thread,
+                // so the continuation is guarded by `ResumeOnce` to resume
+                // exactly once across that race.
+                let box = ResumeOnce()
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        box.store(continuation)
+                        withObservationTracking {
+                            _ = model.status.state
+                        } onChange: {
+                            box.resume()
+                        }
                     }
+                } onCancel: {
+                    box.resume()
                 }
                 guard !Task.isCancelled else { break }
                 self?.refreshDockTile()
@@ -219,6 +248,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cheap: the `DockTileController` throttles its own `display()` to ≤1 Hz
     /// and skips redundant redraws, so this is safe to call from both the
     /// state-change observer and the 1 s status poll.
+    ///
+    /// The progress ring's *per-second advance during playback* is driven by
+    /// `AppModel.startPolling()`, whose 1 Hz tick re-reads `core.status()` and
+    /// calls this method — see the `AppDelegate.shared?.refreshDockTile()` call
+    /// in that loop. The local `startDockBadgeObserver` only adds the discrete
+    /// play/pause/stop transitions; it is *not* the source of the ring's fill,
+    /// so the ring is not frozen between transitions.
     ///
     /// While a track is loaded the controller installs the custom album-art +
     /// progress-ring tile; when nothing is loaded it tears the tile down and
@@ -329,11 +365,38 @@ extension AppModel {
     ///   failure window and schedules a lightweight home refresh so the
     ///   carousels are up-to-date after a long sleep.
     ///
+    /// Whether a resolved reconnect probe should be discarded because the
+    /// session context changed underneath it. A probe is stale when the server
+    /// URL no longer matches the one probed, the access token rotated
+    /// (re-auth / different account → `currentToken != probedToken`, including
+    /// the sign-out case where `currentToken == nil`), or the session has since
+    /// been marked auth-expired. Pure so the staleness rule can be unit-tested
+    /// without standing up a server.
+    nonisolated static func reconnectResultIsStale(
+        probedURL: String,
+        probedToken: String,
+        currentURL: String,
+        currentToken: String?,
+        authExpired: Bool
+    ) -> Bool {
+        currentToken != probedToken || currentURL != probedURL || authExpired
+    }
+
     /// No-ops when there is no active session — nothing to reconnect.
+    ///
+    /// The probe runs off the main actor and can take seconds (NIC re-assoc,
+    /// DNS, a slow/timing-out endpoint). If the user switches servers or
+    /// re-authenticates while it is in flight, the snapshotted `url` /
+    /// `accessToken` no longer match the live session, so applying
+    /// `noteSuccess()` + the `refresh*` side-effects would graft stale-server
+    /// results onto the new session. After the probe resolves we therefore
+    /// re-validate that the session context is unchanged before touching any
+    /// shared state, and drop the result otherwise.
     @MainActor
     @objc func reconnectIfNeeded() {
-        guard session != nil, !serverURL.isEmpty else { return }
+        guard let activeSession = session, !serverURL.isEmpty else { return }
         let url = serverURL
+        let token = activeSession.accessToken
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -342,6 +405,17 @@ extension AppModel {
                 _ = try await Task.detached(priority: .utility) { [core] in
                     try core.probeServer(url: url)
                 }.value
+                // The probe may have outlived the session it was started for —
+                // a server switch / re-auth mid-probe rotates the token and
+                // URL. Bail before any side-effect if the context changed, so
+                // stale-server results don't land on the new session.
+                guard !AppModel.reconnectResultIsStale(
+                    probedURL: url,
+                    probedToken: token,
+                    currentURL: self.serverURL,
+                    currentToken: self.session?.accessToken,
+                    authExpired: self.authExpired
+                ) else { return }
                 // Server answered — clear any stale failure window and
                 // refresh the home shelves so stale data doesn't sit on
                 // screen after a long sleep.
@@ -360,5 +434,50 @@ extension AppModel {
                 }
             }
         }
+    }
+}
+
+// MARK: - Continuation resume guard
+
+/// Thread-safe one-shot wrapper around a `CheckedContinuation`.
+///
+/// `withTaskCancellationHandler` can invoke its `onCancel` closure
+/// synchronously on an arbitrary thread, concurrently with the
+/// `withObservationTracking` `onChange` that fires on the main actor. A bare
+/// `CheckedContinuation` traps on a second `resume`, so both wakeup paths
+/// funnel through here: the lock guarantees the stored continuation is resumed
+/// exactly once and cleared, whichever racer wins. `store` may be called after
+/// `resume` (if cancellation beats the continuation's installation), in which
+/// case the late continuation is resumed straight away so the task never parks.
+///
+/// `internal` (not `private`) only so `@testable import Lyrebird` can exercise
+/// the resume-exactly-once / late-store invariants directly.
+final class ResumeOnce: Sendable {
+    private let state = OSAllocatedUnfairLock<(continuation: CheckedContinuation<Void, Never>?, resumed: Bool)>(
+        initialState: (nil, false)
+    )
+
+    /// Install the continuation. If a `resume()` already arrived (cancellation
+    /// raced ahead of installation), resume immediately instead of storing.
+    func store(_ continuation: CheckedContinuation<Void, Never>) {
+        let resumeNow = state.withLock { current -> Bool in
+            if current.resumed { return true }
+            current.continuation = continuation
+            return false
+        }
+        if resumeNow { continuation.resume() }
+    }
+
+    /// Resume the stored continuation exactly once. A no-op on every call after
+    /// the first.
+    func resume() {
+        let continuation = state.withLock { current -> CheckedContinuation<Void, Never>? in
+            guard !current.resumed else { return nil }
+            current.resumed = true
+            let pending = current.continuation
+            current.continuation = nil
+            return pending
+        }
+        continuation?.resume()
     }
 }
