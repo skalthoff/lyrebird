@@ -1122,7 +1122,10 @@ impl LyrebirdCore {
         token: Option<String>,
     ) -> std::result::Result<(), LyrebirdError> {
         let db = self.inner.lock().db.clone();
-        match token.map(|t| t.trim().to_string()).filter(|t| !t.is_empty()) {
+        match token
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+        {
             Some(t) => db.set_setting(SCROBBLE_TOKEN_KEY, &t)?,
             None => db.delete_setting(SCROBBLE_TOKEN_KEY)?,
         }
@@ -1147,14 +1150,10 @@ impl LyrebirdCore {
     /// No-op error (`InvalidInput`) when no token is configured, which the
     /// platform layer treats as "scrobbling disabled" and swallows. Other
     /// errors (network, 401) propagate so the UI can surface a token problem.
-    pub fn scrobble_now_playing(
-        &self,
-        track: Track,
-    ) -> std::result::Result<(), LyrebirdError> {
+    pub fn scrobble_now_playing(&self, track: Track) -> std::result::Result<(), LyrebirdError> {
         let token = self.scrobble_token()?;
         let scrobbler = scrobble::Scrobbler::new(token)?;
-        self.runtime
-            .block_on(scrobbler.submit_playing_now(&track))
+        self.runtime.block_on(scrobbler.submit_playing_now(&track))
     }
 
     /// Submit a durable ListenBrainz `single` listen for a track that has
