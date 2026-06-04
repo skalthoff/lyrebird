@@ -271,33 +271,55 @@ struct PreferencesLibrary: View {
     }
 
     /// Evict the shared Nuke pipeline's memory + disk caches.
+    ///
+    /// `cache.removeAll()` clears memory synchronously but the disk
+    /// `DataCache.removeAll()` only *stages* the deletion and returns instantly
+    /// (its files are removed on a background queue). Reading `totalSize` right
+    /// away — or after a fixed delay — can therefore still report the old bytes
+    /// while the button says "Cleared ✓". So we hop to a detached task,
+    /// `flush()` the cache (a synchronous wait for the staged deletion to land),
+    /// then read the now-accurate size from that same off-main context.
     private func clearCache() {
-        Artwork.pipeline.cache.removeAll()
         justCleared = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            refreshCacheSize()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-                justCleared = false
-            }
+        Task {
+            let label = await Task.detached(priority: .utility) { () -> String in
+                Artwork.pipeline.cache.removeAll()
+                let dataCache = Artwork.pipeline.configuration.dataCache as? DataCache
+                dataCache?.flush()
+                return Self.formatCacheSize(dataCache)
+            }.value
+            cacheSizeLabel = label
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            justCleared = false
         }
     }
 
     /// Read the artwork cache's current on-disk size and render it as
-    /// `4.3 MB` / `1.7 GB`. Wrapped in a Task so the index walk doesn't
-    /// block first paint. Stays on the main actor because `Artwork.pipeline`
-    /// and `DataCache` are both main-actor isolated in this module.
+    /// `4.3 MB` / `1.7 GB`.
+    ///
+    /// `DataCache.totalSize` enumerates and `stat`s every file on disk — Nuke
+    /// documents it as "Requires disk IO, avoid using from the main thread" —
+    /// so the walk runs in a detached task and only the resulting label hops
+    /// back to the main actor. `DataCache` is `Sendable`, so reading it off the
+    /// main thread is safe.
     private func refreshCacheSize() {
-        Task { @MainActor in
-            let cache = Artwork.pipeline.configuration.dataCache as? DataCache
-            let label: String = {
-                guard let cache else { return "—" }
-                let formatter = ByteCountFormatter()
-                formatter.allowedUnits = [.useKB, .useMB, .useGB]
-                formatter.countStyle = .file
-                return formatter.string(fromByteCount: Int64(cache.totalSize))
-            }()
+        Task {
+            let label = await Task.detached(priority: .utility) { () -> String in
+                Self.formatCacheSize(Artwork.pipeline.configuration.dataCache as? DataCache)
+            }.value
             cacheSizeLabel = label
         }
+    }
+
+    /// Format a `DataCache`'s on-disk footprint as a human-readable byte count.
+    /// `nil` (no disk cache configured) renders as an em dash. Reads
+    /// `totalSize`, so this must run off the main thread.
+    nonisolated private static func formatCacheSize(_ cache: DataCache?) -> String {
+        guard let cache else { return "—" }
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: Int64(cache.totalSize))
     }
 }
 

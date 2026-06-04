@@ -4479,12 +4479,17 @@ final class AppModel {
         isFavorite(artist: artist)
     }
 
-    /// Insert a handful of the artist's top tracks immediately after the
-    /// currently-playing track. Uses the `core.playNext` primitive wired
-    /// in for #282. Falls back silently when there are no top tracks to load.
+    /// Insert the artist's full catalog immediately after the currently-playing
+    /// track. Loads the same track set as `playAll(artist:)` / `shuffle(artist:)`
+    /// (via `loadTracks(forArtist:)`, the 500-track soft cap) so "Play Next"
+    /// queues the whole artist — matching `playNext(album:)` — rather than just
+    /// the top-tracks teaser. Uses the `core.playNext` primitive wired in for
+    /// #282; falls back to `play` when nothing is currently playing so the menu
+    /// item never queues into an empty player. Silent no-op when the artist has
+    /// no loadable tracks.
     func playNextArtist(artist: Artist) {
         Task {
-            let tracks = await loadArtistTopTracks(artistId: artist.id)
+            let tracks = await loadTracks(forArtist: artist.id)
             guard !tracks.isEmpty else { return }
             if status.currentTrack == nil {
                 play(tracks: tracks, startIndex: 0)

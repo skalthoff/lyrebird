@@ -95,28 +95,11 @@ enum AboutInfo {
     /// - `music.example.com:8096` → `music.example.com`
     /// - `""` → `nil`
     static func connectedServerHost(from urlString: String) -> String? {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        // Structured parse first: `URLComponents` cleanly separates host from
-        // userinfo / port / path / query.
-        if let host = URLComponents(string: trimmed)?.host, !host.isEmpty {
-            return host
-        }
-
-        // Fallback for bare `host[:port][/path]` strings with no scheme, which
-        // `URLComponents` parses as a path rather than a host. Strip any
-        // `scheme://`, then any `user:pw@` userinfo, then cut at the first
-        // `/`, `:`, or `?`.
-        var rest = trimmed
-        if let schemeRange = rest.range(of: "://") {
-            rest = String(rest[schemeRange.upperBound...])
-        }
-        if let atIndex = rest.firstIndex(of: "@") {
-            rest = String(rest[rest.index(after: atIndex)...])
-        }
-        let host = rest.prefix { $0 != "/" && $0 != ":" && $0 != "?" }
-        return host.isEmpty ? nil : String(host)
+        // Shared with `DiagnosticBundle.redactServerHost` so the two never
+        // drift; the only difference is the empty/signed-out spelling, which
+        // this surface renders as `nil` (the row is hidden) rather than a
+        // placeholder string.
+        ServerHostRedaction.host(from: urlString)
     }
 
     // MARK: - Credits

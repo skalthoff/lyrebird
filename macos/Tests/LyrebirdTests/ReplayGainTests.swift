@@ -111,26 +111,43 @@ final class ReplayGainTests: XCTestCase {
 
     // MARK: - iTunNORM fallback
 
-    func testITunNormParsesFirstTwoFields() {
+    func testITunNormParsesVolumeBases() {
         // 1000 (hex 0x3E8) ≈ 0 dB. A value of 2000 (0x7D0) is twice as loud →
-        // -10*log10(2) ≈ -3.01 dB of attenuation.
-        let db = ReplayGain.iTunNormDb(from: "000007D0 000007D0 00000000 00000000")
+        // -10*log10(2) ≈ -3.01 dB of attenuation. Both base pairs read 2000.
+        let db = ReplayGain.iTunNormDb(from: "000007D0 000007D0 000007D0 000007D0")
         XCTAssertNotNil(db)
         XCTAssertEqual(db ?? .nan, -3.0103, accuracy: 1e-3)
     }
 
-    func testITunNormPicksLessAggressiveChannel() {
+    func testITunNormPicksLoudestChannel() {
         // Left = 0x7D0 (2000 → -3.01 dB), right = 0x3E8 (1000 → 0 dB). The
-        // less-aggressive (smaller magnitude) channel wins so a single hot
-        // channel can't drag the whole track down: 0 dB.
+        // louder channel (more-negative correction) wins so a loud track is
+        // actually attenuated rather than left hot: -3.01 dB.
         let db = ReplayGain.iTunNormDb(from: "000007D0 000003E8")
-        XCTAssertEqual(db ?? .nan, 0.0, accuracy: 1e-6)
+        XCTAssertEqual(db ?? .nan, -3.0103, accuracy: 1e-3)
+    }
+
+    func testITunNormConsidersSecondBasePair() {
+        // First pair is quiet (1000/1000 → 0 dB); the second pair is hot
+        // (4000 → -6.02 dB). The loudest channel across BOTH pairs wins, so the
+        // second (often more reliable) pair is not ignored.
+        let db = ReplayGain.iTunNormDb(from: "000003E8 000003E8 00000FA0 00000FA0")
+        XCTAssertEqual(db ?? .nan, -6.0206, accuracy: 1e-3)
+    }
+
+    func testITunNormFallsBackToSecondPairWhenFirstIsZero() {
+        // First pair reads zero (unmeasured); the second pair carries the real
+        // measurement (2000 → -3.01 dB). Reading both pairs means we don't give
+        // up just because fields 0/1 are 0.
+        let db = ReplayGain.iTunNormDb(from: "00000000 00000000 000007D0 000007D0")
+        XCTAssertEqual(db ?? .nan, -3.0103, accuracy: 1e-3)
     }
 
     func testITunNormRejectsMalformed() {
         XCTAssertNil(ReplayGain.iTunNormDb(from: ""))
         XCTAssertNil(ReplayGain.iTunNormDb(from: "000003E8"))          // only one field
         XCTAssertNil(ReplayGain.iTunNormDb(from: "00000000 00000000")) // both zero
+        XCTAssertNil(ReplayGain.iTunNormDb(from: "00000000 00000000 00000000 00000000")) // all four zero
         XCTAssertNil(ReplayGain.iTunNormDb(from: "ZZ YY"))             // non-hex
     }
 
