@@ -229,7 +229,7 @@ struct LyricsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(lines) { line in
-                        LyricRow(line: line, isActive: line.id == activeId)
+                        LyricRow(line: line, isActive: line.id == activeId, reduceMotion: reduceMotion)
                             .id(line.id)
                             .modifier(TapToSeekModifier(timestamp: line.timestamp) { ts in
                                 model.seek(toSeconds: ts)
@@ -289,18 +289,95 @@ struct LyricsView: View {
     }
 }
 
-/// One rendered lyric row. Active rows bloom in size + brightness; past
-/// rows dim so the eye is pulled to the current line.
+/// Resolved visual state for a single lyric row. Pure value type so the
+/// Apple-Music-"Sing"-style active-line polish (#90) — the fade-in, the
+/// 99%→100% scale bloom, the soft glow, and the dim on inactive lines — is
+/// unit-testable without booting a SwiftUI scene (see `LyricsViewStyleTests`),
+/// matching the `NowPlayingBackdrop.showsArtworkLayer` testable-model pattern.
+///
+/// The font size / weight / colour contract is unchanged from the original
+/// highlight (active 22/bold/`ink`, inactive 18/medium/`ink3`) so the synced
+/// read doesn't regress; the scale + glow + opacity ride on top.
+struct LyricLineStyle: Equatable {
+    /// Point size handed to `Theme.font`.
+    let fontSize: CGFloat
+    /// Weight handed to `Theme.font`.
+    let weight: Font.Weight
+    /// Foreground tint. `ink` for the active line, the dimmer `ink3` for the
+    /// rest so the eye is pulled to the current line.
+    let color: Color
+    /// Whole-row opacity. Inactive lines sit slightly under full brightness
+    /// for a gentler dim than colour alone; the active line is fully opaque.
+    let opacity: Double
+    /// `scaleEffect` factor. Inactive lines rest at 99%; the active line
+    /// blooms to 100% as it becomes current. Pinned to 1.0 under Reduce
+    /// Motion so nothing scales.
+    let scale: CGFloat
+    /// Soft glow radius behind the active line. Zero for inactive lines and
+    /// under Reduce Motion (the bloom is the motion we're gating).
+    let glowRadius: CGFloat
+    /// Opacity of the glow colour. Drives the bloom in/out alongside
+    /// `glowRadius`; zero when there's no glow to draw.
+    let glowOpacity: Double
+    /// Whether the row's transition between states should animate. False
+    /// under Reduce Motion — the row then swaps font/colour instantly,
+    /// preserving the original pre-#90 instant-highlight behaviour.
+    let animates: Bool
+
+    /// Resolve the style for a row given whether it's the active line and the
+    /// system Reduce-Motion preference.
+    ///
+    /// Reduce Motion is the single gate for *all* motion: it pins `scale` to
+    /// 1.0, drops the glow to nothing, and sets `animates = false` so the
+    /// active row is highlighted with the instant font/colour swap the view
+    /// shipped before this polish landed.
+    static func resolve(isActive: Bool, reduceMotion: Bool) -> LyricLineStyle {
+        LyricLineStyle(
+            fontSize: isActive ? 22 : 18,
+            weight: isActive ? .bold : .medium,
+            color: isActive ? Theme.ink : Theme.ink3,
+            // Inactive lines dim a touch past colour alone; active is full.
+            opacity: isActive ? 1.0 : 0.55,
+            // Scale + glow only exist when motion is allowed.
+            scale: reduceMotion ? 1.0 : (isActive ? 1.0 : 0.99),
+            glowRadius: (isActive && !reduceMotion) ? 10 : 0,
+            glowOpacity: (isActive && !reduceMotion) ? 0.45 : 0,
+            animates: !reduceMotion
+        )
+    }
+}
+
+/// One rendered lyric row. Active rows bloom in size + brightness with a soft
+/// glow (#90); inactive rows dim and rest at 99% scale so the eye is pulled to
+/// the current line. All motion (scale bloom, glow, fade) is gated on Reduce
+/// Motion via `LyricLineStyle.resolve`, which falls back to the original
+/// instant font/colour highlight.
 private struct LyricRow: View {
     let line: LyricLine
     let isActive: Bool
+    let reduceMotion: Bool
 
     var body: some View {
+        let style = LyricLineStyle.resolve(isActive: isActive, reduceMotion: reduceMotion)
         Text(line.text)
-            .font(Theme.font(isActive ? 22 : 18, weight: isActive ? .bold : .medium))
-            .foregroundStyle(isActive ? Theme.ink : Theme.ink3)
+            .font(Theme.font(style.fontSize, weight: style.weight))
+            .foregroundStyle(style.color)
             .fixedSize(horizontal: false, vertical: true)
-            .animation(.easeInOut(duration: 0.2), value: isActive)
+            .opacity(style.opacity)
+            .scaleEffect(style.scale, anchor: .leading)
+            // Soft bloom behind the active line. Tinted with the active ink so
+            // the glow reads as the line lighting up rather than a drop shadow.
+            // Radius + opacity both go to zero off the active line and under
+            // Reduce Motion, so inactive rows draw no shadow at all.
+            .shadow(
+                color: Theme.ink.opacity(style.glowOpacity),
+                radius: style.glowRadius
+            )
+            // One animation driving the whole state change (font, colour,
+            // scale, glow) so the line fades/blooms in as a unit. Nil under
+            // Reduce Motion → the highlight swaps instantly, exactly as the
+            // view behaved before #90.
+            .animation(style.animates ? .easeInOut(duration: 0.2) : nil, value: isActive)
             .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 }
