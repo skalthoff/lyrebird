@@ -84,6 +84,69 @@ final class SmartPlaylistModelTests: XCTestCase {
         XCTAssertEqual(rule.repaired().value, "1999")
     }
 
+    // MARK: - changingField value normalization
+
+    /// Switching a text rule to a boolean field resets the value to the
+    /// boolean default even though `.is` is legal for both kinds. This is the
+    /// bug `repaired()` alone missed: the operator survives the switch, so the
+    /// operator-only repair left the stale text value (`"Pink Floyd"`) behind,
+    /// the boolean editor displayed "yes", but `booleanMatch` couldn't parse
+    /// it and the playlist silently matched nothing. `changingField` resets on
+    /// a value-kind change so displayed state == stored/evaluated state.
+    func testChangingFieldToBooleanResetsStaleTextValue() {
+        let textRule = SmartPlaylistRule(field: .artist, op: .is, value: "Pink Floyd")
+        let changed = textRule.changingField(to: .isFavorite)
+        XCTAssertEqual(changed.field, .isFavorite)
+        XCTAssertEqual(changed.op, .is, "`.is` is legal for booleans and is the default")
+        XCTAssertEqual(changed.value, "true", "stale text value must be reset to the boolean default")
+        XCTAssertEqual(changed.id, textRule.id, "row identity preserved")
+        // And the reset value is actually parseable — proving the silent
+        // no-match bug is gone.
+        XCTAssertNotNil(SmartPlaylistEvaluator.parseBool(changed.value))
+    }
+
+    /// Switching a boolean rule to a number field resets the value to the
+    /// numeric default (another value-kind change where an operator might
+    /// otherwise survive).
+    func testChangingFieldToNumberResetsValue() {
+        let boolRule = SmartPlaylistRule(field: .isFavorite, op: .is, value: "true")
+        let changed = boolRule.changingField(to: .year)
+        XCTAssertEqual(changed.field, .year)
+        XCTAssertEqual(changed.value, "0", "boolean value reset to numeric default")
+        XCTAssertTrue(SmartPlaylistOperator.applicable(to: .number).contains(changed.op))
+    }
+
+    /// Switching between two fields of the *same* value kind (text → text)
+    /// preserves the user's typed value — only the field changes. Resetting
+    /// here would be needlessly destructive (the value is still meaningful).
+    func testChangingFieldSameKindPreservesValue() {
+        let rule = SmartPlaylistRule(field: .artist, op: .contains, value: "Floyd")
+        let changed = rule.changingField(to: .album)
+        XCTAssertEqual(changed.field, .album)
+        XCTAssertEqual(changed.op, .contains, "operator still legal for text → kept")
+        XCTAssertEqual(changed.value, "Floyd", "same-kind switch keeps the typed value")
+    }
+
+    /// Switching to a field whose kind still matches but whose operator does
+    /// not (number → date keeps numeric-looking value but the operator must
+    /// land on a legal date operator). Here number `.greaterThan` is legal for
+    /// date too, and both are `.number`/`.date`… which differ, so the value is
+    /// reset to the date default.
+    func testChangingFieldNumberToDateResetsToDateDefault() {
+        let numberRule = SmartPlaylistRule(field: .playCount, op: .greaterThan, value: "5")
+        let changed = numberRule.changingField(to: .dateAdded)
+        XCTAssertEqual(changed.field, .dateAdded)
+        XCTAssertEqual(changed.value, "30", "date default day count")
+        XCTAssertTrue(SmartPlaylistOperator.applicable(to: .date).contains(changed.op))
+    }
+
+    /// `changingField(to:)` with the *same* field is equivalent to `repaired()`
+    /// (no field change → just fix an illegal operator, keep the value).
+    func testChangingFieldToSameFieldIsRepair() {
+        let rule = SmartPlaylistRule(field: .year, op: .greaterThan, value: "1999")
+        XCTAssertEqual(rule.changingField(to: .year), rule.repaired())
+    }
+
     // MARK: - Semantic equality
 
     /// Two rules with identical field/op/value compare equal even if their

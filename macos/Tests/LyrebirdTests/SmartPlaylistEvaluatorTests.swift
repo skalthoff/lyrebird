@@ -394,6 +394,94 @@ final class SmartPlaylistEvaluatorTests: XCTestCase {
         XCTAssertNil(SmartPlaylistEvaluator.parseNumber("twelve"))
     }
 
+    /// Non-finite values (`inf` / `nan`, which `Double.init` *does* accept)
+    /// are rejected. `Double("inf")` would otherwise make a date rule's day
+    /// count infinite (`threshold = now - inf*86400` is a `-inf` Date that
+    /// matches or excludes every track) and `nan` poisons numeric
+    /// comparisons; a finite check degrades both to "no value" (a visible
+    /// empty result) instead of a silently-wrong filter.
+    func testParseNumberRejectsNonFinite() {
+        XCTAssertNil(SmartPlaylistEvaluator.parseNumber("inf"))
+        XCTAssertNil(SmartPlaylistEvaluator.parseNumber("Infinity"))
+        XCTAssertNil(SmartPlaylistEvaluator.parseNumber("-inf"))
+        XCTAssertNil(SmartPlaylistEvaluator.parseNumber("nan"))
+        XCTAssertNil(SmartPlaylistEvaluator.parseNumber("NaN"))
+    }
+
+    /// A date rule with an "inf" day count must not match every track. Before
+    /// the finite guard, `parseNumber("inf")` → `.infinity`, which passed the
+    /// `days > 0` check and produced a `-inf` threshold so `.inLast` matched
+    /// everything (and `.lessThan` excluded everything). Now it's unparseable
+    /// → no-match.
+    func testDateRuleWithInfiniteDaysNeverMatches() {
+        let now = date("2026-06-04T12:00:00Z")
+        let recent = facts(dateAdded: date("2026-06-03T12:00:00Z"))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(recent, rule: rule(.dateAdded, .inLast, "inf"), now: now))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(recent, rule: rule(.dateAdded, .lessThan, "inf"), now: now))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(recent, rule: rule(.dateAdded, .greaterThan, "inf"), now: now))
+    }
+
+    /// A numeric rule with a NaN value never matches (NaN comparisons are all
+    /// false), and the finite guard makes that explicit rather than relying on
+    /// IEEE comparison semantics.
+    func testNumberRuleWithNaNNeverMatches() {
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(facts(year: 2020), rule: rule(.year, .greaterThan, "nan")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(facts(year: 2020), rule: rule(.year, .is, "nan")))
+    }
+
+    // MARK: - Prebuilt-index overloads (perf hot path)
+
+    /// The `genresByAlbumId:` overload of `evaluate` produces the same result
+    /// as the `albums:` overload — it just reuses a prebuilt index instead of
+    /// rebuilding it per call, so a per-render re-evaluation skips the
+    /// O(albums) allocation.
+    func testEvaluateWithPrebuiltIndexMatchesAlbumsOverload() {
+        let albums = [
+            makeAlbum(id: "alb-rock", genres: ["Rock"]),
+            makeAlbum(id: "alb-jazz", genres: ["Jazz"]),
+        ]
+        let tracks = [
+            makeTrack(id: "t1", albumId: "alb-rock"),
+            makeTrack(id: "t2", albumId: "alb-jazz"),
+            makeTrack(id: "t3", albumId: "alb-rock"),
+        ]
+        let p = playlist(.all, [rule(.genre, .is, "Rock")])
+        let index = SmartPlaylistEvaluator.albumGenreIndex(albums)
+
+        let viaAlbums = SmartPlaylistEvaluator.evaluate(p, tracks: tracks, albums: albums)
+        let viaIndex = SmartPlaylistEvaluator.evaluate(p, tracks: tracks, genresByAlbumId: index)
+        XCTAssertEqual(viaAlbums.map(\.id), viaIndex.map(\.id))
+        XCTAssertEqual(viaIndex.map(\.id), ["t1", "t3"])
+    }
+
+    /// `matchCount`'s prebuilt-index overload agrees with both the `albums:`
+    /// overload and the materialized filter.
+    func testMatchCountWithPrebuiltIndexMatchesAlbumsOverload() {
+        let albums = [makeAlbum(id: "alb", genres: ["Pop"])]
+        let tracks = [
+            makeTrack(id: "t1", albumId: "alb", isFavorite: true),
+            makeTrack(id: "t2", albumId: "alb", isFavorite: false),
+            makeTrack(id: "t3", albumId: "alb", isFavorite: true),
+        ]
+        let p = playlist(.all, [rule(.isFavorite, .is, "true")])
+        let index = SmartPlaylistEvaluator.albumGenreIndex(albums)
+
+        let viaAlbums = SmartPlaylistEvaluator.matchCount(p, tracks: tracks, albums: albums)
+        let viaIndex = SmartPlaylistEvaluator.matchCount(p, tracks: tracks, genresByAlbumId: index)
+        XCTAssertEqual(viaAlbums, viaIndex)
+        XCTAssertEqual(viaIndex, 2)
+    }
+
+    /// An empty prebuilt index means no track gets album genres — a genre
+    /// rule then matches nothing, proving the projection truly comes from the
+    /// passed-in index (not some hidden rebuild).
+    func testEvaluateWithEmptyIndexProjectsNoGenres() {
+        let tracks = [makeTrack(id: "t1", albumId: "alb-rock")]
+        let p = playlist(.all, [rule(.genre, .is, "Rock")])
+        let result = SmartPlaylistEvaluator.evaluate(p, tracks: tracks, genresByAlbumId: [:])
+        XCTAssertTrue(result.isEmpty)
+    }
+
     func testParseDateAcceptsBothISOForms() {
         XCTAssertNotNil(SmartPlaylistEvaluator.parseDate("2026-05-01T08:30:00.0000000Z"))
         XCTAssertNotNil(SmartPlaylistEvaluator.parseDate("2026-05-01T08:30:00Z"))

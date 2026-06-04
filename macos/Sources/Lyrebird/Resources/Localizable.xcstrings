@@ -1693,6 +1693,642 @@
         }
       }
     },
+    "smart_playlist.a11y.edit_rules" : {
+      "comment" : "Accessibility label for the Edit Rules button on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit smart playlist rules"
+          }
+        }
+      }
+    },
+    "smart_playlist.a11y.play" : {
+      "comment" : "Accessibility label for the Play button on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play smart playlist"
+          }
+        }
+      }
+    },
+    "smart_playlist.a11y.shuffle" : {
+      "comment" : "Accessibility label for the Shuffle button on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shuffle smart playlist"
+          }
+        }
+      }
+    },
+    "smart_playlist.badge" : {
+      "comment" : "Small uppercase badge above the title on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SMART PLAYLIST"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.add_rule" : {
+      "comment" : "Accessibility label for the Add Rule button in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add rule"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.field" : {
+      "comment" : "Accessibility label for a rule's field picker in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rule field"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.match_mode" : {
+      "comment" : "Accessibility label for the match-mode (all/any) picker in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match mode"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.name" : {
+      "comment" : "Accessibility label for the name field in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart playlist name"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.operator" : {
+      "comment" : "Accessibility label for a rule's operator picker in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rule operator"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.remove_rule" : {
+      "comment" : "Accessibility label for the per-row Remove Rule button in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove rule"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.save" : {
+      "comment" : "Accessibility label for the Save button in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save smart playlist"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.value" : {
+      "comment" : "Accessibility label for a rule's value editor in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rule value"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.a11y.value_days" : {
+      "comment" : "Accessibility label for a date rule's day-count value editor in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rule value in days"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.add_rule" : {
+      "comment" : "Button that appends a new rule row in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Rule"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.bool_no" : {
+      "comment" : "The \"no\" / false option in a boolean (Favorite) rule's value picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "no"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.bool_yes" : {
+      "comment" : "The \"yes\" / true option in a boolean (Favorite) rule's value picker.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yes"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.cancel" : {
+      "comment" : "Cancel button in the smart playlist builder footer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.counting" : {
+      "comment" : "Placeholder shown in the builder footer while the live match count is still being computed.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Counting…"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.days_suffix" : {
+      "comment" : "Unit label after a date rule's day-count field, e.g. \"30 days\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "days"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.default_name" : {
+      "comment" : "Fallback name applied when a smart playlist is saved with a blank name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Playlist"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.match_count %lld" : {
+      "comment" : "Live result count in the builder footer, e.g. \"12 match\". %lld is the count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld match"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld match"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.match_prefix" : {
+      "comment" : "Leading word of the \"Match [all/any] of the following rules:\" sentence in the builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.match_suffix" : {
+      "comment" : "Trailing clause of the \"Match [all/any] of the following rules:\" sentence in the builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "of the following rules:"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.name_label" : {
+      "comment" : "Uppercase field label above the name input in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NAME"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.name_placeholder" : {
+      "comment" : "Placeholder text for the name input in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Playlist Name"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.save" : {
+      "comment" : "Save button in the smart playlist builder footer.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.title" : {
+      "comment" : "Header title of the smart playlist builder sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Playlist"
+          }
+        }
+      }
+    },
+    "smart_playlist.builder.value_placeholder" : {
+      "comment" : "Placeholder for a text rule's value field in the smart playlist builder.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "value"
+          }
+        }
+      }
+    },
+    "smart_playlist.edit_rules" : {
+      "comment" : "Edit Rules button label on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Rules"
+          }
+        }
+      }
+    },
+    "smart_playlist.empty.detail %lld" : {
+      "comment" : "Body of the empty-result state on the smart playlist detail screen. %lld is the number of tracks loaded so far.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loaded %lld tracks so far. Try loosening the rules, or open the Library so more tracks are in memory."
+          }
+        }
+      }
+    },
+    "smart_playlist.empty.title" : {
+      "comment" : "Headline of the empty-result state on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No tracks match these rules"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.album" : {
+      "comment" : "Smart playlist rule field: Album.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Album"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.artist" : {
+      "comment" : "Smart playlist rule field: Artist.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Artist"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.favorite" : {
+      "comment" : "Smart playlist rule field: Favorite (boolean).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.genre" : {
+      "comment" : "Smart playlist rule field: Genre.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genre"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.last_played" : {
+      "comment" : "Smart playlist rule field: Last Played. Sourced from Jellyfin's per-track lastPlayedAt (the server projection exposes last-played, not date-added), so the label reflects last-played semantics.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last Played"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.play_count" : {
+      "comment" : "Smart playlist rule field: Play Count.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Play Count"
+          }
+        }
+      }
+    },
+    "smart_playlist.field.year" : {
+      "comment" : "Smart playlist rule field: Year.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Year"
+          }
+        }
+      }
+    },
+    "smart_playlist.filter_placeholder" : {
+      "comment" : "Placeholder for the scoped filter field on the smart playlist detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter tracks"
+          }
+        }
+      }
+    },
+    "smart_playlist.match_mode.all" : {
+      "comment" : "Smart playlist match mode: all (every rule must match). Lowercase; reads inline as \"Match all of the following rules\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "all"
+          }
+        }
+      }
+    },
+    "smart_playlist.match_mode.any" : {
+      "comment" : "Smart playlist match mode: any (at least one rule must match). Lowercase; reads inline as \"Match any of the following rules\".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "any"
+          }
+        }
+      }
+    },
+    "smart_playlist.no_filter_match %@" : {
+      "comment" : "Shown when the scoped filter matches no tracks on the smart playlist detail screen. %@ is the filter query.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No tracks match “%@”"
+          }
+        }
+      }
+    },
+    "smart_playlist.not_found" : {
+      "comment" : "Shown when a smart playlist can't be resolved by id on the detail screen.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart playlist not found"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.contains" : {
+      "comment" : "Smart playlist rule operator: contains (text).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "contains"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.greater_than" : {
+      "comment" : "Smart playlist rule operator: greater than (number/date).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "greater than"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.in_last" : {
+      "comment" : "Smart playlist rule operator: in the last N days (date).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "in the last (days)"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.is" : {
+      "comment" : "Smart playlist rule operator: is (equality).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "is"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.is_not" : {
+      "comment" : "Smart playlist rule operator: is not (inequality).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "is not"
+          }
+        }
+      }
+    },
+    "smart_playlist.op.less_than" : {
+      "comment" : "Smart playlist rule operator: less than (number/date).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "less than"
+          }
+        }
+      }
+    },
+    "smart_playlist.rules.clause_separator" : {
+      "comment" : "Separator joining individual rule clauses in the detail screen's rule summary. Default \", \".",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ", "
+          }
+        }
+      }
+    },
+    "smart_playlist.rules.matches %@ %@" : {
+      "comment" : "Rule summary frame on the detail screen, e.g. \"Matches all of: Artist is Radiohead\". First %@ is the match mode (all/any); second %@ is the joined rule clauses.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matches %1$@ of: %2$@"
+          }
+        }
+      }
+    },
+    "smart_playlist.rules.matches_all_tracks" : {
+      "comment" : "Rule summary shown when a smart playlist has no rules (matches every track).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matches every track."
+          }
+        }
+      }
+    },
     "stream.error.retry.a11y" : {
       "comment" : "Accessibility label on the Retry button inside StreamErrorToast.",
       "extractionState" : "manual",

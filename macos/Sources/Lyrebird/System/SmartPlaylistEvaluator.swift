@@ -5,7 +5,7 @@ import Foundation
 /// `SmartPlaylistEvaluator` tests rules against. Decoupling the rule logic
 /// from the `Track` FFI struct keeps the evaluator unit-testable with tiny
 /// hand-built fixtures (no UniFFI buffer round-trips) and gives the
-/// `dateAdded` semantics a single documented seam.
+/// last-played-date semantics a single documented seam.
 ///
 /// All text comparisons the evaluator performs are case- and
 /// diacritic-insensitive; the raw values are stored verbatim here and the
@@ -25,11 +25,15 @@ struct TrackFacts: Hashable, Sendable {
     var year: Int?
     var playCount: Int
     var isFavorite: Bool
-    /// Best per-track date the snapshot exposes. Jellyfin's track projection
-    /// carries `lastPlayedAt`, not `DateCreated`, so "Date Added" rules test
-    /// against last-played for now. `nil` when the track has no user data /
-    /// has never been played, in which case `.inLast` / date comparisons
-    /// never match (a never-played track isn't "added in the last N days").
+    /// Best per-track date the snapshot exposes: Jellyfin's `Track`
+    /// projection carries `UserData.lastPlayedAt`, not `DateCreated`, so the
+    /// date field tests **last-played** and is surfaced to the user as "Last
+    /// Played" (see `SmartPlaylistField.displayName`). `nil` when the track
+    /// has no user data / has never been played, in which case `.inLast` /
+    /// date comparisons never match (a never-played track has no last-played
+    /// date to fall inside any window). The case raw value is still
+    /// `dateAdded` — a stable persisted storage key that predates the
+    /// honest label and must not be renamed (see `SmartPlaylistField`).
     var dateAdded: Date?
 
     init(
@@ -73,8 +77,12 @@ extension TrackFacts {
         // mirror so a snapshot fetched without `Fields=UserData` still reads.
         self.playCount = Int(track.userData?.playCount ?? track.playCount)
         self.isFavorite = track.userData?.isFavorite ?? track.isFavorite
-        // The single documented "Date Added" seam — swap `lastPlayedAt` for a
-        // real `DateCreated` here if core ever surfaces one.
+        // The single documented last-played-date seam. The field is labelled
+        // "Last Played" because Jellyfin's `Track` projection exposes only
+        // `lastPlayedAt`, not `DateCreated`; if core ever surfaces a real
+        // per-track creation date, add it to the `Track` FFI model and a new
+        // `SmartPlaylistField.dateAdded`-style case rather than overloading
+        // this one (the label would otherwise lie again).
         self.dateAdded = track.userData?.lastPlayedAt.flatMap(SmartPlaylistEvaluator.parseDate)
     }
 }
@@ -107,36 +115,77 @@ enum SmartPlaylistEvaluator {
     /// Convenience over the FFI `Track` type: builds the per-track genre
     /// lookup from `albums`, adapts each track, and filters. This is the
     /// entry point `AppModel` / the detail view call with the live snapshot.
+    ///
+    /// On a large library (the canonical real server holds ~20,060 albums)
+    /// building `albumGenreIndex(albums)` is an O(albums) allocation. When a
+    /// call site re-evaluates repeatedly against the *same* albums snapshot
+    /// (a SwiftUI body that renders per keystroke / per visible row), build
+    /// the index once with `albumGenreIndex(_:)` and call the
+    /// `genresByAlbumId:` overload below so the index is reused rather than
+    /// rebuilt on every pass.
     static func evaluate(
         _ playlist: SmartPlaylist,
         tracks: [Track],
         albums: [Album],
         now: Date = Date()
     ) -> [Track] {
+        evaluate(playlist, tracks: tracks, genresByAlbumId: albumGenreIndex(albums), now: now)
+    }
+
+    /// As `evaluate(_:tracks:albums:now:)` but takes a *prebuilt*
+    /// `[albumId: [genre]]` index instead of rebuilding it from `albums` on
+    /// every call. Hot-path entry point: the detail/builder views build the
+    /// index once per albums-snapshot and pass it in so a per-render
+    /// re-evaluation is a single O(tracks) pass with no per-call O(albums)
+    /// dictionary allocation.
+    static func evaluate(
+        _ playlist: SmartPlaylist,
+        tracks: [Track],
+        genresByAlbumId: [String: [String]],
+        now: Date = Date()
+    ) -> [Track] {
         guard !playlist.rules.isEmpty else { return tracks }
-        let genresByAlbumId = albumGenreIndex(albums)
         return tracks.filter { track in
-            let genres = track.albumId.flatMap { genresByAlbumId[$0] } ?? []
-            let facts = TrackFacts(track: track, genres: genres)
-            return matches(facts, playlist: playlist, now: now)
+            matches(facts(for: track, genresByAlbumId: genresByAlbumId), playlist: playlist, now: now)
         }
     }
 
     /// The count of matching tracks — used for the builder's live "N songs"
     /// readout without materializing the filtered array at every call site.
+    /// Builds the genre index from `albums`; prefer the `genresByAlbumId:`
+    /// overload from a per-interaction path so the index isn't rebuilt on
+    /// every keystroke.
     static func matchCount(
         _ playlist: SmartPlaylist,
         tracks: [Track],
         albums: [Album],
         now: Date = Date()
     ) -> Int {
+        matchCount(playlist, tracks: tracks, genresByAlbumId: albumGenreIndex(albums), now: now)
+    }
+
+    /// As `matchCount(_:tracks:albums:now:)` but takes a prebuilt genre
+    /// index. See `evaluate(_:tracks:genresByAlbumId:now:)`.
+    static func matchCount(
+        _ playlist: SmartPlaylist,
+        tracks: [Track],
+        genresByAlbumId: [String: [String]],
+        now: Date = Date()
+    ) -> Int {
         guard !playlist.rules.isEmpty else { return tracks.count }
-        let genresByAlbumId = albumGenreIndex(albums)
         return tracks.reduce(into: 0) { count, track in
-            let genres = track.albumId.flatMap { genresByAlbumId[$0] } ?? []
-            let facts = TrackFacts(track: track, genres: genres)
-            if matches(facts, playlist: playlist, now: now) { count += 1 }
+            if matches(facts(for: track, genresByAlbumId: genresByAlbumId), playlist: playlist, now: now) {
+                count += 1
+            }
         }
+    }
+
+    /// Adapt a `Track` to `TrackFacts`, projecting its album's genres via the
+    /// prebuilt index. Shared by the filter + count paths so the projection
+    /// rule lives in one place.
+    private static func facts(for track: Track, genresByAlbumId: [String: [String]]) -> TrackFacts {
+        let genres = track.albumId.flatMap { genresByAlbumId[$0] } ?? []
+        return TrackFacts(track: track, genres: genres)
     }
 
     // MARK: - Matching
@@ -269,10 +318,19 @@ enum SmartPlaylistEvaluator {
     /// Parse a numeric rule value with the POSIX locale so "1,5" never reads
     /// as fifteen on a comma-decimal system. Returns `nil` for blank /
     /// non-numeric input.
+    ///
+    /// Non-finite values are rejected. `Double("inf")` / `Double("nan")`
+    /// parse successfully but make a date rule's day count `±inf`/`NaN`
+    /// (`threshold = now - inf*86400` is a `-inf` Date that matches or
+    /// excludes *every* track) and a numeric `is`/`<`/`>` comparison
+    /// silently degenerate — so a finite check keeps a hand-typed "inf" /
+    /// "nan" from forming a silently-broken filter rather than an empty
+    /// (no-match) one the user can at least see is wrong.
     static func parseNumber(_ s: String) -> Double? {
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        return Double(trimmed)
+        guard let value = Double(trimmed), value.isFinite else { return nil }
+        return value
     }
 
     /// Parse a boolean rule value. Accepts the JSON-ish `true`/`false` the
