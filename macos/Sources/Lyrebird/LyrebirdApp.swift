@@ -599,6 +599,14 @@ struct RootView: View {
             }
         }
         .background(Theme.bg)
+        // Full-screen chrome handling (#20). Mounted as an invisible
+        // background bridge so it reaches the host `NSWindow` and auto-hides
+        // the unified toolbar + menu bar on enter / restores the
+        // hidden-title-bar layout on exit — neither of which has a `Scene`
+        // hook. All decision logic lives in the testable `FullScreenChrome`
+        // reducer; this only installs the AppKit observers. See
+        // `FullScreenChromeController`.
+        .background(FullScreenChromeObserver())
         // Login <-> main shell swap (and restore-loading <-> either) is
         // instant under Reduce Motion.
         .animation(reduceMotion ? nil : .default, value: model.session != nil)
