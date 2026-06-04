@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @main
 struct LyrebirdApp: App {
@@ -440,6 +441,16 @@ struct LyrebirdCommands: Commands {
                 openWindow(id: AppShortcuts.windowID)
             }
             .keyboardShortcut("?", modifiers: .command)
+
+            Divider()
+
+            // Export Diagnostic Bundle… (#455). Writes a sanitized .zip of
+            // recent logs + non-secret metadata for bug reports. All shaping
+            // and redaction lives in `DiagnosticBundle`; this is just the
+            // save-panel hop.
+            Button("menu.help.export_diagnostics") {
+                exportDiagnosticBundle()
+            }
         }
 
         // Note: ⌘, (Preferences), ⌘Q (Quit), Hide / Hide Others / Services,
@@ -470,6 +481,36 @@ struct LyrebirdCommands: Commands {
             model.navPath.removeLast()
         } else {
             model.navPath.append(AppModel.Route.nowPlaying)
+        }
+    }
+
+    /// Present a save panel and write a sanitized diagnostic `.zip` (#455).
+    /// Reads version/build from the bundle and the (host-redacted) server URL
+    /// from the live `AppModel`; everything else — log collection, the
+    /// settings allowlist, and redaction — is handled by `DiagnosticBundle`.
+    /// Surfaces a failure via `model.errorMessage` rather than a swallowed
+    /// `try?`, matching the playlist-mutation error contract.
+    private func exportDiagnosticBundle() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0 (dev)"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+
+        let panel = NSSavePanel()
+        panel.title = "Export Diagnostic Bundle"
+        panel.nameFieldStringValue = "Lyrebird-Diagnostics-\(DiagnosticBundle.filenameStamp(Date())).zip"
+        panel.allowedContentTypes = [.zip]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            try DiagnosticBundle.export(
+                to: url,
+                version: version,
+                build: build,
+                serverURL: model.serverURL
+            )
+        } catch {
+            model.errorMessage = "Could not export diagnostic bundle: \(error.localizedDescription)"
         }
     }
 

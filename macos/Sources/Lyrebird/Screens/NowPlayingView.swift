@@ -21,6 +21,11 @@ import SwiftUI
 struct NowPlayingView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // Contrast-adaptive accent for the favorite heart, the "NOW PLAYING"
+    // section label, and the empty-state primary button. Lifts to `accentHot`
+    // under Increase Contrast so accent text / the prominent button fill clear
+    // 4.5:1 (#888).
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     /// Active right-pane tab. Reset to `.queue` when the view appears so
     /// opening the full player always lands on "what's next" rather than
@@ -28,6 +33,12 @@ struct NowPlayingView: View {
     /// people returning to Now Playing days later.
     @State private var tab: Tab = .queue
     @State private var resolvedAlbum: Album?
+
+    /// Artwork-derived ambient wash behind the hero (#271). `nil` until the
+    /// current cover is sampled (or when sampling fails / there's no art), in
+    /// which case `AmbientWash` falls back to the theme gradient. Memoized in
+    /// `AppModel`, so re-opening the player on the same album is a cache hit.
+    @State private var ambientPalette: AmbientPalette?
 
     enum Tab: String, CaseIterable, Identifiable {
         case queue = "Queue"
@@ -46,13 +57,31 @@ struct NowPlayingView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.bg)
+        // Ambient wash sampled from the current cover (#271). Sits behind the
+        // whole player; falls back to the theme gradient when `ambientPalette`
+        // is nil (pre-sample / no art / extraction failed).
+        .background(AmbientWash(palette: ambientPalette))
         // Re-fetch the People array + lyrics on open and on track change.
         // The polling loop in AppModel already handles mid-session
         // transitions; this keeps the open-from-cold path honest too.
         .task(id: model.status.currentTrack?.id) {
             await model.fetchCurrentTrackDetails()
             await model.fetchCurrentTrackLyrics()
+        }
+        // Sample the ambient palette off the current cover. Keyed on the same
+        // identity the hero artwork uses (`albumId ?? id`) so a track change
+        // within the same album doesn't re-sample, and so the sample reuses
+        // the cover Nuke already decoded for the hero. The work is memoized in
+        // AppModel and runs off the main actor, so this never beach-balls.
+        .task(id: ambientArtworkKey) {
+            guard let track = model.status.currentTrack else {
+                ambientPalette = nil
+                return
+            }
+            ambientPalette = await model.ambientPalette(
+                forItemId: track.albumId ?? track.id,
+                imageTag: track.imageTag
+            )
         }
         // Honor a one-shot tab request (#91): the inline lyrics snippet in
         // the Queue Inspector taps `openLyrics()`, which sets
@@ -74,6 +103,16 @@ struct NowPlayingView: View {
             tab = resolved
         }
         model.requestedNowPlayingTab = nil
+    }
+
+    /// Stable identity for the ambient-palette `.task` — the album id when the
+    /// current track belongs to one, else the track id, mirroring the hero
+    /// artwork's own `albumId ?? id` keying. `nil` when nothing is playing so
+    /// the task clears the wash. Re-keying only when this string changes means
+    /// skipping from track to track inside one album won't re-sample.
+    private var ambientArtworkKey: String? {
+        guard let track = model.status.currentTrack else { return nil }
+        return track.albumId ?? track.id
     }
 
     // MARK: - Main content
@@ -108,8 +147,10 @@ struct NowPlayingView: View {
                 ),
                 seed: track.name,
                 size: artSide,
-                radius: 14
+                radius: 14,
+                decorative: false
             )
+            .accessibilityLabel(nowPlayingArtworkLabel(for: track))
             .frame(width: artSide, height: artSide)
             // Trailing alignment so the disc slides out past the art's right
             // edge rather than behind its center; the disc's own `+80pt`
@@ -163,7 +204,7 @@ struct NowPlayingView: View {
                 } label: {
                     Image(systemName: isFav ? "heart.fill" : "heart")
                         .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                        .foregroundStyle(isFav ? a11yTheme.accent : Theme.ink2)
                         .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
@@ -185,6 +226,24 @@ struct NowPlayingView: View {
     private func heroArtSide(containerWidth: CGFloat?) -> CGFloat {
         let byWidth = containerWidth.map { max(240, $0 - 72) } ?? 320
         return min(520, byWidth)
+    }
+
+    /// VoiceOver label for the now-playing hero artwork. The hero is the
+    /// dominant identity of the screen and isn't wrapped in a labelled
+    /// control, so it's marked meaningful (`decorative: false`) and reads as
+    /// the cover for the album when known, falling back to the track when the
+    /// server ships no album name (singles). (#356)
+    private func nowPlayingArtworkLabel(for track: Track) -> String {
+        Self.nowPlayingArtworkLabel(trackName: track.name, albumName: track.albumName)
+    }
+
+    /// Pure label builder, split out so the fallback rule is unit-testable
+    /// without booting a SwiftUI scene.
+    static func nowPlayingArtworkLabel(trackName: String, albumName: String?) -> String {
+        if let album = albumName, !album.isEmpty {
+            return "Album artwork for \(album)"
+        }
+        return "Artwork for \(trackName)"
     }
 
     @ViewBuilder
@@ -248,7 +307,7 @@ struct NowPlayingView: View {
         HStack {
             Text("NOW PLAYING")
                 .font(Theme.font(10, weight: .bold))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(a11yTheme.accent)
                 .tracking(3)
             Spacer()
         }
@@ -488,7 +547,7 @@ struct NowPlayingView: View {
                 model.previousScreen = nil
             }
             .buttonStyle(.borderedProminent)
-            .tint(Theme.accent)
+            .tint(a11yTheme.accent)
             .padding(.top, 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

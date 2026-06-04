@@ -273,6 +273,13 @@ final class AppModel {
     /// 12. Re-derived every time the backing set is refreshed so the view
     /// doesn't have to know about the shuffle.
     var favoriteAlbumsVisible: [Album] = []
+    /// Favorite artists for the Home "Artists You Love" carousel (#207).
+    /// A circle-card row of the artists the user has hearted, sorted by
+    /// name (server-side `SortName` ascending via `loadFavoriteArtists`).
+    /// Reuses the same favorites signal as the Favorites screen's Artists
+    /// section, so the two never drift. Hidden in the Home layout when
+    /// empty — a fresh user with no favorited artists sees no shelf.
+    var favoriteArtists: [Artist] = []
     /// Server-curated "You might like" tracks for the Home discovery row
     /// (#145). Backed by `core.suggestions()`, which hits Jellyfin's
     /// `/Items/Suggestions` endpoint. Up to 20 tracks. Hidden until data
@@ -1030,6 +1037,9 @@ final class AppModel {
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
+        ambientPaletteCache.removeAll()
+        ambientPaletteTasks.values.forEach { $0.cancel() }
+        ambientPaletteTasks.removeAll()
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -1041,6 +1051,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        favoriteArtists = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1098,6 +1109,9 @@ final class AppModel {
         artistAlbumsCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
+        ambientPaletteCache.removeAll()
+        ambientPaletteTasks.values.forEach { $0.cancel() }
+        ambientPaletteTasks.removeAll()
         recentlyPlayed = []
         forYou = []
         genresToExplore = []
@@ -1109,6 +1123,7 @@ final class AppModel {
         quickPicksPlayCounts = [:]
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
+        favoriteArtists = []
         suggestions = []
         searchResults = nil
         searchQuery = ""
@@ -1269,6 +1284,7 @@ final class AppModel {
         await refreshRecentlyAdded()
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
+        await refreshFavoriteArtists()
         await refreshSuggestions()
     }
 
@@ -1756,6 +1772,16 @@ final class AppModel {
     /// the server.
     func reshuffleFavoriteAlbumsVisible() {
         self.favoriteAlbumsVisible = Array(favoriteAlbumsAll.shuffled().prefix(12))
+    }
+
+    /// Refresh the "Artists You Love" carousel (#207). Reuses
+    /// `loadFavoriteArtists` — the same favorites-driven fetch that backs
+    /// the Favorites screen's Artists section — so the Home circle row and
+    /// the Favorites grid stay in lock-step. The list arrives sorted by
+    /// name; the view caps how many circles it renders. Best-effort: an
+    /// empty or errored result just leaves the shelf hidden.
+    func refreshFavoriteArtists() async {
+        self.favoriteArtists = await loadFavoriteArtists(limit: 100)
     }
 
     /// Refresh the "You might like" discovery row (#145). Calls
@@ -3590,6 +3616,55 @@ final class AppModel {
         return result
     }
 
+    // MARK: - Ambient palette (#271)
+
+    /// Per-album ambient-wash palette, memoized for the session. Keyed by
+    /// album id (or track id when an album-less track is playing) so the
+    /// Core Image sample runs **once** per cover, never per render pass —
+    /// gap pattern #2: sampling artwork on every Now Playing repaint would
+    /// burn the GPU and re-decode the image needlessly.
+    ///
+    /// Stored as the opaque `AmbientPalette.encoded` string rather than the
+    /// `Color`-bearing struct so the entry is a plain value type and survives
+    /// any future move to a persistent cache without a bespoke codable surface.
+    private var ambientPaletteCache: [String: String] = [:]
+
+    /// In-flight palette samples, so two `NowPlayingView.task` invocations for
+    /// the same id (e.g. a fast tab toggle) coalesce onto one Nuke decode +
+    /// CIAreaAverage pass instead of racing two.
+    private var ambientPaletteTasks: [String: Task<AmbientPalette?, Never>] = [:]
+
+    /// Resolve the ambient palette for a now-playing item — cache-first, then
+    /// a single off-main Nuke decode + Core Image average (`PaletteSampler`).
+    ///
+    /// Returns `nil` when there's no artwork URL or extraction fails; callers
+    /// (`NowPlayingView`) treat that as "no palette" and `AmbientWash` falls
+    /// back to the theme wash, so the player is never bare. The decode itself
+    /// runs off the MainActor inside `PaletteSampler.sample` (it `await`s
+    /// Nuke's pipeline), so this never blocks the main thread.
+    func ambientPalette(forItemId itemId: String, imageTag: String?) async -> AmbientPalette? {
+        if let encoded = ambientPaletteCache[itemId] {
+            return AmbientPalette(encoded: encoded)
+        }
+        if let existing = ambientPaletteTasks[itemId] {
+            return await existing.value
+        }
+        guard let url = imageURL(for: itemId, tag: imageTag, maxWidth: 512) else {
+            return nil
+        }
+
+        let task = Task<AmbientPalette?, Never> {
+            await PaletteSampler.sample(from: url)
+        }
+        ambientPaletteTasks[itemId] = task
+        let palette = await task.value
+        ambientPaletteTasks[itemId] = nil
+        if let palette {
+            ambientPaletteCache[itemId] = palette.encoded
+        }
+        return palette
+    }
+
     // MARK: - Playback
 
     func play(tracks: [Track], startIndex: Int = 0) {
@@ -3865,13 +3940,13 @@ final class AppModel {
             let json = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.fetchItem(
                     itemId: albumId,
-                    fields: ["People", "Studios", "PremiereDate", "DateCreated", "ProductionYear"]
+                    fields: ["People", "Studios", "PremiereDate", "DateCreated", "ProductionYear", "Overview"]
                 )
             }.value
             return Self.parseAlbumDetail(from: json)
         } catch {
             _ = handleAuthError(error)
-            return AlbumDetail(label: nil, releaseDate: nil, people: [])
+            return AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
         }
     }
 
@@ -3882,7 +3957,7 @@ final class AppModel {
         guard let data = json.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
-            return AlbumDetail(label: nil, releaseDate: nil, people: [])
+            return AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
         }
 
         // Jellyfin ships `Studios` as an array of `{ Name, Id }` objects. Pick
@@ -3928,7 +4003,17 @@ final class AppModel {
             }
         }()
 
-        return AlbumDetail(label: label, releaseDate: releaseDate, people: people)
+        // Editorial blurb (#68). Kept raw here — the album detail view runs it
+        // through the same HTML strip as the artist bio before display.
+        // Whitespace-only collapses to `nil` so the "About this album" section
+        // never renders an empty shell.
+        let overview: String? = {
+            guard let raw = root["Overview"] as? String else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : raw
+        }()
+
+        return AlbumDetail(label: label, releaseDate: releaseDate, people: people, overview: overview)
     }
 
     /// Navigate to the artist detail screen for this album's artist, if known.
@@ -5247,10 +5332,22 @@ final class AppModel {
         }
     }
 
-    private func playCurrent(_ track: Track) {
+    private func playCurrent(_ track: Track, armPreload: Bool = false) {
         Task {
             do {
                 try await audio.play(track: track)
+                // `play(track:)` builds a fresh single-item `AVQueuePlayer`,
+                // so any previously pre-loaded next item is gone. On a normal
+                // end-of-track advance, re-arm the gapless path now that the
+                // new player exists by pre-inserting the upcoming track — same
+                // selection the engine would otherwise pick when this track
+                // ends (#931). Only the advance path opts in; manual skips and
+                // the ⌘-Space restart build their player the same way but the
+                // poll loop re-arms via `audioEngineDidRecover` only on stall
+                // recovery, so leaving them off keeps this change scoped.
+                if armPreload {
+                    armNextTrackPreload()
+                }
             } catch {
                 if handleAuthError(error) { return }
                 errorMessage = LyrebirdErrorPresenter.message(for: error, context: .playback)
@@ -5258,10 +5355,67 @@ final class AppModel {
         }
     }
 
+    /// The track the engine should pre-load for gapless playback after the
+    /// current one. Read straight from the core queue's lookahead
+    /// (`core.peekNext()`) — the track `skipNext()` would return next — so the
+    /// pre-loaded item is *always* the one that actually plays at end-of-track,
+    /// honouring the current repeat mode. This is the same queue the in-app
+    /// "Up Next" / auto-queue split mirrors (user "Play Next" inserts land at
+    /// `queue_index + 1`, the source tail follows), so it captures both without
+    /// depending on those overlays being kept in sync. Shared by the
+    /// end-of-track advance (`handleTrackEnded`) and stall recovery
+    /// (`audioEngineDidRecover`) so both arm the same item. See #931.
+    ///
+    /// `peekNext()` is a read-only in-memory clone under the core's queue mutex
+    /// (no network, no DB) — the same cost profile as the `core.skipNext()`
+    /// call `handleTrackEnded` already makes synchronously, and it fires once
+    /// per advance rather than per-cell, so it's safe on the main actor.
+    private var nextTrackForPreload: Track? {
+        core.peekNext()
+    }
+
+    /// Arm the engine's gapless pre-load for whatever comes after the current
+    /// track. A no-op when the queue holds nothing further (end of queue), in
+    /// which case the engine simply has no item to splice ahead. Single source
+    /// of truth shared by the normal advance and stall recovery (#931).
+    private func armNextTrackPreload() {
+        guard let next = nextTrackForPreload else { return }
+        audio.preloadNextTrack(next)
+    }
+
+    #if DEBUG
+    /// Test seam: drive the end-of-track advance the way `handleTrackEnded`
+    /// does — step the core queue forward (`core.skipNext()`) and then arm the
+    /// gapless pre-load for the track after the new current one. Skips only the
+    /// async `play(track:)` rebuild (which throws un-authed and which the test's
+    /// empty player stands in for); the queue advance and the arming step are
+    /// the *production* calls, reading the same core queue `play(tracks:)`
+    /// populated. Returns the track the advance landed on (or `nil` at end of
+    /// queue) so a test can assert the playhead moved as well. See #931.
+    @discardableResult
+    func advanceAndArmPreloadForTesting() -> Track? {
+        guard let next = core.skipNext() else { return nil }
+        armNextTrackPreload()
+        return next
+    }
+
+    /// Test seam: run just the gapless-arming step (`armNextTrackPreload`)
+    /// without advancing the queue — mirrors stall recovery
+    /// (`audioEngineDidRecover`), which re-arms the pre-load for the track
+    /// after the *current* one without moving the playhead. See #931.
+    func armNextTrackPreloadForTesting() {
+        armNextTrackPreload()
+    }
+    #endif
+
     private func handleTrackEnded() {
-        // Advance to the next track in the queue if there is one.
+        // Advance to the next track in the queue if there is one. Arm the
+        // gapless pre-load for the track *after* this new one so the next
+        // end-of-track transition is seamless — without this the freshly
+        // built single-item player never has a queued-ahead item and every
+        // advance falls back to the gap-prone play(track:) rebuild (#931).
         if let next = core.skipNext() {
-            playCurrent(next)
+            playCurrent(next, armPreload: true)
             return
         }
         // Queue ran dry. When "autoplay similar music when queue ends" is on
@@ -5949,6 +6103,11 @@ struct AlbumDetail: Equatable {
     /// these by role. Empty when the server didn't populate `People` (a
     /// surprising number don't).
     let people: [Person]
+    /// Editorial blurb from Jellyfin's album `Overview` field (populated
+    /// by metadata plugins such as TheAudioDB / MusicBrainz). May carry
+    /// light HTML; the view HTML-strips it before display and hides the
+    /// "About this album" section entirely when it's `nil`/empty (#68).
+    let overview: String?
 }
 
 // MARK: - Full search page types
@@ -6110,14 +6269,11 @@ extension AppModel: AudioEngineDelegate {
 
     /// Stall recovery rebuilds the current item via `replaceCurrentItem`,
     /// which evicts any pre-loaded next-track item from the queue. Re-arm
-    /// gapless playback by preloading the upcoming track again — the
-    /// user-added "Up Next" overlay takes precedence over the auto-queue
-    /// tail, matching the order the engine would otherwise advance through.
+    /// gapless playback by preloading the upcoming track again — the same
+    /// core-queue lookahead (`nextTrackForPreload`) the normal end-of-track
+    /// advance uses, so both paths splice the track that actually plays next.
     func audioEngineDidRecover() {
-        guard let next = upNextUserAdded.first?.track ?? upNextAutoQueue.first?.track else {
-            return
-        }
-        audio.preloadNextTrack(next)
+        armNextTrackPreload()
     }
 }
 

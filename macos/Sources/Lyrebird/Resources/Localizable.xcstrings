@@ -1501,6 +1501,18 @@
         }
       }
     },
+    "menu.help.export_diagnostics" : {
+      "comment" : "Help menu entry that writes a sanitized diagnostic .zip for bug reports.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Diagnostic Bundle…"
+          }
+        }
+      }
+    },
     "menu.help.keyboard_shortcuts" : {
       "extractionState" : "manual",
       "localizations" : {

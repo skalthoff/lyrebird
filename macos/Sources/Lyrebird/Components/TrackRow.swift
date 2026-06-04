@@ -15,6 +15,11 @@ import SwiftUI
 /// `TrackListRow`.
 struct TrackRow: View {
     @Environment(AppModel.self) private var model
+    // Contrast-adaptive accent for foreground text/icons (active-track title,
+    // now-playing equalizer, favorite heart). Lifts to `accentHot` under
+    // Increase Contrast so accent foregrounds clear 4.5:1 (#888). The
+    // decorative focus-ring stroke keeps the base token.
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     let track: Track
     let number: Int
@@ -69,7 +74,7 @@ struct TrackRow: View {
             ZStack {
                 if isPlaying {
                     EqualizerIcon()
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(a11yTheme.accent)
                 } else if isHovering {
                     Image(systemName: "play.fill")
                         .font(.system(size: 11))
@@ -77,7 +82,7 @@ struct TrackRow: View {
                 } else if showTrackNumbers {
                     Text("\(number)")
                         .font(Theme.font(12, weight: .medium))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink3)
+                        .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink3)
                 }
             }
             .frame(width: 32)
@@ -86,7 +91,7 @@ struct TrackRow: View {
                 HStack(spacing: 5) {
                     Text(track.name)
                         .font(Theme.font(13, weight: .semibold))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                        .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink)
                         .lineLimit(1)
                     FormatBadge(track: track)
                     if willTranscode {
@@ -111,7 +116,7 @@ struct TrackRow: View {
                 } label: {
                     Image(systemName: isFav ? "heart.fill" : "heart")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isFav ? Theme.accent : Theme.ink2)
+                        .foregroundStyle(isFav ? a11yTheme.accent : Theme.ink2)
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)

@@ -137,6 +137,16 @@ public final class AudioEngine: NSObject {
     /// can't clobber the queue with the wrong next item.
     private var preloadGeneration: Int = 0
 
+    #if DEBUG
+    /// Test seam: the id of the most recent track passed to
+    /// `preloadNextTrack(_:)` that passed the `player != nil` guard, i.e. the
+    /// track the engine actually armed for gapless playback. `nil` until the
+    /// first successful arm. Lets a test assert that a normal queue advance
+    /// re-arms the pre-load without waiting on the off-main stream resolve
+    /// (which fails fast un-authed and never enqueues). See #931.
+    private(set) var lastPreloadedTrackIdForTesting: String?
+    #endif
+
     /// Called when AVPlayer reaches the end of the current item, so the
     /// owner (AppModel) can advance the queue.
     public var onTrackEnded: (() -> Void)?
@@ -501,6 +511,12 @@ public final class AudioEngine: NSObject {
     /// so rapid skip-next doesn't accumulate stale entries.
     public func preloadNextTrack(_ track: Track) {
         guard player != nil else { return }
+
+        #if DEBUG
+        // Record the armed track *before* the off-main resolve so tests can
+        // observe the intent without the network round-trip (#931).
+        lastPreloadedTrackIdForTesting = track.id
+        #endif
 
         // The PlaybackInfo + stream-URL + auth-header resolution all cross
         // the FFI into Rust, each blocking the calling thread on the core's

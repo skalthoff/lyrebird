@@ -11,6 +11,11 @@ import SwiftUI
 /// `commitSidebarPlaylistEdit`, etc.) so the view stays compact.
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
+    // Contrast-adaptive accent for the active-tab / active-playlist icon
+    // foregrounds. Lifts to `accentHot` under Increase Contrast so the
+    // accent-tinted glyphs clear 4.5:1 (#888). The 3pt active-tab indicator
+    // rail is decorative and keeps the base token.
+    @Environment(\.accessibleTheme) private var a11yTheme
 
     /// The playlist row currently hovered by the pointer. Used to reveal
     /// the subtle trailing affordances (copying spinner slot); `nil` when
@@ -205,7 +210,7 @@ struct Sidebar: View {
 
         HStack(spacing: 10) {
             Image(systemName: "music.note.list")
-                .foregroundStyle(isActiveScreen ? Theme.accent : Theme.ink2)
+                .foregroundStyle(isActiveScreen ? a11yTheme.accent : Theme.ink2)
                 .frame(width: 18)
 
             if isEditing {
@@ -265,7 +270,7 @@ struct Sidebar: View {
     private var newPlaylistEditRow: some View {
         HStack(spacing: 10) {
             Image(systemName: "music.note.list")
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(a11yTheme.accent)
                 .frame(width: 18)
             // #590: stable subview identity for the new-playlist field too.
             SidebarInlineEditField(initialText: "")
@@ -286,7 +291,7 @@ struct Sidebar: View {
         Button { model.selectTab(screen) } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .foregroundStyle(active ? Theme.accent : Theme.ink2)
+                    .foregroundStyle(active ? a11yTheme.accent : Theme.ink2)
                     .frame(width: 18)
                     .accessibilityHidden(true)
                 Text(label)

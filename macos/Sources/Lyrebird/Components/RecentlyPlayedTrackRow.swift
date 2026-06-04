@@ -12,6 +12,9 @@ import SwiftUI
 /// track-scoped context menu with Play / Go to Album / Go to Artist.
 struct RecentlyPlayedTrackRow: View {
     @Environment(AppModel.self) private var model
+    // Contrast-adaptive accent for the active-track title. Lifts to `accentHot`
+    // under Increase Contrast so accent text clears 4.5:1 (#888).
+    @Environment(\.accessibleTheme) private var a11yTheme
     let track: Track
 
     @State private var isHovering = false
@@ -33,7 +36,7 @@ struct RecentlyPlayedTrackRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.name)
                         .font(Theme.font(13, weight: .bold))
-                        .foregroundStyle(isActive ? Theme.accent : Theme.ink)
+                        .foregroundStyle(isActive ? a11yTheme.accent : Theme.ink)
                         .lineLimit(1)
                     Text(track.artistName)
                         .font(Theme.font(11, weight: .medium))

@@ -1,12 +1,14 @@
 import SwiftUI
 @preconcurrency import LyrebirdCore
 
-/// Album detail screen — hero + CTA row + disc-grouped tracklist + liner-note
-/// credits block. Implements the BATCH-05 polish pass: #219 (hero stat strip
-/// typography), #70 (Play/Shuffle/Radio/Download + overflow CTAs), #222
-/// (favourite / add-to-playlist / download inline actions), #66 (disc
-/// grouping with sticky small-caps headers), #65 (liner-note credits section
-/// with clickable people chips).
+/// Album detail screen — hero + CTA row + disc-grouped tracklist + editorial
+/// "About this album" blurb + liner-note credits block. Implements the
+/// BATCH-05 polish pass: #219 (hero stat strip typography), #70
+/// (Play/Shuffle/Radio/Download + overflow CTAs), #222 (favourite /
+/// add-to-playlist / download inline actions), #66 (disc grouping with
+/// sticky small-caps headers), #65 (liner-note credits section with
+/// clickable people chips), #68 (editorial "About this album" section,
+/// hidden when the server has no `Overview`).
 ///
 /// Data flow:
 /// - `tracks` is loaded via `AppModel.loadTracks(forAlbum:)` (cached).
@@ -19,10 +21,13 @@ struct AlbumDetailView: View {
 
     @State private var tracks: [Track] = []
     @State private var isLoading = true
-    @State private var detail: AlbumDetail = AlbumDetail(label: nil, releaseDate: nil, people: [])
+    @State private var detail: AlbumDetail = AlbumDetail(label: nil, releaseDate: nil, people: [], overview: nil)
     @State private var fetchedAlbum: Album?
     @State private var showAddToPlaylist = false
     @State private var moreByArtist: [Album] = []
+    /// Whether the full editorial blurb popover is open (#68). Mirrors the
+    /// artist About section's "Read more" affordance.
+    @State private var isAboutExpanded = false
 
     /// Cache-first lookup against the paged `albums` list, then fall
     /// back to the record the `.task` block fetched. Missing after both
@@ -39,6 +44,7 @@ struct AlbumDetailView: View {
                 hero
                 ctaRow
                 trackList
+                aboutSection
                 linerNotes
                 moreByArtistSection
             }
@@ -46,6 +52,9 @@ struct AlbumDetailView: View {
         .background(Theme.bg)
         .task(id: albumID) {
             isLoading = true
+            // Reset the editorial-blurb popover so a prior album's expanded
+            // "About this album" never bleeds into this page (#68).
+            isAboutExpanded = false
             if model.albums.first(where: { $0.id == albumID }) == nil {
                 fetchedAlbum = await model.resolveAlbum(id: albumID)
             }
@@ -76,8 +85,10 @@ struct AlbumDetailView: View {
                     url: model.imageURL(for: album.id, tag: album.imageTag, maxWidth: 480),
                     seed: album.name,
                     size: 240,
-                    radius: 6
+                    radius: 6,
+                    decorative: false
                 )
+                .accessibilityLabel("Album artwork for \(album.name)")
                 VStack(alignment: .leading, spacing: 6) {
                     Text("LONG-PLAYER · \(album.year.map(String.init) ?? "")")
                         .font(Theme.font(11, weight: .bold))
@@ -383,6 +394,97 @@ struct AlbumDetailView: View {
     private func discLocalNumber(fallback: Int, track: Track) -> Int {
         if let n = track.indexNumber, n > 0 { return Int(n) }
         return fallback
+    }
+
+    // MARK: - About this album
+
+    /// Editorial "About this album" block (#68). Renders Jellyfin's album
+    /// `Overview` (populated by metadata plugins like TheAudioDB /
+    /// MusicBrainz) HTML-stripped to plain text, clamped to four lines with a
+    /// keyboard-accessible "Read more" popover for the full text — mirroring
+    /// `ArtistDetailView.aboutSection`.
+    ///
+    /// The HTML strip is shared with the artist bio via
+    /// `ArtistDetailView.plainTextOverview` so the two surfaces can't drift.
+    /// The section is hidden entirely when the album has no overview — no
+    /// "no description" placeholder — so an album without editorial metadata
+    /// simply doesn't grow a dead region, matching the liner-note block's
+    /// "degrade cleanly when fields are empty" behaviour.
+    @ViewBuilder
+    private var aboutSection: some View {
+        if let overview = ArtistDetailView.plainTextOverview(detail.overview) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("ABOUT THIS ALBUM")
+                    .font(Theme.font(10, weight: .bold))
+                    .foregroundStyle(Theme.ink3)
+                    .tracking(2)
+                    .padding(.bottom, 12)
+                aboutBody(overview: overview)
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 36)
+        }
+    }
+
+    /// Four-line clamp on the overview plus a keyboard-accessible "Read more"
+    /// button that opens the full text in a popover. The popover is driven by
+    /// a plain SwiftUI `Button`, so it's focusable and Return-activatable for
+    /// free — the same affordance as the artist About section.
+    @ViewBuilder
+    private func aboutBody(overview: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(overview)
+                .font(Theme.font(14, weight: .regular))
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+            Button {
+                isAboutExpanded = true
+            } label: {
+                Text("Read more")
+                    .font(Theme.font(12, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Read full description for \(album?.name ?? "this album")")
+            .accessibilityHint("Opens the complete album description in a popover")
+            .popover(isPresented: $isAboutExpanded, arrowEdge: .top) {
+                aboutPopover(overview: overview)
+            }
+        }
+    }
+
+    /// Full-description popover. Scrolls when the text is long so the popover
+    /// stays a sane size, and is dismissible with Escape (SwiftUI default) or
+    /// the explicit Done button for pointer users.
+    @ViewBuilder
+    private func aboutPopover(overview: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(album?.name ?? "About this album")
+                    .font(Theme.font(18, weight: .heavy))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(2)
+                Spacer(minLength: 24)
+                Button("Done") { isAboutExpanded = false }
+                    .buttonStyle(.plain)
+                    .font(Theme.font(13, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .keyboardShortcut(.cancelAction)
+            }
+            ScrollView {
+                Text(overview)
+                    .font(Theme.font(14, weight: .regular))
+                    .foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .frame(maxHeight: 460)
     }
 
     // MARK: - Liner notes
