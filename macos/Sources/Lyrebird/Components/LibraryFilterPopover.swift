@@ -82,11 +82,18 @@ struct LibraryFilter: Equatable {
 	/// Number of active filter groups — drives the pink dot / count badge on
 	/// the filter icon. A group counts once regardless of how many options
 	/// inside it are selected.
+	///
+	/// `onlyDownloaded` is deliberately excluded: no `passesFilter` overload
+	/// can honor it until a download-state query exists, and the toggle is
+	/// itself UI-gated off (`showDownloaded: model.supportsDownloads`, false
+	/// today). Counting it would mark the filter "active" — lighting the dot
+	/// badge and triggering the no-results path — while filtering nothing.
+	/// Fold it back in here the moment a `model.isDownloaded(...)` lands and
+	/// the `passesFilter` overloads consult it. See audit L724.
 	var activeGroupCount: Int {
 		var n = 0
 		if !genres.isEmpty { n += 1 }
 		if yearRange != nil { n += 1 }
-		if onlyDownloaded { n += 1 }
 		if onlyFavorited { n += 1 }
 		if !formats.isEmpty { n += 1 }
 		if !durations.isEmpty { n += 1 }

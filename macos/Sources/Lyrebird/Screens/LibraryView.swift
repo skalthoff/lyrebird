@@ -105,6 +105,18 @@ struct LibraryView: View {
     /// default changes in Preferences mid-session, so the new default re-applies
     /// on next entry (and immediately, if that tab is on screen).
     @State private var appliedDefaultTabs: Set<LibraryTab> = []
+    /// Seed for the `.random` sort's deterministic shuffle. Regenerated only
+    /// when the user (re-)selects Random or the source collection's identity
+    /// changes — never on a plain re-render — so hovering a card no longer
+    /// reorders the grid. See audit L871 and `LibrarySortLogic.seededShuffle`.
+    @State private var shuffleSeed = UUID()
+    /// Memoized filter→sort result for the active tab. Recomputed in
+    /// `.onChange` of `sortOrder`, `filter`, `selectedTab`, the shuffle seed,
+    /// and the relevant `model.X` source array — *not* on every render. The old
+    /// code re-ran a full locale-aware sort over the whole loaded library up to
+    /// 3× per render (and on every hover, which mutates `hoverID`), which was
+    /// heavy MainActor work on a ~20k-item library. See audit L234 / L852.
+    @State private var displayedItems = LibraryDisplayItems()
 
     private var density: AppearanceDensity {
         AppearanceDensity(rawValue: densityRaw) ?? .roomy
@@ -180,12 +192,13 @@ struct LibraryView: View {
         // is entered fresh; `.onChange` covers the case where the user
         // is already on the library and the sidebar flips the tab.
         .onAppear {
-            selectedTab = model.libraryTab
+            selectedTab = resolvedTab(model.libraryTab)
             applyDefaultSort(for: selectedTab)
             applyPendingDecadeFilter()
+            recomputeDisplayedItems()
         }
         .onChange(of: model.libraryTab) { _, newValue in
-            selectedTab = newValue
+            selectedTab = resolvedTab(newValue)
         }
         // A decade tile tapped while the Library is already on screen flips
         // `pendingLibraryYearRange` without re-running `.onAppear`; pick it up
@@ -202,13 +215,35 @@ struct LibraryView: View {
             // it referenced are no longer on screen. See #217.
             clearSelection()
             applyDefaultSort(for: newValue)
+            // If the active sort isn't one the new tab can honor, snap to a
+            // supported order so the menu label stays truthful. See audit L196.
+            normalizeSortForTab(newValue)
+            recomputeDisplayedItems()
         }
         // `anchorIndex` is a positional cursor into the displayed list; a sort
         // or filter change reorders that list, so a stale anchor would extend a
         // Shift+Click range from the wrong row. The ID-based `selectedTrackIds`
         // survives the reorder, so only the anchor needs clearing. See #217.
-        .onChange(of: sortOrder) { _, _ in anchorIndex = nil }
-        .onChange(of: filter) { _, _ in anchorIndex = nil }
+        .onChange(of: sortOrder) { _, newValue in
+            anchorIndex = nil
+            // Re-rolling the shuffle each time Random is (re-)picked is the
+            // explicit "reshuffle" gesture; a stable seed otherwise. See L871.
+            if newValue == .random { shuffleSeed = UUID() }
+            recomputeDisplayedItems()
+        }
+        .onChange(of: filter) { _, _ in
+            anchorIndex = nil
+            recomputeDisplayedItems()
+        }
+        // The source arrays grow as pages stream in; re-derive the displayed
+        // snapshot so new rows appear in the right sorted/filtered position.
+        // Under Random the seed is left untouched here, so already-visible rows
+        // keep their slot and newly-paged ids fold in deterministically rather
+        // than the whole grid reshuffling on each page. See audit L852 / L871.
+        .onChange(of: model.albums) { _, _ in recomputeDisplayedItems() }
+        .onChange(of: model.artists) { _, _ in recomputeDisplayedItems() }
+        .onChange(of: model.tracks) { _, _ in recomputeDisplayedItems() }
+        .onChange(of: model.playlists) { _, _ in recomputeDisplayedItems() }
         // A change to a persisted default while this view is alive means the
         // user just edited Preferences → Library. Re-apply so the criterion
         // "changes reflect in list views" holds without a relaunch.
@@ -228,17 +263,12 @@ struct LibraryView: View {
     private let alphabetRailMinItems = 200
 
     /// The `name` of every row in the active tab, in the exact order it's
-    /// displayed. Reuses the same `sorted*` arrays the grid/list render so the
-    /// rail's letter → index mapping can't drift from what's on screen.
-    /// Downloaded has no backing list yet, so it contributes nothing.
+    /// displayed. Reads the memoized snapshot the grid/list also render from so
+    /// the rail's letter → index mapping can't drift from what's on screen and
+    /// the sort isn't re-run for the rail. Downloaded has no backing list yet,
+    /// so it contributes nothing.
     private var displayedSortNames: [String] {
-        switch selectedTab {
-        case .albums: return sortedAlbums.map(\.name)
-        case .artists: return sortedArtists.map(\.name)
-        case .tracks: return sortedTracks.map(\.name)
-        case .playlists: return sortedPlaylists.map(\.name)
-        case .downloaded: return []
-        }
+        displayedItems.names
     }
 
     /// The `id` of every row in the active tab, in display order. Paired
@@ -246,13 +276,7 @@ struct LibraryView: View {
     /// straight to a `scrollTo` target — `ForEach(_, id: \.element.id)` registers
     /// these ids as scroll anchors.
     private var displayedItemIds: [String] {
-        switch selectedTab {
-        case .albums: return sortedAlbums.map(\.id)
-        case .artists: return sortedArtists.map(\.id)
-        case .tracks: return sortedTracks.map(\.id)
-        case .playlists: return sortedPlaylists.map(\.id)
-        case .downloaded: return []
-        }
+        displayedItems.ids
     }
 
     /// Whether to show the rail for the current tab + sort. Gated on a large
@@ -282,10 +306,11 @@ struct LibraryView: View {
 
     /// The selected tracks resolved against the currently-sorted list, in
     /// display order. Used by the selection banner so its batch actions run
-    /// on the same ordering the user sees.
+    /// on the same ordering the user sees. Reads the memoized snapshot rather
+    /// than re-sorting. See audit L852.
     private var selectedTracks: [Track] {
         guard !selectedTrackIds.isEmpty else { return [] }
-        return sortedTracks.filter { selectedTrackIds.contains($0.id) }
+        return displayedItems.tracks.filter { selectedTrackIds.contains($0.id) }
     }
 
     private func clearSelection() {
@@ -351,7 +376,12 @@ struct LibraryView: View {
             Spacer()
             HStack(spacing: 8) {
                 filterButton
-                LibrarySortMenu(selection: $sortOrder)
+                // Offer only the orders the active tab can honor so the menu
+                // label can't misrepresent the real ordering. See audit L196.
+                LibrarySortMenu(
+                    selection: $sortOrder,
+                    options: LibrarySortOrder.supportedOrders(for: selectedTab)
+                )
                 LibraryViewToggle(mode: $viewMode)
             }
         }
@@ -403,9 +433,18 @@ struct LibraryView: View {
         }
     }
 
+    /// Tabs offered in the chip row. The Downloaded tab is hidden until the
+    /// download engine lands (`model.supportsDownloads`, false today) — it has
+    /// no backing list and would only ever render the generic empty state,
+    /// mirroring how the filter popover already gates its downloaded group.
+    /// See audit L552.
+    private var visibleTabs: [LibraryTab] {
+        LibraryTab.allCases.filter { $0 != .downloaded || model.supportsDownloads }
+    }
+
     private var chipRow: some View {
         ChipRow(
-            options: LibraryTab.allCases.map { (label: $0.label, tag: $0) },
+            options: visibleTabs.map { (label: $0.label, tag: $0) },
             selection: $selectedTab
         )
     }
@@ -427,8 +466,14 @@ struct LibraryView: View {
         case .albums:
             if model.albums.isEmpty {
                 EmptyLibraryState(serverUrl: serverWebURL)
+            } else if displayedItems.albums.isEmpty {
+                emptyFilteredState(
+                    loadedCount: model.albums.count,
+                    total: Int(model.albumsTotal),
+                    isLoadingMore: model.isLoadingMoreAlbums
+                )
             } else {
-                let items = sortedAlbums
+                let items = displayedItems.albums
                 VStack(alignment: .leading, spacing: 18) {
                     switch viewMode {
                     case .grid:
@@ -458,8 +503,14 @@ struct LibraryView: View {
         case .artists:
             if model.artists.isEmpty {
                 EmptyLibraryState(serverUrl: serverWebURL)
+            } else if displayedItems.artists.isEmpty {
+                emptyFilteredState(
+                    loadedCount: model.artists.count,
+                    total: Int(model.artistsTotal),
+                    isLoadingMore: model.isLoadingMoreArtists
+                )
             } else {
-                let items = sortedArtists
+                let items = displayedItems.artists
                 VStack(alignment: .leading, spacing: 18) {
                     switch viewMode {
                     case .grid:
@@ -493,8 +544,14 @@ struct LibraryView: View {
             // albums branch.
             if model.tracks.isEmpty {
                 EmptyLibraryState(serverUrl: serverWebURL)
+            } else if displayedItems.tracks.isEmpty {
+                emptyFilteredState(
+                    loadedCount: model.tracks.count,
+                    total: Int(model.tracksTotal),
+                    isLoadingMore: model.isLoadingMoreTracks
+                )
             } else {
-                let items = sortedTracks
+                let items = displayedItems.tracks
                 VStack(alignment: .leading, spacing: 18) {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(items.enumerated()), id: \.element.id) { idx, track in
@@ -521,8 +578,14 @@ struct LibraryView: View {
         case .playlists:
             if model.playlists.isEmpty {
                 EmptyLibraryState(serverUrl: serverWebURL)
+            } else if displayedItems.playlists.isEmpty {
+                emptyFilteredState(
+                    loadedCount: model.playlists.count,
+                    total: Int(model.playlistsTotal),
+                    isLoadingMore: model.isLoadingMorePlaylists
+                )
             } else {
-                let items = sortedPlaylists
+                let items = displayedItems.playlists
                 VStack(alignment: .leading, spacing: 18) {
                     switch viewMode {
                     case .grid:
@@ -550,10 +613,36 @@ struct LibraryView: View {
                 }
             }
         case .downloaded:
-            // Placeholder until the per-tab surface lands. The chip row, header,
-            // and count subline remain live so navigation feels responsive.
+            // Reachable only if downloads are enabled (the chip is otherwise
+            // hidden and `resolvedTab` redirects a stale persisted selection).
+            // Until a downloads-specific surface lands, the generic empty state
+            // stands in. See audit L552.
             EmptyLibraryState(serverUrl: serverWebURL)
         }
+    }
+
+    /// The view shown when the active tab's filtered list is empty while the
+    /// raw collection isn't: either the "no matches" state, or — if a filter is
+    /// active and more pages might still yield matches (eager paging in flight
+    /// or the dataset not yet exhausted) — a spinner, so we don't flash "No
+    /// matches" before the eager fetch has had a chance to find any. See audit
+    /// L494 / L783.
+    @ViewBuilder
+    private func emptyFilteredState(loadedCount: Int, total: Int, isLoadingMore: Bool) -> some View {
+        if filter.isActive && (isLoadingMore || loadedCount < total) {
+            paginationSpinner
+        } else {
+            noFilterMatchesState
+        }
+    }
+
+    /// Shown when an active filter excludes every loaded item in the current
+    /// tab (the raw collection is non-empty but the filtered one is empty).
+    /// Distinct from `EmptyLibraryState`, which stays gated on the raw count.
+    /// The CTA clears the filter so the user isn't stranded on a blank area.
+    /// See audit L494.
+    private var noFilterMatchesState: some View {
+        EmptyStateView.noFilterMatches { filter = LibraryFilter() }
     }
 
     /// Bottom spinner shown while a follow-up page is in flight. Stays under
@@ -570,9 +659,18 @@ struct LibraryView: View {
         .accessibilityLabel("Loading more")
     }
 
+    /// Number of filtered matches we try to have paged in before backing off
+    /// the eager filter-driven fetch. Comfortably covers a tall window so a
+    /// sparse filter doesn't dribble one page at a time. See audit L783.
+    private let paginationPrefetchTarget = 60
+
     /// Fire `loadMoreAlbums` when the user scrolls into the last
-    /// `paginationTriggerDistance` cells and there are more albums on the
-    /// server than currently loaded. The view-level guard (and the matching
+    /// `paginationTriggerDistance` cells *of the displayed list* and there are
+    /// more albums on the server than currently loaded. Comparing against the
+    /// displayed (filtered) count rather than the raw loaded count is the fix
+    /// for pagination stalling whenever a filter is active (audit L578): a
+    /// filter shrinks the rendered list below `loaded`, so a raw-count
+    /// threshold was never reached. The view-level guard (and the matching
     /// guard in `AppModel.loadMoreAlbums`) together prevent concurrent Tasks
     /// from queuing up and re-firing once the flag clears. Fixes #589.
     private func triggerLoadMoreAlbumsIfNeeded(atIndex idx: Int) {
@@ -580,8 +678,11 @@ struct LibraryView: View {
         let total = Int(model.albumsTotal)
         guard total > loaded else { return }
         guard !model.isLoadingMoreAlbums else { return }
-        let threshold = max(loaded - paginationTriggerDistance, 0)
-        guard idx >= threshold else { return }
+        guard LibrarySortLogic.shouldLoadMore(
+            index: idx,
+            displayedCount: displayedItems.albums.count,
+            triggerDistance: paginationTriggerDistance
+        ) else { return }
         Task { await model.loadMoreAlbums() }
     }
 
@@ -593,36 +694,46 @@ struct LibraryView: View {
         let total = Int(model.artistsTotal)
         guard total > loaded else { return }
         guard !model.isLoadingMoreArtists else { return }
-        let threshold = max(loaded - paginationTriggerDistance, 0)
-        guard idx >= threshold else { return }
+        guard LibrarySortLogic.shouldLoadMore(
+            index: idx,
+            displayedCount: displayedItems.artists.count,
+            triggerDistance: paginationTriggerDistance
+        ) else { return }
         Task { await model.loadMoreArtists() }
     }
 
     /// Fire `loadMoreTracks` when the user scrolls into the last
-    /// `paginationTriggerDistance` cells and there are more tracks on the
-    /// server than currently loaded. Mirror of `triggerLoadMoreAlbumsIfNeeded`;
-    /// see that function's docs for the concurrency guard rationale (#589).
+    /// `paginationTriggerDistance` cells of the displayed list and there are
+    /// more tracks on the server than currently loaded. Mirror of
+    /// `triggerLoadMoreAlbumsIfNeeded`; see that function's docs for the
+    /// displayed-count rationale (audit L578) and concurrency guard (#589).
     private func triggerLoadMoreTracksIfNeeded(atIndex idx: Int) {
         let loaded = model.tracks.count
         let total = Int(model.tracksTotal)
         guard total > loaded else { return }
         guard !model.isLoadingMoreTracks else { return }
-        let threshold = max(loaded - paginationTriggerDistance, 0)
-        guard idx >= threshold else { return }
+        guard LibrarySortLogic.shouldLoadMore(
+            index: idx,
+            displayedCount: displayedItems.tracks.count,
+            triggerDistance: paginationTriggerDistance
+        ) else { return }
         Task { await model.loadMoreTracks() }
     }
 
     /// Mirror of `triggerLoadMoreAlbumsIfNeeded` for the Playlists grid.
     /// Separate function rather than a parameterised helper so the guard
-    /// arithmetic stays obvious at the call site. See #589 for the
-    /// concurrency guard rationale.
+    /// arithmetic stays obvious at the call site. See audit L578 for the
+    /// displayed-count threshold and #589 for the concurrency guard.
     private func triggerLoadMorePlaylistsIfNeeded(atIndex idx: Int) {
         let loaded = model.playlists.count
         let total = Int(model.playlistsTotal)
         guard total > loaded else { return }
         guard !model.isLoadingMorePlaylists else { return }
-        let threshold = max(loaded - paginationTriggerDistance, 0)
-        guard idx >= threshold else { return }
+        guard LibrarySortLogic.shouldLoadMore(
+            index: idx,
+            displayedCount: displayedItems.playlists.count,
+            triggerDistance: paginationTriggerDistance
+        ) else { return }
         Task { await model.loadMorePlaylists() }
     }
 
@@ -651,30 +762,53 @@ struct LibraryView: View {
         }
     }
 
-    /// 11pt uppercase count subline. Renders as `N of M` when the server
-    /// total is known AND more items remain to load; otherwise falls back
-    /// to plain `N`. Mirrors the spec's "{n} tracks · Sorted by {sort}" —
-    /// sort hasn't been wired yet (#216), so for now the subline is just
-    /// the count. Issue #429 / #212.
+    /// Number of rows actually rendered in the active tab — the memoized
+    /// filtered + sorted count. Drives the subline so the displayed number
+    /// can't contradict what's on screen when a filter is active. See L659.
+    private var displayedCount: Int {
+        switch selectedTab {
+        case .albums: return displayedItems.albums.count
+        case .artists: return displayedItems.artists.count
+        case .tracks: return displayedItems.tracks.count
+        case .playlists: return displayedItems.playlists.count
+        case .downloaded: return 0
+        }
+    }
+
+    /// 11pt uppercase count subline. With an active filter it reports the
+    /// rendered count against the loaded total ("N FILTERED OF M") so the
+    /// number always matches what's shown (audit L659). Without a filter it
+    /// renders `N of M` while more pages remain on the server, otherwise plain
+    /// `N`. Issue #429 / #212.
     private var countSubline: String {
+        let noun = selectedTab.countNoun
+        if filter.isActive {
+            let loaded = tabCount(for: selectedTab)
+            return "\(displayedCount) FILTERED OF \(loaded) \(noun.uppercased())"
+        }
         let count = tabCount(for: selectedTab)
         let total = tabTotal(for: selectedTab)
         if total > count {
-            return "\(count) OF \(total) \(selectedTab.countNoun.uppercased())"
+            return "\(count) OF \(total) \(noun.uppercased())"
         }
-        return "\(count) \(selectedTab.countNoun)".uppercased()
+        return "\(count) \(noun)".uppercased()
     }
 
     /// VoiceOver-friendly version of the count subline. Reads naturally
     /// as "42 of 5000 albums" rather than the uppercased + tracking-spaced
     /// display string.
     private var countAccessibilityLabel: String {
+        let noun = selectedTab.countNoun
+        if filter.isActive {
+            let loaded = tabCount(for: selectedTab)
+            return "\(displayedCount) filtered of \(loaded) \(noun)"
+        }
         let count = tabCount(for: selectedTab)
         let total = tabTotal(for: selectedTab)
         if total > count {
-            return "\(count) of \(total) \(selectedTab.countNoun)"
+            return "\(count) of \(total) \(noun)"
         }
-        return "\(count) \(selectedTab.countNoun)"
+        return "\(count) \(noun)"
     }
 
     private var backgroundWash: some View {
@@ -868,7 +1002,7 @@ struct LibraryView: View {
                 return cmp == .orderedAscending
             }
         case .random:
-            return filteredAlbums.shuffled()
+            return LibrarySortLogic.seededShuffle(filteredAlbums, seed: shuffleSeed, id: \.id)
         case .recentlyAdded:
             // `Album` does not carry `DateCreated` on the paginated shape, so
             // preserve the server's load order (which is `SortName` asc by
@@ -959,7 +1093,7 @@ struct LibraryView: View {
             // No per-item date on the artist payload — keep server order.
             return filteredArtists
         case .random:
-            return filteredArtists.shuffled()
+            return LibrarySortLogic.seededShuffle(filteredArtists, seed: shuffleSeed, id: \.id)
         case .nameAscending, .artist, .longest, .shortest, .yearAscending, .yearDescending:
             // Year and runtime aren't carried for artists, and "Artist" is a
             // no-op on the artist list itself; treat all as alpha asc.
@@ -991,7 +1125,7 @@ struct LibraryView: View {
                 return cmp == .orderedAscending
             }
         case .random:
-            return filteredTracks.shuffled()
+            return LibrarySortLogic.seededShuffle(filteredTracks, seed: shuffleSeed, id: \.id)
         case .recentlyAdded:
             return filteredTracks
         case .recentlyPlayed:
@@ -1071,12 +1205,121 @@ struct LibraryView: View {
         case .recentlyAdded:
             return filteredPlaylists
         case .random:
-            return filteredPlaylists.shuffled()
+            return LibrarySortLogic.seededShuffle(filteredPlaylists, seed: shuffleSeed, id: \.id)
         case .nameAscending, .artist, .recentlyPlayed, .mostPlayed, .yearAscending, .yearDescending:
             return filteredPlaylists.sorted { lhs, rhs in
                 lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
+    }
+
+    // MARK: - Memoization
+
+    /// Recompute the active tab's filter→sort snapshot into `displayedItems`.
+    /// Called from the `.onChange`/`.onAppear` hooks that observe every input
+    /// (sort order, filter, tab, shuffle seed, source arrays) — never from
+    /// `body` — so the expensive locale-aware sort runs once per real change
+    /// instead of up to 3× per render (and on every hover). See audit L234 /
+    /// L852. Only the active tab's slice is populated; the rest stay empty.
+    private func recomputeDisplayedItems() {
+        var next = LibraryDisplayItems()
+        switch selectedTab {
+        case .albums:
+            next.albums = sortedAlbums
+            next.names = next.albums.map(\.name)
+            next.ids = next.albums.map(\.id)
+        case .artists:
+            next.artists = sortedArtists
+            next.names = next.artists.map(\.name)
+            next.ids = next.artists.map(\.id)
+        case .tracks:
+            next.tracks = sortedTracks
+            next.names = next.tracks.map(\.name)
+            next.ids = next.tracks.map(\.id)
+        case .playlists:
+            next.playlists = sortedPlaylists
+            next.names = next.playlists.map(\.name)
+            next.ids = next.playlists.map(\.id)
+        case .downloaded:
+            break
+        }
+        displayedItems = next
+        // A filter that matches sparsely can leave the displayed list shorter
+        // than the viewport with no near-end `.onAppear` to drive pagination;
+        // keep pulling pages so filtered results aren't silently truncated.
+        // See audit L783.
+        eagerlyPageForActiveFilterIfNeeded()
+    }
+
+    /// When a filter is active and the displayed list is still thin while more
+    /// raw items remain on the server, fetch the next page proactively. Drives
+    /// off the same async `loadMore*` the scroll trigger uses (and the model's
+    /// in-flight guard), so it can't fan out into duplicate fetches. The page
+    /// landing mutates the source array, which re-enters `recomputeDisplayedItems`
+    /// via `.onChange`, so this self-terminates once enough matches accumulate
+    /// or the dataset is exhausted. See audit L783.
+    private func eagerlyPageForActiveFilterIfNeeded() {
+        guard filter.isActive else { return }
+        switch selectedTab {
+        case .albums:
+            guard !model.isLoadingMoreAlbums,
+                LibrarySortLogic.shouldEagerlyPageForFilter(
+                    filterActive: true,
+                    displayedCount: displayedItems.albums.count,
+                    loadedCount: model.albums.count,
+                    total: Int(model.albumsTotal),
+                    prefetchTarget: paginationPrefetchTarget
+                ) else { return }
+            Task { await model.loadMoreAlbums() }
+        case .artists:
+            guard !model.isLoadingMoreArtists,
+                LibrarySortLogic.shouldEagerlyPageForFilter(
+                    filterActive: true,
+                    displayedCount: displayedItems.artists.count,
+                    loadedCount: model.artists.count,
+                    total: Int(model.artistsTotal),
+                    prefetchTarget: paginationPrefetchTarget
+                ) else { return }
+            Task { await model.loadMoreArtists() }
+        case .tracks:
+            guard !model.isLoadingMoreTracks,
+                LibrarySortLogic.shouldEagerlyPageForFilter(
+                    filterActive: true,
+                    displayedCount: displayedItems.tracks.count,
+                    loadedCount: model.tracks.count,
+                    total: Int(model.tracksTotal),
+                    prefetchTarget: paginationPrefetchTarget
+                ) else { return }
+            Task { await model.loadMoreTracks() }
+        case .playlists:
+            guard !model.isLoadingMorePlaylists,
+                LibrarySortLogic.shouldEagerlyPageForFilter(
+                    filterActive: true,
+                    displayedCount: displayedItems.playlists.count,
+                    loadedCount: model.playlists.count,
+                    total: Int(model.playlistsTotal),
+                    prefetchTarget: paginationPrefetchTarget
+                ) else { return }
+            Task { await model.loadMorePlaylists() }
+        case .downloaded:
+            break
+        }
+    }
+
+    /// Redirect a tab the UI can't currently show (Downloaded while downloads
+    /// are unwired) to a live tab, so a stale persisted `model.libraryTab`
+    /// never lands on a hidden chip. See audit L552.
+    private func resolvedTab(_ tab: LibraryTab) -> LibraryTab {
+        if tab == .downloaded && !model.supportsDownloads { return .albums }
+        return tab
+    }
+
+    /// If the active `sortOrder` isn't one `tab` can honor, snap to the tab's
+    /// supported fallback so the header menu label reflects the order actually
+    /// applied rather than silently degrading to alphabetical. See audit L196.
+    private func normalizeSortForTab(_ tab: LibraryTab) {
+        guard !sortOrder.isSupported(by: tab) else { return }
+        sortOrder = LibrarySortOrder.fallback(for: tab)
     }
 }
 
@@ -1237,10 +1480,15 @@ struct AlbumCard: View {
                     .opacity(isHovering ? 1 : 0)
                     .offset(y: reduceMotion ? 0 : (isHovering ? 0 : 8))
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHovering)
-                    // Hover overlay isn't discoverable without a mouse, so
-                    // name the play button explicitly for VoiceOver. See
-                    // #331.
-                    .accessibilityLabel("Play \(album.name)")
+                    // The overlay is opacity-hidden until hover; without these
+                    // it stays in the a11y tree and hit-testable while invisible
+                    // (a phantom target a click could land on). Gate both on
+                    // hover, and since it's a Button nested inside the card's
+                    // navigation Button label, hide it from VoiceOver — play is
+                    // instead exposed as an accessibility action on the card
+                    // itself (below) and via the context menu. See audit L1227.
+                    .allowsHitTesting(isHovering)
+                    .accessibilityHidden(true)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1281,10 +1529,16 @@ struct AlbumCard: View {
         }
         .contextMenu { AlbumContextMenu(album: album) }
         // Outer "navigate to album" tap target. Reads as
-        // "<album> by <artist>. Opens album detail." The inner play
-        // button exposes itself separately for "play this album".
+        // "<album> by <artist>. Opens album detail." Because the hover play
+        // button is hidden from VoiceOver (it's a Button nested in this
+        // Button's label and only visible on hover), expose play as a rotor
+        // accessibility action here so it stays reachable without a mouse.
+        // See audit L1227 / #331.
         .accessibilityLabel(albumAccessibilityLabel)
         .accessibilityHint("Opens album detail")
+        .accessibilityAction(named: "Play \(album.name)") {
+            model.play(album: album)
+        }
     }
 
     private var albumAccessibilityLabel: String {
@@ -1344,10 +1598,14 @@ enum LibrarySortOrder: String, Hashable, CaseIterable, Identifiable {
 /// `LibraryViewToggle` so the two header controls read as a pair.
 struct LibrarySortMenu: View {
     @Binding var selection: LibrarySortOrder
+    /// Orders to offer. The Library passes the active tab's supported set so
+    /// the menu never lists an order the tab silently ignores. Defaults to the
+    /// full set for any host that doesn't scope it. See audit L196.
+    var options: [LibrarySortOrder] = LibrarySortOrder.allCases
 
     var body: some View {
         Menu {
-            ForEach(LibrarySortOrder.allCases, id: \.self) { option in
+            ForEach(options, id: \.self) { option in
                 Button {
                     selection = option
                 } label: {

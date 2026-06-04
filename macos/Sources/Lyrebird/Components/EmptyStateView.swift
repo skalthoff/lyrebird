@@ -160,6 +160,21 @@ extension EmptyStateView {
         )
     }
 
+    /// Library "no matches" state shown when an active filter excludes every
+    /// loaded item — distinct from the first-run "no library" state, which
+    /// stays gated on the raw count. The primary CTA clears the filter so the
+    /// user isn't stranded on a blank content area. See audit L494.
+    static func noFilterMatches(
+        onClearFilter: @escaping () -> Void
+    ) -> EmptyStateView {
+        EmptyStateView(
+            symbol: "line.3.horizontal.decrease.circle",
+            headline: "No matches",
+            body: "No items in your library match the current filter.",
+            primaryCTA: ("Clear Filter", onClearFilter)
+        )
+    }
+
     /// Empty playlist state. Issue #299. Caller provides the "Add tracks"
     /// handler when a playlist supports edits; pass `nil` to render the
     /// read-only variant (e.g. for a smart playlist).

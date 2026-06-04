@@ -78,4 +78,34 @@ final class LibraryFilterTests: XCTestCase {
         f.durations = [.short]
         XCTAssertEqual(f.activeGroupCount, 5)
     }
+
+    /// `onlyDownloaded` must NOT count toward the active-group total: no
+    /// `passesFilter` overload can honor it until a download-state query
+    /// exists, and the toggle is UI-gated off, so counting it would light the
+    /// dot badge and trip the no-results path while filtering nothing. See
+    /// audit L724.
+    func testOnlyDownloadedDoesNotMarkFilterActive() {
+        var f = LibraryFilter()
+        f.onlyDownloaded = true
+        XCTAssertEqual(
+            f.activeGroupCount, 0,
+            "onlyDownloaded is inert until a download-state query lands; it must not count as an active group"
+        )
+        XCTAssertFalse(
+            f.isActive,
+            "a filter whose only set flag is the unhonorable onlyDownloaded must read as inactive"
+        )
+    }
+
+    func testOnlyDownloadedDoesNotInflateAlongsideRealGroups() {
+        var f = LibraryFilter()
+        f.onlyFavorited = true
+        f.genres = ["Rock"]
+        let withoutDownloaded = f.activeGroupCount
+        f.onlyDownloaded = true
+        XCTAssertEqual(
+            f.activeGroupCount, withoutDownloaded,
+            "toggling the inert onlyDownloaded flag must not change the active-group count"
+        )
+    }
 }
