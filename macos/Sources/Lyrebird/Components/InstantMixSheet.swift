@@ -357,9 +357,9 @@ private struct SeedRow: View {
         case .album(let a):
             return a.artistName
         case .artist(let a):
-            return a.albumCount == 1 ? "1 album" : "\(a.albumCount) albums"
+            return CountStrings.label(Int(a.albumCount), .albums)
         case .playlist(let p):
-            return p.trackCount == 1 ? "1 track" : "\(p.trackCount) tracks"
+            return CountStrings.label(Int(p.trackCount), .tracks)
         case .genre:
             return nil
         }

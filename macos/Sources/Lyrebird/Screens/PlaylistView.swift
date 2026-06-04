@@ -404,7 +404,7 @@ struct PlaylistView: View {
     @ViewBuilder
     private var footer: some View {
         if let playlist = playlist {
-            Text("\(playlist.trackCount) \(playlist.trackCount == 1 ? "track" : "tracks") · \(formatMinutes(playlist.runtimeTicks)) min runtime")
+            Text("\(CountStrings.label(Int(playlist.trackCount), .tracks)) · \(formatMinutes(playlist.runtimeTicks)) min runtime")
                 .font(Theme.font(11, weight: .medium))
                 .foregroundStyle(Theme.ink3)
                 .padding(.horizontal, 32)

@@ -900,12 +900,14 @@ struct AlbumDetailView: View {
     /// spans multiple discs ("12 tracks · 2 discs").
     private func tracksSummary(album: Album) -> String {
         let trackCount = tracks.isEmpty ? Int(album.trackCount) : tracks.count
-        let trackWord = trackCount == 1 ? "track" : "tracks"
+        let trackLabel = CountStrings.label(trackCount, .tracks)
         let discs = Set(tracks.compactMap { $0.discNumber.map(Int.init) }).count
         if discs > 1 {
-            return "\(trackCount) \(trackWord) · \(discs) discs"
+            // `discs > 1` here, so "discs" is always plural; no inflection
+            // helper needed for that segment.
+            return "\(trackLabel) · \(discs) discs"
         }
-        return "\(trackCount) \(trackWord)"
+        return trackLabel
     }
 
     /// Format summary used by both the hero stat and the liner-note row.

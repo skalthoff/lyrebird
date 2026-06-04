@@ -704,7 +704,9 @@ struct PaletteRow: View {
             let albums = a.albumCount
             let songs = a.songCount
             if albums == 0 && songs == 0 { return "Artist" }
-            return "Artist \u{00B7} \(albums) album\(albums == 1 ? "" : "s") \u{00B7} \(songs) song\(songs == 1 ? "" : "s")"
+            let albumPart = CountStrings.label(Int(albums), .albums)
+            let songPart = CountStrings.label(Int(songs), .songs)
+            return "Artist \u{00B7} \(albumPart) \u{00B7} \(songPart)"
         case .album(let a):
             return "Album \u{00B7} \(a.artistName)"
         case .track(let t):

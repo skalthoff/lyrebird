@@ -194,16 +194,15 @@ struct LibraryListRow: View {
     private var countMeta: String {
         switch payload {
         case .album(let album):
-            return album.trackCount == 1 ? "1 track" : "\(album.trackCount) tracks"
+            return CountStrings.label(Int(album.trackCount), .tracks)
         case .artist(let artist):
-            return artist.albumCount == 1 ? "1 album" : "\(artist.albumCount) albums"
+            return CountStrings.label(Int(artist.albumCount), .albums)
         case .playlist(let playlist):
             // Empty playlists get a compact "Empty" label rather than "0
             // tracks"; otherwise mirror the album column's format.
             switch playlist.trackCount {
             case 0: return "Empty"
-            case 1: return "1 track"
-            default: return "\(playlist.trackCount) tracks"
+            default: return CountStrings.label(Int(playlist.trackCount), .tracks)
             }
         }
     }

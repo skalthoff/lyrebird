@@ -34,11 +34,11 @@ struct TrackSelectionBanner: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Text("\(count) selected")
+            Text(CountStrings.label(count, .selected))
                 .font(Theme.font(13, weight: .bold))
                 .foregroundStyle(Theme.ink)
                 .monospacedDigit()
-                .accessibilityLabel("\(count) tracks selected")
+                .accessibilityLabel("\(CountStrings.label(count, .tracks)) selected")
 
             Text("—")
                 .font(Theme.font(13, weight: .medium))
@@ -71,7 +71,7 @@ struct TrackSelectionBanner: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .accessibilityLabel("Add \(count) tracks to a playlist")
+            .accessibilityLabel("Add \(CountStrings.label(count, .tracks)) to a playlist")
 
             if let onRemove {
                 actionButton("Remove", systemImage: "trash", role: .destructive) {
@@ -118,7 +118,7 @@ struct TrackSelectionBanner: View {
             bannerLabel(title, systemImage: systemImage, destructive: role == .destructive)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title) \(count) selected tracks")
+        .accessibilityLabel("\(title) · \(CountStrings.label(count, .tracks)) selected")
     }
 
     private func bannerLabel(

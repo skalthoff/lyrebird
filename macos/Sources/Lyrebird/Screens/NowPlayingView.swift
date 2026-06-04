@@ -504,7 +504,7 @@ struct NowPlayingView: View {
     }
 
     private func formatPlayCount(_ count: UInt32) -> String {
-        count == 1 ? "1 play" : "\(count) plays"
+        CountStrings.label(Int(count), .plays)
     }
 
     private func formatBitrate(_ bitrate: Int64) -> String {

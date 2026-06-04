@@ -335,7 +335,7 @@ struct TrackListRow: View {
     /// "1 play" / "12 plays" readout shown on hover when the user enables
     /// "Show play counts on hover".
     private var playCountLabel: String {
-        track.playCount == 1 ? "1 play" : "\(track.playCount) plays"
+        CountStrings.label(Int(track.playCount), .plays)
     }
 
     /// Advance the focused row by `delta` (+1 for down, -1 for up) inside

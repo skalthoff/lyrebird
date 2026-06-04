@@ -76,8 +76,8 @@ struct GenreDetailView: View {
         let albumCount = albums.count
         let parts: [String] = {
             var p: [String] = []
-            if !isLoadingTracks { p.append(songCount == 1 ? "1 song" : "\(songCount) songs") }
-            if !isLoadingAlbums { p.append(albumCount == 1 ? "1 album" : "\(albumCount) albums") }
+            if !isLoadingTracks { p.append(CountStrings.label(songCount, .songs)) }
+            if !isLoadingAlbums { p.append(CountStrings.label(albumCount, .albums)) }
             return p
         }()
         if !parts.isEmpty {

@@ -168,7 +168,7 @@ struct PlaylistDetailView: View {
                 }
 
                 HStack(spacing: 10) {
-                    Text("\(tracks.count) \(tracks.count == 1 ? "track" : "tracks")")
+                    Text(CountStrings.label(tracks.count, .tracks))
                         .font(Theme.font(12, weight: .semibold))
                         .foregroundStyle(Theme.ink3)
                     Text("·")
@@ -671,7 +671,7 @@ private struct UndoRemovalToast: View {
     let onDismiss: () -> Void
 
     private var message: String {
-        count == 1 ? "Removed 1 track" : "Removed \(count) tracks"
+        "Removed \(CountStrings.label(count, .tracks))"
     }
 
     var body: some View {

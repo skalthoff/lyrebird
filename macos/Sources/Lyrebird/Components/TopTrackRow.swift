@@ -36,8 +36,7 @@ struct TopTrackRow: View {
         let count = track.playCount
         switch count {
         case 0: return "—"
-        case 1: return "1 play"
-        default: return "\(count) plays"
+        default: return CountStrings.label(Int(count), .plays)
         }
     }
 

@@ -982,6 +982,6 @@ private struct PlayCountBadge: View {
     }
 
     private var playsLabel: String {
-        plays == 1 ? "1 play" : "\(plays) plays"
+        CountStrings.label(Int(plays), .plays)
     }
 }

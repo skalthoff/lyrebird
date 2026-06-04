@@ -481,7 +481,7 @@ private struct FullQueueSaveSheet: View {
                 Text("Save queue as playlist")
                     .font(Theme.font(15, weight: .bold))
                     .foregroundStyle(Theme.ink)
-                Text("Creates a new playlist with \(trackCount) \(trackCount == 1 ? "track" : "tracks").")
+                Text("Creates a new playlist with \(CountStrings.label(trackCount, .tracks)).")
                     .font(Theme.font(11, weight: .medium))
                     .foregroundStyle(Theme.ink3)
             }

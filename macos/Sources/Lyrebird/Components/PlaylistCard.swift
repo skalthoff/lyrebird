@@ -83,8 +83,7 @@ struct PlaylistCard: View {
     private var subtitle: String {
         switch playlist.trackCount {
         case 0: return "Empty"
-        case 1: return "1 track"
-        default: return "\(playlist.trackCount) tracks"
+        default: return CountStrings.label(Int(playlist.trackCount), .tracks)
         }
     }
 }

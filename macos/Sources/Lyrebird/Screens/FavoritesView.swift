@@ -90,9 +90,9 @@ struct FavoritesView: View {
     /// counts in a single line so the user sees scope at a glance.
     private var countLine: some View {
         let parts: [String] = [
-            tracks.isEmpty ? nil : "\(tracks.count) song\(tracks.count == 1 ? "" : "s")",
-            albums.isEmpty ? nil : "\(albums.count) album\(albums.count == 1 ? "" : "s")",
-            artists.isEmpty ? nil : "\(artists.count) artist\(artists.count == 1 ? "" : "s")",
+            tracks.isEmpty ? nil : CountStrings.label(tracks.count, .songs),
+            albums.isEmpty ? nil : CountStrings.label(albums.count, .albums),
+            artists.isEmpty ? nil : CountStrings.label(artists.count, .artists),
         ].compactMap { $0 }
         return Text(parts.isEmpty ? " " : parts.joined(separator: " · "))
             .font(Theme.font(13, weight: .medium))

@@ -963,7 +963,7 @@ struct ArtistDetailView: View {
     @ViewBuilder
     private func footer(_ artist: Artist?) -> some View {
         if let artist = artist {
-            Text("\(artist.name) · \(artistAlbums.count) \(artistAlbums.count == 1 ? "album" : "albums") in your library")
+            Text("\(artist.name) · \(CountStrings.label(artistAlbums.count, .albums)) in your library")
                 .font(Theme.font(11, weight: .medium))
                 .foregroundStyle(Theme.ink3)
                 .padding(.horizontal, 32)
@@ -1042,7 +1042,7 @@ private struct ArtistDiscographyTile: View {
     /// a track count; year is best-effort (some albums ship without it), so
     /// we fall back to just the track count in that case.
     private var yearLine: String {
-        let tracks = album.trackCount == 1 ? "1 track" : "\(album.trackCount) tracks"
+        let tracks = CountStrings.label(Int(album.trackCount), .tracks)
         if let year = album.year, year > 0 {
             return "\(year) · \(tracks)"
         }
@@ -1183,8 +1183,7 @@ private struct FeaturingPlaylistTile: View {
     private var subtitle: String {
         switch playlist.trackCount {
         case 0: return "Empty"
-        case 1: return "1 track"
-        default: return "\(playlist.trackCount) tracks"
+        default: return CountStrings.label(Int(playlist.trackCount), .tracks)
         }
     }
 }

@@ -119,10 +119,10 @@ struct ArtistCard: View {
     /// this artist" rather than an orphaned label.
     private var albumCountLabel: String {
         if artist.albumCount > 0 {
-            return artist.albumCount == 1 ? "1 album" : "\(artist.albumCount) albums"
+            return CountStrings.label(Int(artist.albumCount), .albums)
         }
         if artist.songCount > 0 {
-            return artist.songCount == 1 ? "1 song" : "\(artist.songCount) songs"
+            return CountStrings.label(Int(artist.songCount), .songs)
         }
         return "Artist"
     }

@@ -75,7 +75,7 @@ struct QueueInspector: View {
         // the title so a user with a long queue sees at a glance what's
         // about to disappear — the generic "Clear queue?" hid that.
         .confirmationDialog(
-            "Clear \(totalQueueCount) items?",
+            "Clear \(CountStrings.label(totalQueueCount, .items))?",
             isPresented: $showClearConfirm,
             titleVisibility: .visible
         ) {
@@ -800,7 +800,7 @@ private struct SaveQueueSheet: View {
                 Text("Save queue as playlist")
                     .font(Theme.font(15, weight: .bold))
                     .foregroundStyle(Theme.ink)
-                Text("Creates a new playlist with \(totalCount) \(totalCount == 1 ? "track" : "tracks").")
+                Text("Creates a new playlist with \(CountStrings.label(totalCount, .tracks)).")
                     .font(Theme.font(11, weight: .medium))
                     .foregroundStyle(Theme.ink3)
             }

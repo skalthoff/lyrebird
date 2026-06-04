@@ -215,7 +215,7 @@ struct TrackRow: View {
     /// "1 play" / "12 plays" readout shown on hover when the user enables
     /// "Show play counts on hover". Matches `TopTrackRow`'s wording.
     private var playCountLabel: String {
-        track.playCount == 1 ? "1 play" : "\(track.playCount) plays"
+        CountStrings.label(Int(track.playCount), .plays)
     }
 
     /// Move the shared focus cursor by `delta` within `tracks`. Returns
