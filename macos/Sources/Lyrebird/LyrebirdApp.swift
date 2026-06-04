@@ -66,7 +66,14 @@ struct LyrebirdApp: App {
         // their View/Commands closures, which can branch) sidesteps
         // `SceneBuilder`'s lack of conditional support. See `CoreInitFailureView`
         // (audit L31).
-        WindowGroup("Lyrebird") {
+        // Primary window group, given an explicit id so File ▸ "New Window"
+        // (#11) can summon another instance via `openWindow(id:)`. A
+        // `WindowGroup` already supports multiple concurrent windows — every
+        // instance mounts the same `RootView` against the shared `AppModel`, so
+        // a second window shares playback / queue / library automatically. The
+        // id is the *only* change needed to re-enable that; see
+        // `MainWindowScene` and the New Window command in `LyrebirdCommands`.
+        WindowGroup("Lyrebird", id: MainWindowScene.id) {
             primaryWindowContent
         }
         .defaultSize(width: 1280, height: 820)
@@ -203,6 +210,20 @@ enum MiniPlayerScene {
     static let id = "mini-player"
 }
 
+/// Scene identity for the primary app window's `WindowGroup` (#11). Giving the
+/// group an explicit id lets the File ▸ "New Window" command summon another
+/// instance via `openWindow(id:)`. `WindowGroup` natively supports any number
+/// of live windows; the only reason a second one couldn't be opened before was
+/// that `CommandGroup(replacing: .newItem)` repurposed ⌘N for "New Playlist"
+/// and dropped SwiftUI's default New Window item along with it. Every window
+/// mounts the same `RootView` against the shared singleton `AppModel`, so
+/// playback, queue, and the library stay unified across windows by
+/// construction — see `LyrebirdCommands` for the (shared-state) navigation
+/// caveat.
+enum MainWindowScene {
+    static let id = "main"
+}
+
 // MARK: - FocusedValue plumbing
 //
 // SwiftUI `FocusedValues` expose per-scene state to commands and menus
@@ -228,9 +249,11 @@ extension FocusedValues {
 ///
 /// The transport commands live under a dedicated **Playback** `CommandMenu`
 /// that slots in between View and Window per macOS HIG (see e.g. Music.app).
-/// Navigation overrides hang off the standard `.sidebar` group; **File** and
-/// **View** get additive entries so system defaults (New Window from
-/// `WindowGroup`, Show Tab Bar, Enter Full Screen) stay intact.
+/// Navigation overrides hang off the standard `.sidebar` group; **View** gets
+/// additive entries so system defaults (Show Tab Bar, Enter Full Screen) stay
+/// intact. **File** replaces `.newItem` to bind ⌘N to New Playlist, then adds
+/// an explicit New Window command (⌘⇧N) since replacing `.newItem` also drops
+/// SwiftUI's default New Window item — see the File section below and #11.
 ///
 /// Every Button disables itself when the underlying action isn't meaningful
 /// (e.g. skipping next while no track is loaded or switching tabs while
@@ -289,6 +312,31 @@ struct LyrebirdCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: .command)
             .disabled(model.session == nil)
+        }
+
+        // MARK: File — New Window (⌘⇧N, #11)
+        //
+        // Re-enables SwiftUI's multiple-window support, which was lost when the
+        // group above replaced `.newItem` (and with it the default New Window
+        // item) to repurpose ⌘N for New Playlist. Rather than restore the
+        // stock item — which would steal ⌘N back — we add an explicit New
+        // Window command on ⌘⇧N and summon another instance of the primary
+        // `WindowGroup` by id. Each new window mounts the same `RootView`
+        // against the shared singleton `AppModel`, so playback / queue /
+        // library are unified across windows.
+        // Navigation (the active tab + drill stack) is also shared today —
+        // both windows mirror `model.screen` / `model.navPath`; see the type
+        // doc on `MainWindowScene` and the navigation note in this file's
+        // header. Sidebar width / queue-inspector visibility remain per-window
+        // because they're `@SceneStorage`-backed (#10).
+        //
+        // Placed `after: .newItem` so it sits directly beneath New Playlist in
+        // the File menu without disturbing that group.
+        CommandGroup(after: .newItem) {
+            Button("menu.file.new_window") {
+                openWindow(id: MainWindowScene.id)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
         }
 
         // MARK: - View menu additions (sidebar + queue inspector + full screen)
@@ -580,13 +628,15 @@ struct LyrebirdCommands: Commands {
         }
 
         // Note: ⌘, (Preferences), ⌘Q (Quit), Hide / Hide Others / Services,
-        // Cut / Copy / Paste / Undo / Redo / Select All, New Window (⌘N),
-        // Close Window (⌘W), Minimize (⌘M), Zoom, Enter Full Screen (⌘⌃F),
-        // Bring All to Front, and the app's About box are all provided
-        // automatically by SwiftUI + AppKit when a `Settings` scene and
-        // `WindowGroup` are declared. We intentionally DON'T replace those
-        // groups — overriding them would mean losing the system-standard
-        // behavior (e.g. AppKit's responder-chain text editing actions).
+        // Cut / Copy / Paste / Undo / Redo / Select All, Close Window (⌘W),
+        // Minimize (⌘M), Zoom, Enter Full Screen (⌘⌃F), Bring All to Front,
+        // and the app's About box are all provided automatically by SwiftUI +
+        // AppKit when a `Settings` scene and `WindowGroup` are declared. We
+        // intentionally DON'T replace those groups — overriding them would mean
+        // losing the system-standard behavior (e.g. AppKit's responder-chain
+        // text editing actions). New Window is the exception: replacing
+        // `.newItem` for New Playlist (⌘N) drops the stock New Window item, so
+        // it's re-added explicitly on ⌘⇧N in the File section above (#11).
     }
 
     /// Catalog key for the Play / Pause toggle in the Playback menu. Returned
