@@ -892,11 +892,139 @@ final class AppModel {
     /// Look up a palette action by id and run it. Called by `CommandPalette`
     /// on ↩ commit. Also closes the palette on success, mirroring the
     /// "execute and dismiss" behavior users expect from Spotlight-style
-    /// launchers. See #307.
+    /// launchers. Records the run in the recents list so the next empty-query
+    /// open surfaces it under "Recent". See #307 / #308.
     func executePaletteAction(id: String) {
         guard let action = paletteActions.first(where: { $0.id == id }) else { return }
+        recordPaletteActionUsage(id: id)
         action.run()
         isCommandPaletteOpen = false
+    }
+
+    // MARK: - Command Palette recents + pinned (#308)
+    //
+    // The empty-query palette shows Pinned actions first, then the most
+    // recently run actions, then the remaining static roster. Both lists are
+    // persisted as JSON `[String]` (action ids) in `UserDefaults` — the same
+    // `@Observable` → UserDefaults bridge the mini-player flag (above) and the
+    // recent-searches list use, since `@Observable` can't reach `@AppStorage`
+    // directly. Storing ids (not the `PaletteAction` structs) keeps the store
+    // decoupled from the live roster: an id that no longer resolves (e.g. a
+    // capability-gated action whose flag is now off) is simply skipped when
+    // the palette rebuilds its rows, and the persisted entry is harmless.
+
+    /// UserDefaults key for the JSON-encoded recent-action-id list.
+    private static let paletteRecentActionIdsKey = "palette.recentActionIds"
+
+    /// UserDefaults key for the JSON-encoded pinned-action-id list.
+    private static let palettePinnedActionIdsKey = "palette.pinnedActionIds"
+
+    /// How many recently-run actions to retain. Five keeps the empty-query
+    /// "Recent" group short enough to scan at a glance without pushing the
+    /// full roster below the fold of the 360pt results scroll.
+    static let paletteRecentActionsCap = 5
+
+    /// Most-recently-run palette action ids, newest first. Mirrored into
+    /// `UserDefaults` through `recordPaletteActionUsage(id:)`; initialised
+    /// from the persisted JSON so recents survive relaunch.
+    private(set) var paletteRecentActionIds: [String] =
+        AppModel.decodePaletteActionIds(
+            UserDefaults.standard.string(forKey: AppModel.paletteRecentActionIdsKey) ?? "[]"
+        )
+
+    /// Pinned palette action ids, in user-pin order (newest pin first).
+    /// Mirrored into `UserDefaults` through `pinPaletteAction` /
+    /// `unpinPaletteAction`; initialised from the persisted JSON.
+    private(set) var palettePinnedActionIds: [String] =
+        AppModel.decodePaletteActionIds(
+            UserDefaults.standard.string(forKey: AppModel.palettePinnedActionIdsKey) ?? "[]"
+        )
+
+    /// Record that `id` was just run: dedupe, insert at the front, cap to
+    /// `paletteRecentActionsCap`, and persist. Mirrors `addRecentSearch`'s
+    /// dedupe/cap/insert-at-0 contract so the most-recent action is always
+    /// first and a re-run promotes (rather than duplicates) an entry.
+    func recordPaletteActionUsage(id: String) {
+        paletteRecentActionIds = AppModel.appendPaletteRecent(
+            id,
+            into: paletteRecentActionIds,
+            cap: AppModel.paletteRecentActionsCap
+        )
+        persist(paletteRecentActionIds, forKey: AppModel.paletteRecentActionIdsKey)
+    }
+
+    /// Whether `id` is currently pinned. Cheap membership test for the row
+    /// context menu's "Pin"/"Unpin" label and the empty-query grouping.
+    func isPaletteActionPinned(id: String) -> Bool {
+        palettePinnedActionIds.contains(id)
+    }
+
+    /// Pin `id` (no-op if already pinned). New pins go to the front so the
+    /// most-recently-pinned action leads the "Pinned" group, matching the
+    /// recents ordering.
+    func pinPaletteAction(id: String) {
+        guard !palettePinnedActionIds.contains(id) else { return }
+        palettePinnedActionIds.insert(id, at: 0)
+        persist(palettePinnedActionIds, forKey: AppModel.palettePinnedActionIdsKey)
+    }
+
+    /// Unpin `id` (no-op if not pinned).
+    func unpinPaletteAction(id: String) {
+        guard palettePinnedActionIds.contains(id) else { return }
+        palettePinnedActionIds.removeAll { $0 == id }
+        persist(palettePinnedActionIds, forKey: AppModel.palettePinnedActionIdsKey)
+    }
+
+    /// Toggle the pin state of `id`. Wired to the palette row's right-click
+    /// "Pin"/"Unpin" affordance.
+    func togglePaletteActionPin(id: String) {
+        if isPaletteActionPinned(id: id) {
+            unpinPaletteAction(id: id)
+        } else {
+            pinPaletteAction(id: id)
+        }
+    }
+
+    /// Append a run to the recent-action-id list: drop any existing copy,
+    /// insert at the front, cap to `cap`. Pure + static so the cap / dedupe /
+    /// ordering contract is unit-testable without booting an `AppModel`,
+    /// mirroring `addRecentSearch`. Action ids are exact-match (not
+    /// case-insensitive) since they're internal identifiers, not user text.
+    static func appendPaletteRecent(_ id: String, into list: [String], cap: Int) -> [String] {
+        guard !id.isEmpty else { return list }
+        var next = list
+        next.removeAll { $0 == id }
+        next.insert(id, at: 0)
+        if next.count > cap {
+            next = Array(next.prefix(cap))
+        }
+        return next
+    }
+
+    /// Decode a persisted JSON `[String]` of action ids. Returns `[]` on
+    /// malformed data so a stale shape from a prior build can't wedge the
+    /// palette — same defensive decode as `decodeRecentSearches`.
+    static func decodePaletteActionIds(_ json: String) -> [String] {
+        guard let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String].self, from: data)
+        else { return [] }
+        return decoded
+    }
+
+    /// Encode an action-id list back to the JSON string persisted in
+    /// `UserDefaults`. Returns `"[]"` on failure so a write never stores a
+    /// half-baked value.
+    static func encodePaletteActionIds(_ list: [String]) -> String {
+        guard let data = try? JSONEncoder().encode(list),
+              let s = String(data: data, encoding: .utf8)
+        else { return "[]" }
+        return s
+    }
+
+    /// Persist an action-id list under `key` via the JSON-in-UserDefaults
+    /// bridge.
+    private func persist(_ list: [String], forKey key: String) {
+        UserDefaults.standard.set(AppModel.encodePaletteActionIds(list), forKey: key)
     }
 
     init() throws {
