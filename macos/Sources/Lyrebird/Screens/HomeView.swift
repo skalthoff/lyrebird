@@ -31,6 +31,7 @@ struct HomeView: View {
                 // land (#206, #209).
                 recentlyPlayedSection
                 artistsYouLoveSection
+                recentlyDiscoveredArtistsSection
                 jumpBackInSection
                 recentlyPlayedTracksSection
                 yourPlaylistsSection
@@ -438,6 +439,50 @@ struct HomeView: View {
     /// horizontal scroll bounded for users with a large favorites set; the
     /// "See All" button routes to the full Favorites screen for the rest.
     private var artistsYouLoveLimit: Int { 18 }
+
+    /// "Recently Discovered Artists" — a circle-card carousel of the album
+    /// artists whose catalogue most recently landed on the library (#252).
+    /// Reads `model.recentlyDiscoveredArtists`, which the core sorts by
+    /// `DateCreated` descending (newest arrivals first) via the
+    /// `listRecentlyAddedArtists` FFI. Reuses `ArtistCard` — the same circular
+    /// tile the Library Artists grid, Favorites screen, and "Artists You Love"
+    /// row render — so the visual language stays consistent and tapping a card
+    /// pushes `Route.artist` through `ArtistCard`'s own button. "See All"
+    /// jumps to the Library tab's Artists list. Hidden when the slice is empty
+    /// so a fresh or static library renders no shelf rather than a blank band.
+    ///
+    /// As with "Artists You Love", `ArtistCard` is built for a grid cell and
+    /// stretches to `maxWidth: .infinity`, so each card is pinned to a fixed
+    /// width here — otherwise the cards would collapse inside the horizontal
+    /// `HStack`. The row is capped so it stays bounded.
+    @ViewBuilder
+    private var recentlyDiscoveredArtistsSection: some View {
+        if !model.recentlyDiscoveredArtists.isEmpty {
+            carouselSection(
+                icon: "person.crop.circle.badge.plus",
+                iconColor: Theme.primary,
+                title: "Recently Discovered Artists",
+                subtitle: "New names that just landed in your library",
+                onSeeAll: {
+                    model.libraryTab = .artists
+                    model.selectTab(.library)
+                }
+            ) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(model.recentlyDiscoveredArtists.prefix(recentlyDiscoveredArtistsLimit), id: \.id) { artist in
+                        ArtistCard(artist: artist)
+                            .frame(width: 150)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    /// Cap on how many circles the "Recently Discovered Artists" row renders.
+    /// Keeps the horizontal scroll bounded; the "See All" button routes to the
+    /// full Library Artists list for the rest.
+    private var recentlyDiscoveredArtistsLimit: Int { 18 }
 
     /// Pick a short list of artists to surface as radio seeds. Prefer
     /// favorites → top-listened → library order. Favorites and top-listened

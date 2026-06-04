@@ -8289,3 +8289,134 @@ fn scrobble_core_threshold_predicate_matches_module() {
     assert!(core.scrobble_threshold_reached(90.0, 180.0));
     assert!(core.scrobble_threshold_reached(240.0, 0.0));
 }
+
+// ---- #252: Recently Discovered Artists (DateCreated-desc artists) ----
+
+#[tokio::test]
+async fn recently_added_artists_builds_query_and_parses() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Artists/AlbumArtists"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                {
+                    "Id": "ar1", "Name": "Zillion", "Type": "MusicArtist",
+                    "ImageTags": { "Primary": "img" }
+                }
+            ],
+            "TotalRecordCount": 3213
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let page = client
+        .recently_added_artists(Paging::new(0, 12))
+        .await
+        .unwrap();
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.total_count, 3213);
+    assert_eq!(page.items[0].name, "Zillion");
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    // The whole point of #252: newest-added artists first.
+    assert!(q.contains("SortBy=DateCreated"), "query: {q}");
+    assert!(q.contains("SortOrder=Descending"), "query: {q}");
+    // Otherwise identical to the plain `artists` query.
+    assert!(q.contains("Recursive=true"), "query: {q}");
+    assert!(q.contains("Limit=12"), "query: {q}");
+    assert!(q.contains("StartIndex=0"), "query: {q}");
+    assert!(q.contains("EnableUserData=true"), "query: {q}");
+    assert!(q.contains("EnableImages=true"), "query: {q}");
+    assert!(q.contains("ImageTypeLimit=1"), "query: {q}");
+    // Same `IncludeItemTypes`-absence contract as `artists` (see
+    // `artists_does_not_send_include_item_types_music_artist`).
+    assert!(!q.contains("IncludeItemTypes="), "unexpected IncludeItemTypes: {q}");
+}
+
+#[tokio::test]
+async fn recently_added_artists_honours_paging_offset() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Artists/AlbumArtists"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [], "TotalRecordCount": 0
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let _ = client
+        .recently_added_artists(Paging::new(40, 20))
+        .await
+        .unwrap();
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    assert!(q.contains("StartIndex=40"), "query: {q}");
+    assert!(q.contains("Limit=20"), "query: {q}");
+    assert!(q.contains("SortBy=DateCreated"), "query: {q}");
+}
+
+#[tokio::test]
+async fn plain_artists_query_still_sorts_by_sort_name_ascending() {
+    // Guards the #252 refactor: extracting `album_artists_sorted` must not
+    // change the default `artists()` sort away from SortName ascending.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Artists/AlbumArtists"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [], "TotalRecordCount": 0
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let _ = client.artists(Paging::new(0, 50)).await.unwrap();
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    assert!(q.contains("SortBy=SortName"), "query: {q}");
+    assert!(q.contains("SortOrder=Ascending"), "query: {q}");
+}

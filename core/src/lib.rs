@@ -367,6 +367,21 @@ impl LyrebirdCore {
         self.with_client(|c| self.runtime.block_on(c.artists(Paging::new(offset, limit))))
     }
 
+    /// Album artists most recently added to the library, sorted by
+    /// server-side `DateCreated` descending. Powers the Home "Recently
+    /// Discovered Artists" row (#252). Same shape as [`Self::list_artists`],
+    /// only the sort differs.
+    pub fn list_recently_added_artists(
+        &self,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedArtists, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime
+                .block_on(c.recently_added_artists(Paging::new(offset, limit)))
+        })
+    }
+
     /// Every album where the given artist is the primary (album) artist,
     /// paginated. Scopes by `AlbumArtistIds` on the server so compilations
     /// the artist only appears on don't leak into the Discography section.

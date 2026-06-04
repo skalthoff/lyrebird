@@ -532,15 +532,47 @@ impl JellyfinClient {
     // ----- Library queries -----
 
     pub async fn artists(&self, paging: Paging) -> Result<PaginatedArtists> {
+        self.album_artists_sorted(ItemSortBy::SortName, SortOrder::Ascending, paging)
+            .await
+    }
+
+    /// Album artists most recently added to the library, sorted by
+    /// `DateCreated` descending. Powers the Home "Recently Discovered
+    /// Artists" row (#252) — the set of artists whose catalogue just landed
+    /// on the server, newest first.
+    ///
+    /// Same `/Artists/AlbumArtists` endpoint and field set as [`artists`],
+    /// only the sort differs. Jellyfin scopes the `DateCreated` of an
+    /// artist to when its first item was ingested, so descending order
+    /// surfaces freshly-imported artists. Verified live against
+    /// music.skalthoff.com — `SortBy=DateCreated&SortOrder=Descending`
+    /// returns a strictly descending `DateCreated` window.
+    ///
+    /// [`artists`]: JellyfinClient::artists
+    pub async fn recently_added_artists(&self, paging: Paging) -> Result<PaginatedArtists> {
+        self.album_artists_sorted(ItemSortBy::DateCreated, SortOrder::Descending, paging)
+            .await
+    }
+
+    /// Shared implementation behind [`artists`] and
+    /// [`recently_added_artists`]. `Artists/AlbumArtists` is a dedicated
+    /// endpoint, not a standard `/Items` query, so we issue the request
+    /// directly rather than going through [`ItemsQuery::execute`]. We still
+    /// format the params via the typed enum helpers so the set of allowed
+    /// values lives in one place.
+    ///
+    /// [`artists`]: JellyfinClient::artists
+    /// [`recently_added_artists`]: JellyfinClient::recently_added_artists
+    async fn album_artists_sorted(
+        &self,
+        sort_by: ItemSortBy,
+        sort_order: SortOrder,
+        paging: Paging,
+    ) -> Result<PaginatedArtists> {
         let user_id = self
             .user_id
             .as_ref()
             .ok_or(LyrebirdError::NotAuthenticated)?;
-        // `Artists/AlbumArtists` is a dedicated endpoint, not a standard
-        // `/Items` query, so we issue the request directly rather than
-        // going through [`ItemsQuery::execute`]. We still format the params
-        // via the typed enum helpers so the set of allowed values lives in
-        // one place.
         let mut url = self.endpoint("Artists/AlbumArtists")?;
         {
             let mut q = url.query_pairs_mut();
@@ -556,8 +588,8 @@ impl JellyfinClient {
             // endpoint returns the full artist list.
             q.append_pair("Limit", &paging.limit.max(1).to_string());
             q.append_pair("StartIndex", &paging.offset.to_string());
-            q.append_pair("SortBy", ItemSortBy::SortName.as_str());
-            q.append_pair("SortOrder", SortOrder::Ascending.as_str());
+            q.append_pair("SortBy", sort_by.as_str());
+            q.append_pair("SortOrder", sort_order.as_str());
             q.append_pair(
                 "Fields",
                 &enums::csv(

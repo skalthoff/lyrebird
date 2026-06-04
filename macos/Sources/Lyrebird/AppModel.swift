@@ -281,6 +281,16 @@ final class AppModel {
     /// section, so the two never drift. Hidden in the Home layout when
     /// empty — a fresh user with no favorited artists sees no shelf.
     var favoriteArtists: [Artist] = []
+    /// "Recently Discovered Artists" for the Home circle-card row (#252).
+    /// The album artists whose catalogue most recently landed on the
+    /// server, newest first — sorted server-side by `DateCreated`
+    /// descending via the `core.listRecentlyAddedArtists` FFI (the
+    /// `Artists/AlbumArtists` endpoint with a `DateCreated`-desc sort).
+    /// Distinct from `recentlyAdded`, which surfaces newly-added *albums*:
+    /// this row answers "whose music just showed up in my library?".
+    /// Reuses `ArtistCard`. Capped at a modest count for the carousel and
+    /// hidden when empty so a fresh / static library renders no shelf.
+    var recentlyDiscoveredArtists: [Artist] = []
     /// "Rediscover" — albums the user has never played, for the Home shelf
     /// of the same name (#57). Backed by an `/Items` query filtered to
     /// `IsUnplayed` and sorted `Random` so the row surfaces a fresh,
@@ -1259,6 +1269,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        recentlyDiscoveredArtists = []
         rediscover = []
         suggestions = []
         searchResults = nil
@@ -1332,6 +1343,7 @@ final class AppModel {
         favoriteAlbumsAll = []
         favoriteAlbumsVisible = []
         favoriteArtists = []
+        recentlyDiscoveredArtists = []
         rediscover = []
         suggestions = []
         searchResults = nil
@@ -1494,6 +1506,7 @@ final class AppModel {
         await refreshQuickPicks()
         await refreshFavoriteAlbums()
         await refreshFavoriteArtists()
+        await refreshRecentlyDiscoveredArtists()
         await refreshRediscover()
         await refreshSuggestions()
     }
@@ -2010,6 +2023,22 @@ final class AppModel {
     /// empty or errored result just leaves the shelf hidden.
     func refreshFavoriteArtists() async {
         self.favoriteArtists = await loadFavoriteArtists(limit: 100)
+    }
+
+    /// Refresh the "Recently Discovered Artists" carousel (#252). Calls the
+    /// `core.listRecentlyAddedArtists` FFI, which hits Jellyfin's
+    /// `Artists/AlbumArtists` endpoint sorted `DateCreated` descending, so
+    /// the row surfaces the album artists whose catalogue most recently
+    /// landed on the server. Runs off the MainActor per the gap-#2 pattern
+    /// so the Rust `Inner` mutex doesn't block the UI thread. Best-effort:
+    /// an empty or errored result just leaves the shelf hidden. We request a
+    /// few more than the view's display cap so the row stays full even if
+    /// the freshest entries dedupe against another shelf later.
+    func refreshRecentlyDiscoveredArtists() async {
+        let fetched = await Task.detached(priority: .userInitiated) { [core] in
+            (try? core.listRecentlyAddedArtists(offset: 0, limit: 24))?.items ?? []
+        }.value
+        self.recentlyDiscoveredArtists = fetched
     }
 
     /// Refresh the "You might like" discovery row (#145). Calls
