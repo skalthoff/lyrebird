@@ -3,8 +3,17 @@
     <channel>
         <title>Lyrebird</title>
         <item>
+            <title>2.0.0-rc1</title>
+            <pubDate>Fri, 05 Jun 2026 16:51:20 +0000</pubDate>
+            <link>https://skalthoff.github.io/lyrebird-desktop/</link>
+            <sparkle:version>202606051639</sparkle:version>
+            <sparkle:shortVersionString>2.0.0-rc1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/skalthoff/lyrebird/releases/download/v2.0.0-rc1/Lyrebird-2.0.0-rc1.dmg" length="8916120" type="application/octet-stream" sparkle:edSignature="quhJO+lKcVqVOPWxUjCE37KkyRv2616Jy5q+zqMJWr7AUDptq1/Zg0jvNcSALbgp1PPN08JQtGgnG6Px9PBQAQ=="/>
+        </item>
+        <item>
             <title>1.0.1-beta.3</title>
-            <pubDate>Tue, 02 Jun 2026 14:00:16 +0000</pubDate>
+            <pubDate>Fri, 05 Jun 2026 16:51:21 +0000</pubDate>
             <link>https://skalthoff.github.io/lyrebird-desktop/</link>
             <sparkle:version>202606021345</sparkle:version>
             <sparkle:shortVersionString>1.0.1-beta.3</sparkle:shortVersionString>
@@ -13,21 +22,12 @@
         </item>
         <item>
             <title>1.0.1-beta.2</title>
-            <pubDate>Tue, 02 Jun 2026 14:00:17 +0000</pubDate>
+            <pubDate>Fri, 05 Jun 2026 16:51:22 +0000</pubDate>
             <link>https://skalthoff.github.io/lyrebird-desktop/</link>
             <sparkle:version>202606012324</sparkle:version>
             <sparkle:shortVersionString>1.0.1-beta.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <enclosure url="https://github.com/skalthoff/lyrebird/releases/download/v1.0.1-beta.2/Lyrebird-1.0.1-beta.2.dmg" length="7871018" type="application/octet-stream" sparkle:edSignature="o1ZSrZ5jTekx1WboDjPRf+eXrv8RCdptUmy9ssP3TNfh8kvUY2bahQNbwXuvKWryUOiNXU/aB9nNxF8m6gP3Ag=="/>
-        </item>
-        <item>
-            <title>1.0.1-beta.1</title>
-            <pubDate>Tue, 02 Jun 2026 14:00:18 +0000</pubDate>
-            <link>https://skalthoff.github.io/lyrebird-desktop/</link>
-            <sparkle:version>202606010651</sparkle:version>
-            <sparkle:shortVersionString>1.0.1-beta.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/skalthoff/lyrebird/releases/download/v1.0.1-beta.1/Lyrebird-1.0.1-beta.1.dmg" length="7489291" type="application/octet-stream" sparkle:edSignature="1ViT9uIn6ZKcVNyb+O1WvWdnfQ9Nx+ZdR6D0+Y+JMmylUzWnKWwLTlhA8AZ4eGKzO2puRqtcZtqoQewM6njFAA=="/>
         </item>
     </channel>
 </rss>
