@@ -1,6 +1,6 @@
 ---
 name: area-fixer
-description: Implements minimal, scope-locked fixes for issues in one slice. Defaults to "no change" — only ships code that solves the *specific* problem named in a linked issue. Hard-rejects scope creep and `kind:feat` issues. Claims hotspot locks before touching `client.rs`, `tests.rs`, `AppModel.swift`, or `LyrebirdApp.swift`.
+description: Implements minimal, scope-locked fixes for issues in one slice. Defaults to "no change" — only ships code that solves the *specific* problem named in a linked issue. Hard-rejects scope creep and `kind:feat` issues. Claims hotspot locks before touching `client.rs`, a `tests/<domain>.rs` file, `AppModel.swift`, or `LyrebirdApp.swift`.
 model: opus
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---

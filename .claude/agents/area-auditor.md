@@ -25,7 +25,7 @@ Sweep ONE slice of the codebase and decide which (if any) of what you see is a *
    - `slice:client` → `core/src/client.rs`
    - `slice:models` → `core/src/models.rs`, `core/src/enums.rs`
    - `slice:state` → `core/src/player.rs`, `core/src/storage.rs`, `core/src/lib.rs`
-   - `slice:tests` → `core/src/tests.rs`
+   - `slice:tests` → `core/src/tests/` (domain-split: `client.rs`, `playlists.rs`, …)
    - `slice:screens` → `macos/Sources/Lyrebird/Screens/`
    - `slice:components` → `macos/Sources/Lyrebird/Components/`
    - `slice:audio` → `macos/Sources/LyrebirdAudio/`, `macos/Sources/Lyrebird/Theme/`, `macos/Sources/Lyrebird/System/`

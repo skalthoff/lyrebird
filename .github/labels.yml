@@ -52,7 +52,7 @@
 - { name: "slice:client",     color: "1D76DB", description: "core/src/client.rs — Jellyfin REST surface" }
 - { name: "slice:models",     color: "1D76DB", description: "core/src/models.rs + enums.rs — UniFFI types" }
 - { name: "slice:state",      color: "1D76DB", description: "core/src/{player,storage,lib}.rs — state + FFI surface" }
-- { name: "slice:tests",      color: "1D76DB", description: "core/src/tests.rs — Rust test suite" }
+- { name: "slice:tests",      color: "1D76DB", description: "core/src/tests/ — Rust test suite (domain-split)" }
 - { name: "slice:screens",    color: "000000", description: "macos Screens/* — full-screen views" }
 - { name: "slice:components", color: "000000", description: "macos Components/* — reusable widgets" }
 - { name: "slice:audio",      color: "000000", description: "macos LyrebirdAudio/ + Theme/ + System/" }
@@ -60,7 +60,7 @@
 
 # -- Hotspot locks (managed by Scripts/area-lock.sh; do not assign manually) --
 - { name: "lock:hotspot-clientrs",   color: "B60205", description: "core/src/client.rs has an open fix; do not parallelize" }
-- { name: "lock:hotspot-testsrs",    color: "B60205", description: "core/src/tests.rs has an open fix; do not parallelize" }
+- { name: "lock:hotspot-testsrs",    color: "B60205", description: "a core/src/tests/<domain>.rs file has an open fix; do not parallelize on that domain" }
 - { name: "lock:hotspot-appmodel",   color: "B60205", description: "AppModel.swift has an open fix; do not parallelize" }
 - { name: "lock:hotspot-lyrebirdapp", color: "B60205", description: "LyrebirdApp.swift has an open fix; do not parallelize" }
 

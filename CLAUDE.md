@@ -11,11 +11,17 @@ workspace-level CLAUDE.md one directory up.
 - `macos/` — SwiftUI app. Consumes `LyrebirdCore` via the committed
   `macos/Lyrebird.xcframework` + generated `macos/Sources/LyrebirdCore/Generated/lyrebird_core.swift`.
   AudioEngine wraps AVQueuePlayer; Nuke handles artwork.
-- `core/src/client.rs` (92KB) — Jellyfin REST client. Heavy rebase-conflict
-  hotspot; see "Merge hygiene".
-- `core/src/tests.rs` (4000+ lines) — tests always append at EOF, so every
-  concurrent PR collides on rebase. See "Merge hygiene".
-- `macos/Sources/Lyrebird/AppModel.swift` (~4000 lines) — the single
+- `core/src/client.rs` (3,400+ lines) — Jellyfin REST client. Heavy
+  rebase-conflict hotspot; see "Merge hygiene".
+- `core/src/tests/` — the core test suite, split by domain (`client.rs`,
+  `playlists.rs`, `playback.rs`, `session_auth.rs`, `discovery.rs`, …) under
+  `tests/mod.rs`, which holds the shared imports + fixtures (`mock_client`,
+  `install_mock_keyring`, …) that each submodule pulls in via `use super::*`.
+  Add a new test to the domain file matching its subject — or add a new
+  `mod <bucket>;` to `tests/mod.rs` — instead of appending to one giant file.
+  The June 2026 split retired the old single ~9.5k-line `tests.rs`; see
+  "Merge hygiene".
+- `macos/Sources/Lyrebird/AppModel.swift` (~7,100 lines) — the single
   `@MainActor` view model. Every screen reads from it. Conflict hotspot
   #1. Never parallelize two agents against this file.
 - `macos/Sources/Lyrebird/LyrebirdApp.swift` — app scaffold. Conflict hotspot #2.
@@ -102,7 +108,9 @@ of their own `fix/<name>` branch. Every agent prompt should include:
 - `macos/Sources/Lyrebird/AppModel.swift`
 - `macos/Sources/Lyrebird/LyrebirdApp.swift`
 - `core/src/client.rs`
-- `core/src/tests.rs` (see merge hygiene)
+- `core/src/tests/<domain>.rs` — far lower risk since the June 2026 domain
+  split; two agents now collide only if they append to the *same* domain
+  file (see merge hygiene)
 
 If two agents both need to touch one of these, run them sequentially and
 merge the first before spawning the second.
@@ -114,23 +122,30 @@ scopes collide on rebase because of the hotspots above. The audit sweep
 ran ~27 agents through 8 waves this way; every wave that broke the tight-
 scope rule regretted it at rebase time.
 
-### Merge hygiene — tests.rs collision pattern
+### Merge hygiene — test collisions
 
-Every PR appending tests at EOF of `core/src/tests.rs` collides on rebase.
-Resolution script:
+The core test suite used to be one ~9.5k-line `core/src/tests.rs` that every
+PR appended to at EOF, so every concurrent PR collided on rebase. As of the
+June 2026 domain split it lives in `core/src/tests/<domain>.rs`. Two PRs now
+collide only when they append to the *same* domain file — append your test to
+the file matching its subject (or add a new `mod <bucket>;` to `tests/mod.rs`)
+and concurrent PRs in different domains rebase cleanly.
+
+When two PRs do land tests in the same domain file, the tail-append
+resolution still applies, scoped to that one file:
 
 ```bash
 # Pick the main-side tests, then manually append the incoming PR's tests.
-git checkout --ours core/src/tests.rs
+git checkout --ours core/src/tests/<domain>.rs
 # Find the line where the incoming PR's tests start in the commit
 # (usually after the pre-rebase EOF), then:
-git show <incoming-commit>:core/src/tests.rs | sed -n '<start>,$p' >> core/src/tests.rs
+git show <incoming-commit>:core/src/tests/<domain>.rs | sed -n '<start>,$p' >> core/src/tests/<domain>.rs
 # Verify no stray '<<<<<<< HEAD' markers remain:
-grep -n '<<<<<<< HEAD' core/src/tests.rs   # should be empty
+grep -n '<<<<<<< HEAD' core/src/tests/<domain>.rs   # should be empty
 ```
 
 If a leftover conflict marker slips through, clippy will fail —
-`sed -i '' '/<<<<<<< HEAD/d; />>>>>>> /d' core/src/tests.rs` is the
+`sed -i '' '/<<<<<<< HEAD/d; />>>>>>> /d' core/src/tests/<domain>.rs` is the
 emergency cleanup.
 
 ### gpgsign constraint for background agents

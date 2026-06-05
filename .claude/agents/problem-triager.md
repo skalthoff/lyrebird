@@ -31,7 +31,7 @@ For each issue, in order:
 2. **Falsifiability re-check** — confirm the issue body has the five falsifiability fields (file:line, reproduction, falsifiability statement, de-dup line, impact-based severity). If any field is missing, label the issue `triage:adversarial-rejected` and comment with which field is missing. Do not include in the manifest.
 3. **Priority downgrade** — `priority:p0` requires a user-visible failure on a core flow. If the body doesn't substantiate that, downgrade to `p1` or `p2` and edit the labels via `gh issue edit`.
 4. **Effort sanity-check** — read the linked file/line. If the fix is clearly larger than the labeled effort, upgrade (`S`→`M`, `M`→`L`). Never auto-downgrade effort; under-estimation is worse than over.
-5. **Hotspot tagging** — if the fix would touch `core/src/client.rs`, `core/src/tests.rs`, `AppModel.swift`, or `LyrebirdApp.swift`, add a comment `pipeline: requires lock:hotspot-X` so the fixer knows.
+5. **Hotspot tagging** — if the fix would touch `core/src/client.rs`, a `core/src/tests/<domain>.rs` file, `AppModel.swift`, or `LyrebirdApp.swift`, add a comment `pipeline: requires lock:hotspot-X` so the fixer knows. (Since the June 2026 test split, two fixes only contend when they touch the *same* `tests/` domain file.)
 
 ## Building the manifest
 

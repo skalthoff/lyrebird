@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# rebase-tests-rs.sh — resolve the always-collides EOF append pattern in
-# core/src/tests.rs. CLAUDE.md documents this as the #1 multi-agent
-# rebase failure mode; this script codifies the manual fix so agents
-# don't have to interpret prose.
+# rebase-tests-rs.sh — resolve the EOF-append collision in a core test file.
 #
-# Usage (from a mid-rebase state where core/src/tests.rs is in conflict):
-#   Scripts/rebase-tests-rs.sh
+# Before the June 2026 domain split this targeted the single
+# core/src/tests.rs. That file is now split into core/src/tests/<domain>.rs,
+# so the collision is far rarer — but two PRs that both append tests to the
+# *same* domain file still collide on its EOF. Pass the conflicted file:
+#
+#   Scripts/rebase-tests-rs.sh core/src/tests/<domain>.rs
 #
 # Behavior:
 #   1. Take the main-side tests as the base (`git checkout --ours`).
 #   2. Find the incoming commit's tests in the rebased commit's diff.
-#   3. Append those tests to the end of the (main-side) tests.rs.
+#   3. Append those tests to the end of the (main-side) file.
 #   4. Sweep any leftover conflict markers as a last-resort cleanup.
 #   5. Stage the file and remind the user to `git rebase --continue`.
 set -euo pipefail
 
-FILE="core/src/tests.rs"
+FILE="${1:-}"
+
+if [[ -z "$FILE" ]]; then
+  echo "usage: Scripts/rebase-tests-rs.sh core/src/tests/<domain>.rs" >&2
+  echo "  (resolves an EOF-append conflict in one core test file)" >&2
+  exit 2
+fi
 
 if [[ ! -f "$FILE" ]]; then
   echo "error: $FILE not found (cwd: $(pwd))" >&2

@@ -51,7 +51,7 @@ Any local mutation that isn't followed by a re-fetch or core push. Per CLAUDE.md
 
 ### 5. Hotspot file growth
 
-Did the diff add lines to `AppModel.swift`, `LyrebirdApp.swift`, `client.rs`, or `tests.rs`? If yes, was the addition justified, or could it have lived in a smaller file? AppModel is already 4312 LoC; every line of growth makes future agents' work worse.
+Did the diff add lines to `AppModel.swift`, `LyrebirdApp.swift`, or `client.rs`? If yes, was the addition justified, or could it have lived in a smaller file? AppModel is already ~7,100 LoC; every line of growth makes future agents' work worse. (Test additions now land in a `core/src/tests/<domain>.rs` file, which is expected — judge those on the right-domain placement, not raw growth.)
 
 ### 6. New-branch test coverage
 

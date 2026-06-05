@@ -1,5 +1,5 @@
 ---
-description: Drive a single GitHub issue through fix → adversarial review → auto-merge. Hard-rejects `kind:feat` issues. Claims hotspot locks for `client.rs` / `tests.rs` / `AppModel.swift` / `LyrebirdApp.swift`.
+description: Drive a single GitHub issue through fix → adversarial review → auto-merge. Hard-rejects `kind:feat` issues. Claims hotspot locks for `client.rs` / `tests/<domain>.rs` / `AppModel.swift` / `LyrebirdApp.swift`.
 argument-hint: "<issue-number>"
 ---
 
