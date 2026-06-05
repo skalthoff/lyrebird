@@ -3,22 +3,18 @@ import Foundation
 import SwiftUI
 @preconcurrency import LyrebirdCore
 
-/// Playlist domain, extracted from `AppModel` to shrink the god-object
-/// (Phase 3 tech-debt split — see `AppModel+Downloads.swift` for the pattern).
+/// Playlist-domain methods on `AppModel`: playback actions
+/// (`play`/`shuffle`/`playNext`/`addToQueue`/`toggleFavorite`/`enqueueDownload`),
+/// sidebar CRUD (create/rename/delete/duplicate, inline-edit commit,
+/// drag-reorder), and sharing (web link, open-in-Jellyfin, M3U/JSON export).
 ///
-/// Pure relocation: the playlist **actions** (`play`/`shuffle`/`playNext`/
-/// `addToQueue`/`toggleFavorite`/`enqueueDownload`), **sidebar CRUD**
-/// (create/rename/delete/duplicate, inline-edit commit, drag-reorder), and
-/// **sharing** (web URL, copy link, open-in-Jellyfin, M3U/JSON export) all
-/// moved here verbatim — no behaviour, signatures, or logic changed.
-///
-/// All `@Observable` stored state these methods read (`playlists`,
+/// The `@Observable` stored state these methods read (`playlists`,
 /// `playlistTracks`, `currentPlaylistTracks`, `playlistDescriptions`,
 /// `sidebarEditingPlaylistId`, `sidebarEditingDraft`,
-/// `sidebarCopyingPlaylistIds`, `playlistPendingDelete`) stays declared on the
+/// `sidebarCopyingPlaylistIds`, `playlistPendingDelete`) is declared on the
 /// main `AppModel` class — stored properties can't live in an extension.
 /// Extensions of a `@MainActor` type inherit its isolation, so every method
-/// here remains main-actor-bound exactly as it was inside the class body.
+/// here is main-actor-bound just like the rest of the class.
 extension AppModel {
     // MARK: - Playlist actions
     //
