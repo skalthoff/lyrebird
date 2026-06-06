@@ -7,9 +7,11 @@ import SwiftUI
 /// `model.navPath` via `Route.artist(artist.id)`.
 ///
 /// Issue: #213 (Library → Artists grid). The overlay play button calls
-/// `AppModel.playAll(artist:)`, which is a logging stub today pending
-/// `artist_tracks` FFI (#156 / #465). The visual affordance matches the
-/// album card so users have a consistent hover model across the grid.
+/// `AppModel.playAll(artist:)`, which is fully wired: it loads the artist's
+/// catalog via `loadTracks(forArtist:)` → `core.tracksByArtist(artistId:offset:limit:)`
+/// off the main actor, then plays the returned tracks (#156). The visual
+/// affordance matches the album card so users have a consistent hover model
+/// across the grid.
 ///
 /// Hover state is lifted to the parent (`LibraryView`) through the
 /// `.libraryHoverID` environment, so a 5k-artist grid doesn't accumulate

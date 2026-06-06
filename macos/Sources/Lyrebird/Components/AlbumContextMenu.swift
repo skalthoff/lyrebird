@@ -21,8 +21,11 @@ import SwiftUI
 /// album page" qualifier. Defaults to `true` so call sites like the library
 /// grid don't need to think about it.
 ///
-/// Many of the backing actions are TODO stubs pending follow-up FFI work
-/// (see individual `AppModel` methods for issue refs).
+/// All backing actions call through to `AppModel` and are wired: Play /
+/// Shuffle / Play Next / Add to Queue, Start Album Radio (`instantMix`),
+/// Add to Playlist, the Go-to navigation, Favorite, Mark All as Played
+/// (`setPlayed`), and Copy Link. Only Download is gated — it shows solely
+/// when `supportsDownloads` is on.
 struct AlbumContextMenu: View {
     @Environment(AppModel.self) private var model
     let album: Album

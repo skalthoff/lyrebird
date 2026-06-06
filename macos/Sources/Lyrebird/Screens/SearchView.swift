@@ -719,10 +719,11 @@ private struct SearchPageTrackRow: View {
 }
 
 /// Simple row for a genre result. Rendered as a clickable chip-row-ish
-/// surface; routes through `AppModel.browseGenre` which is a logging
-/// stub today until the genre browse FFI lands (#823). The context menu
-/// exposes the full genre actions so pin / radio / shuffle work from
-/// here.
+/// surface; routes through `AppModel.browseGenre`, which resolves the
+/// genre name to its Jellyfin UUID via `core.genres` and navigates to
+/// `GenreDetailView` (backed by `core.itemsByGenre` / `core.tracksByGenre`,
+/// shipped in #823). The context menu exposes the full genre actions so
+/// pin / radio / shuffle work from here.
 private struct GenreResultRow: View {
     @Environment(AppModel.self) private var model
     let name: String

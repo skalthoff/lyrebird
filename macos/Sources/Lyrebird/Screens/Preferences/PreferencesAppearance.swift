@@ -62,9 +62,9 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// Row density. Wired to the UI-only selector here; `LibraryView` / track
-/// lists consume the same `@AppStorage("appearance.density")` value once the
-/// density work in #162 lands.
+/// Row density. Wired end-to-end: `LibraryView` reads the same
+/// `@AppStorage("appearance.density")` value and passes it to `TrackListRow`,
+/// which sizes each row off `trackRowHeight` / `trackArtworkSize`.
 enum AppearanceDensity: String, CaseIterable, Identifiable {
     case roomy, compact
 
@@ -98,8 +98,10 @@ enum AppearanceDensity: String, CaseIterable, Identifiable {
     }
 }
 
-/// Sidebar visibility. UI-only today; the sidebar chrome lives in
-/// `Components/Sidebar.swift` and will read this key when auto-hide lands.
+/// Sidebar visibility. Wired end-to-end: `WindowStateStore` resolves a window's
+/// initial column visibility from this key on first launch, and
+/// `MainShell.applySidebarAutoHide` enables width-driven auto-hide only when
+/// `.autoHide` is selected.
 enum AppearanceSidebar: String, CaseIterable, Identifiable {
     case visible, hidden, autoHide = "auto_hide"
 
@@ -237,7 +239,7 @@ struct AppearancePane: View {
 
             AppearanceSection(
                 title: "Density",
-                hint: "Row heights hook in once #162 lands — selection persists now."
+                hint: "Sets track-list row height — Roomy gives taller rows with larger artwork, Compact tightens them so more tracks fit on screen."
             ) {
                 SegmentedPicker(
                     options: AppearanceDensity.allCases,

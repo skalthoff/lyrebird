@@ -4,9 +4,10 @@ import SwiftUI
 /// Circular artist tile used on the Home screen to launch an Instant Mix
 /// ("artist radio") seeded by that artist. Art-forward: a round artwork
 /// thumbnail with a "<Artist> Radio" label beneath it. Tapping the tile
-/// calls `AppModel.startArtistRadio(artist:)` — which is a stub today
-/// (#144) but will route through the core once the FFI lands, at which
-/// point no UI change is required.
+/// calls `AppModel.startArtistRadio(artist:)`, which is fully wired: it
+/// routes through `playInstantMix(seedId:)` → `core.instantMix(itemId:limit:)`
+/// off the main actor, plays the returned tracks, and surfaces failures via
+/// `errorMessage`.
 ///
 /// Issue: #254.
 struct ArtistRadioTile: View {

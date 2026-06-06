@@ -19,8 +19,11 @@ import SwiftUI
 /// Defaults to `true` so call sites like grid rows don't need to think
 /// about it.
 ///
-/// Many of the backing actions are TODO stubs pending follow-up FFI work
-/// (see individual `AppModel` methods for issue refs).
+/// All backing actions call through to `AppModel` and are wired: Play All /
+/// Shuffle All (`tracksByArtist`), Play Next (`playNext`), Start Artist
+/// Radio (`instantMix`), Favorite (`setFavorite`), Go to Artist Page, and
+/// Copy Link. None are gated behind `supportsDownloads` — this menu has no
+/// download action.
 struct ArtistContextMenu: View {
     @Environment(AppModel.self) private var model
     let artist: Artist

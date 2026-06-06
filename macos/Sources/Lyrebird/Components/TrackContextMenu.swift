@@ -26,9 +26,12 @@ import SwiftUI
 /// appears when `playlistScope` is non-nil (invoked from a playlist
 /// detail view).
 ///
-/// Backing actions call through to `AppModel`. Several are TODO stubs
-/// pending FFI work (song radio, track info, download engine,
-/// mark-played). Disabled states follow suit per spec.
+/// Backing actions call through to `AppModel` and are all wired: Play /
+/// Play Next / Add to Queue, Start Song Radio (`instantMix`), Add to
+/// Playlist, the Go-to navigation, Show Track Info (sheet), Favorite,
+/// and Mark as Played (`setPlayed`). Only Download is gated — it shows
+/// solely when `supportsDownloads` is on. Disabled states (multi-select
+/// Song Radio / Copy Link, missing album/artist ids) follow the spec.
 struct TrackContextMenu: View {
     @Environment(AppModel.self) private var model
     /// The selection this menu acts on. Single-track call sites pass

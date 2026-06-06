@@ -106,28 +106,20 @@ extension AppModel {
     /// dialog so an accidental click can't wipe a long queue. Does not
     /// touch the currently-playing track — only what comes after. See #284.
     ///
-    /// The core queue itself still holds the original list (no primitive
-    /// for truncation yet, tracked as TODO(core-#282)); clearing here means
-    /// the inspector goes empty but the engine can continue auto-advancing
-    /// through the underlying album/playlist. We don't reach into
-    /// `core.setQueue` because truncating on remove would also cancel the
-    /// currently-playing track on most engines.
+    /// After clearing the Swift overlays we truncate the engine queue via
+    /// `core.clearQueue()`, which drops every entry except the currently
+    /// playing track (leaving it as a single-item queue). The current track
+    /// keeps playing while everything queued after it stops auto-advancing,
+    /// matching the confirmation dialog's promise. Mirrors the command
+    /// palette's "Clear Queue" verb (#282).
     func clearQueue() {
         upNextUserAdded.removeAll()
         upNextAutoQueue.removeAll()
-        // Pause playback immediately so no phantom track continues (#567).
-        // AVPlayer still has the current item loaded after the queue arrays
-        // are cleared — pausing is the robust fix since stop() tears down
-        // the player item and would break resumption.
-        //
-        // We intentionally do *not* reach into the core's queue here: the
-        // only primitive available is `set_queue`, which rejects an empty
-        // vec with `InvalidIndex` (see `Player::set_queue` in player.rs).
-        // The earlier `try? core.setQueue(tracks: [], startIndex: 0)` was
-        // a silent no-op and is removed. Core-side queue truncation is
-        // tracked as TODO(core-#282); until then, any auto-advance is
-        // gated by the paused AVPlayer above.
-        audio.pause()
+        // #282: truncate the engine queue to the currently playing track so
+        // playback continues but nothing auto-advances after it. Re-read
+        // status so the inspector reflects the now single-item queue.
+        core.clearQueue()
+        status = core.status()
     }
 
     /// Serialize the current queue (currently-playing + user-added + auto

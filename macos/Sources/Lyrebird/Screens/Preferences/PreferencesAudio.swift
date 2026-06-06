@@ -14,9 +14,13 @@ import SwiftUI
 ///
 /// Also houses the **Transcoding preference** — a two-option toggle between
 /// Direct Play (the server decides, prefers passthrough) and Always Transcode
-/// (the server re-encodes even when a direct stream would work). This is the
+/// (the server re-encodes even when a direct stream would work), meant as the
 /// escape hatch for users hitting compatibility issues with a specific codec
-/// or container on their output device.
+/// or container on their output device. It's gated behind the same
+/// `model.supportsStreamQualitySelection` flag and shown disabled until the
+/// core threads a `DeviceProfile` into the `PlaybackInfo` request (#117/#260):
+/// no playback path reads `audio.transcodingPreference` today, so honouring it
+/// needs that absent core primitive rather than just persisting the key.
 ///
 /// Preference keys (user-facing `@AppStorage`):
 /// - `playback.streamingQuality`     — `PlaybackQuality`
@@ -187,11 +191,13 @@ struct PreferencesAudio: View {
 
             PreferenceSection(
                 title: "Transcoding",
-                footnote: "Direct Play passes the original file through untouched when your device supports the codec — fastest and highest quality. Always Transcode forces the server to re-encode, which helps when a specific file won't play cleanly."
+                footnote: qualityAvailable
+                    ? "Direct Play passes the original file through untouched when your device supports the codec — fastest and highest quality. Always Transcode forces the server to re-encode, which helps when a specific file won't play cleanly."
+                    : "Transcoding control is planned. It needs the same server-side transcoding support that isn't available in this build yet."
             ) {
                 PreferenceRow(
                     label: "Preference",
-                    help: transcoding.wrappedValue.subtitle
+                    help: qualityAvailable ? transcoding.wrappedValue.subtitle : "Coming soon."
                 ) {
                     Picker("", selection: transcoding) {
                         ForEach(TranscodingPreference.allCases) { option in
@@ -201,9 +207,11 @@ struct PreferencesAudio: View {
                     .labelsHidden()
                     .pickerStyle(.segmented)
                     .frame(width: 260)
+                    .disabled(!qualityAvailable)
                     .accessibilityLabel("Transcoding preference")
                 }
             }
+            .opacity(qualityAvailable ? 1 : 0.55)
 
             Spacer(minLength: 0)
         }

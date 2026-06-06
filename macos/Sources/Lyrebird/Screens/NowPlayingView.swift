@@ -378,9 +378,10 @@ struct NowPlayingView: View {
     /// Lyrics drawer. Delegates all rendering to `LyricsView`, which
     /// handles the LRC parse + auto-scroll + reduce-motion fallback.
     /// While `currentLyrics` is nil (pre-fetch / between tracks) we
-    /// show a minimal loading row; an empty array — the stub state
-    /// until the core lyrics FFI lands — renders the view's empty
-    /// state.
+    /// show a minimal loading row; an empty array — the live no-lyrics
+    /// state `fetchCurrentTrackLyrics()` sets when the `core.lyrics`
+    /// FFI returns no lyrics for the track (or the fetch fails) —
+    /// renders the view's "No Lyrics" empty state.
     @ViewBuilder
     private var lyricsPanel: some View {
         if let lines = model.currentLyrics {

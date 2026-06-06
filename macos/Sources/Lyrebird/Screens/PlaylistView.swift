@@ -11,11 +11,12 @@ import SwiftUI
 /// tracked as follow-ups. For now this view lands:
 ///   - the 2×2 collage hero (falls back to the playlist's own primary
 ///     image, and finally a gradient placeholder, when track art is thin);
-///   - the click-to-edit title (uses `model.renamePlaylist`, which today
-///     is an in-memory stub pending the `update_playlist` FFI — see #130);
+///   - the click-to-edit title (uses `model.renamePlaylist`, which
+///     persists to the server via `core.renamePlaylist` — optimistic
+///     update with rollback + `errorMessage` on failure);
 ///   - the click-to-edit description, backed by
 ///     `model.playlistDescriptions` since the core's `Playlist` record
-///     doesn't yet expose `Overview`;
+///     doesn't yet expose `Overview` — see #130;
 ///   - a minimal ordered tracks list using `TrackRow`, wired to play
 ///     through `model.play(tracks:startIndex:)`.
 struct PlaylistView: View {

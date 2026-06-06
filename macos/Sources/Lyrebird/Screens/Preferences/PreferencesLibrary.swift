@@ -10,8 +10,9 @@ import SwiftUI
 /// count appears on hover. These write the `LibraryDefaults.*` keys that
 /// `LibraryView`, `Sidebar`, `TrackRow`, and `TrackListRow` read, so a change
 /// here reflects in the list views immediately. The default-library picker is
-/// surfaced but inert until the core grows a `libraries()` FFI — see the row's
-/// footnote and `AppModel.playlistLibraryId`'s note on the same gap.
+/// surfaced but holds a single option because the server currently exposes one
+/// music library; it populates (and becomes selectable) once more than one
+/// exists — see the row's footnote.
 ///
 /// **Sidebar sections.** Toggles for each optional "Your Library" row
 /// (Favorites / Albums / Artists / Playlists). All default on, so the sidebar

@@ -30,9 +30,11 @@ import UniformTypeIdentifiers
 ///     routes both through `AppModel.moveTrackInPlaylist(playlistId:,
 ///     from:, to:)`.
 ///
-/// Persistence happens inside `moveTrackInPlaylist`, which today is a
-/// local-only reorder plus a `TODO(core-#129)` stub. When
-/// `move_playlist_item` lands on the core the modifier needs no change.
+/// Persistence happens inside `moveTrackInPlaylist`, which applies the
+/// reorder to the local cache optimistically and then calls
+/// `core.reorderPlaylistTrack` to persist the new position on the server,
+/// surfacing `errorMessage` on failure. (The move stays local-only only as
+/// a fallback when the moved track lacks a `playlistItemId`.)
 
 /// Identifier used for the `NSItemProvider` payload so drops from anywhere
 /// outside the playlist-reorder affordance can be rejected cleanly.

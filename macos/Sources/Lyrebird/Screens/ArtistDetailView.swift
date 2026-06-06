@@ -17,10 +17,14 @@ import SwiftUI
 ///    artwork / play-count UI is already tuned there; we just render the
 ///    section around it.
 /// 4. **Discography** — split by release type (Albums, Singles & EPs,
-///    Compilations, Live, Appears On). Because the core doesn't surface
-///    `AlbumType` yet, we lean on a name/track-count heuristic; sections
-///    with zero matches collapse silently.
-/// 5. **Similar Artists** — stubbed row (data dependency tracked below).
+///    Compilations, Live). Because the core doesn't surface `AlbumType`
+///    yet, we lean on a name/track-count heuristic; sections with zero
+///    matches collapse silently. ("Appears On" is deferred — no
+///    album-artist-vs-track-artist join in the core; see TODO(core-#60)
+///    on `discographyGroups`.)
+/// 5. **Similar Artists** — backed by `model.loadSimilarArtists` →
+///    `core.similarArtists` (Jellyfin `/Artists/{id}/Similar`); the row
+///    collapses silently when the server returns none.
 /// 6. **About / bio** — biography from the artist `Overview`, HTML-stripped,
 ///    clamped to 4 lines with a keyboard-accessible "Read more" popover.
 ///    Hidden entirely when the artist has no overview.
@@ -392,9 +396,10 @@ struct ArtistDetailView: View {
     // MARK: - Transport (#228)
 
     /// Play / Shuffle / Follow / Radio row. Matches the album detail transport
-    /// so the two detail screens share a transport mental model. Most actions
-    /// delegate to stubs on `AppModel` pending core work — the UI is live, the
-    /// wiring lights up when each FFI lands.
+    /// so the two detail screens share a transport mental model. All actions
+    /// are wired: Play/Shuffle load the catalog via `core.tracksByArtist`,
+    /// Follow toggles `core.setFavorite` / `unsetFavorite`, and Radio seeds
+    /// `core.instantMix`.
     @ViewBuilder
     private func transportBar(_ artist: Artist?) -> some View {
         if let artist = artist {

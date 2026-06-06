@@ -23,7 +23,9 @@ import SwiftUI
 ///     menu item is disabled to prevent a double-fire.
 ///   - **Delete** opens a `.confirmationDialog` presented by `MainShell`
 ///     via `AppModel.playlistPendingDelete`; on confirm we call through to
-///     `deletePlaylist` which carries the `TODO(core-#131)` stub.
+///     `deletePlaylist`, which optimistically removes the playlist and then
+///     persists the deletion via `core.deletePlaylist`, rolling back and
+///     surfacing `errorMessage` on failure.
 struct PlaylistContextMenu: View {
     @Environment(AppModel.self) private var model
     let playlist: Playlist

@@ -20,13 +20,14 @@ extension AppModel {
     //
     // Parallels the album actions above. Issue #313.
     //
-    // Playback actions are live now that `playlist_tracks` has landed (#125;
-    // see `loadPlaylistTracks`). Mutation actions (favorite, download,
-    // rename, delete) remain TODO stubs pending follow-up FFI work:
-    // favorites (#133), download engine (#819), `update_playlist` (#130),
-    // `delete_playlist` (#131). The UI is wired up now so that when each
-    // backing endpoint lands the action just needs its stub swapped for a
-    // real call.
+    // Playback (#125, `playlist_tracks`), favorite (#133, `set_favorite` /
+    // `unset_favorite`), rename (`rename_playlist`), delete (#131,
+    // `delete_playlist`), and reorder (`reorder_playlist_track`) are all
+    // live now that their FFI has landed. The two remaining unbacked
+    // actions are the download engine (#819, fully gated behind
+    // `supportsDownloads`) and description persistence — the latter has no
+    // `update_playlist` FFI yet (#130), so `updatePlaylistDescription` only
+    // mutates the in-memory `playlistDescriptions` map.
 
     /// Fetch a playlist's tracks and start playback from the top.
     func play(playlist: Playlist) {
@@ -289,14 +290,19 @@ extension AppModel {
         renamePlaylist(id: playlist.id, newName: newName)
     }
 
-    /// Update the description (Jellyfin `Overview`) for a playlist from the
-    /// hero's click-to-edit description editor (#234). The core `Playlist`
-    /// record doesn't expose `Overview` yet, so the new text lives in the
-    /// in-memory `playlistDescriptions` map keyed by playlist id.
+    /// Update the in-memory description (Jellyfin `Overview`) for a playlist.
+    ///
+    /// Currently UNCALLED: there is no `update_playlist` FFI (#130), so this
+    /// can't persist, and the playlist hero (`PlaylistView`) therefore renders
+    /// the description read-only rather than wiring a click-to-edit editor to
+    /// it. The method only logs and stashes the text in the in-memory
+    /// `playlistDescriptions` map keyed by playlist id; it is held in place
+    /// for when the backing FFI lands. Do not wire it to the UI before then.
     ///
     /// TODO: #130 — switch this to `core.updatePlaylist(playlistId:, overview:)`
-    /// once the FFI lands, and drop `playlistDescriptions` entirely in favour
-    /// of a `description: Option<String>` field on `Playlist` in
+    /// once the FFI lands, then surface a real editor in the hero and drop
+    /// `playlistDescriptions` entirely in favour of a
+    /// `description: Option<String>` field on `Playlist` in
     /// `core/src/models.rs`.
     func updatePlaylistDescription(_ playlist: Playlist, newDescription: String) {
         let trimmed = newDescription.trimmingCharacters(in: .whitespacesAndNewlines)
