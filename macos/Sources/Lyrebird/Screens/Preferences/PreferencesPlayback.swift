@@ -249,6 +249,20 @@ enum PlaybackQuality: String, CaseIterable, Identifiable {
         case .original: return "Direct stream — no transcoding"
         }
     }
+
+    /// The Jellyfin `MaxStreamingBitrate` ceiling (bits/s) this tier maps to
+    /// when building a stream URL (#260). `nil` means "no cap" — the lossless
+    /// and original tiers ask the server for the source without a transcode
+    /// ceiling. `automatic` keeps the historical 320 kbps default so existing
+    /// users see no change. The bitrate tiers mirror `subtitle`.
+    var maxStreamingBitrate: UInt32? {
+        switch self {
+        case .low: return 96_000
+        case .normal: return 192_000
+        case .high, .automatic: return 320_000
+        case .lossless, .original: return nil
+        }
+    }
 }
 
 /// ReplayGain-style loudness normalization. `off` applies no correction,

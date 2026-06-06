@@ -83,4 +83,24 @@ final class AudioQualityPreferencesTests: XCTestCase {
             "the streaming default must be one of the picker's segments"
         )
     }
+
+    /// The Streaming Quality picker feeds `MaxStreamingBitrate` (#260). Pin the
+    /// tier → bitrate mapping so a regression that silently changes the cap (or
+    /// drops the uncapped Lossless/Original semantics) is caught. `automatic`
+    /// must stay 320 kbps — the historical default that keeps playback unchanged
+    /// for users who never touch the picker.
+    func testQualityMaxStreamingBitrateMapping() {
+        XCTAssertEqual(PlaybackQuality.low.maxStreamingBitrate, 96_000)
+        XCTAssertEqual(PlaybackQuality.normal.maxStreamingBitrate, 192_000)
+        XCTAssertEqual(PlaybackQuality.high.maxStreamingBitrate, 320_000)
+        XCTAssertEqual(PlaybackQuality.automatic.maxStreamingBitrate, 320_000)
+        XCTAssertNil(
+            PlaybackQuality.lossless.maxStreamingBitrate,
+            "Lossless must be uncapped so the server sends the lossless source"
+        )
+        XCTAssertNil(
+            PlaybackQuality.original.maxStreamingBitrate,
+            "Original must omit the cap so the server returns the source untouched"
+        )
+    }
 }

@@ -88,12 +88,16 @@ struct PreferencesAudio: View {
         !outputDeviceUID.isEmpty && !devices.contains { $0.uid == outputDeviceUID }
     }
 
-    /// Whether the quality / codec pickers are wired into playback. Gated on
-    /// the capability flag (#260) — the core has no `MaxStreamingBitrate` /
-    /// `DeviceProfile` parameter on its `PlaybackInfo` request yet, so until it
-    /// does the pickers are shown disabled rather than persisting a preference
-    /// nothing reads.
+    /// Whether the download-quality / codec / transcoding pickers are wired.
+    /// Gated on `supportsStreamQualitySelection` (#260) — those still need a
+    /// `DeviceProfile` (or transcode-aware stream URL) the core doesn't thread
+    /// yet, so they're shown disabled rather than persisting a dead preference.
     private var qualityAvailable: Bool { model.supportsStreamQualitySelection }
+
+    /// Whether the Streaming Quality (bitrate) picker is wired. This one IS
+    /// live (#260): the chosen tier's `maxStreamingBitrate` flows through
+    /// `AudioEngine` into the `core.streamUrl(maxStreamingBitrate:)` cap.
+    private var bitrateAvailable: Bool { model.supportsStreamingBitrate }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -137,20 +141,20 @@ struct PreferencesAudio: View {
 
             PreferenceSection(
                 title: "Streaming Quality",
-                footnote: qualityAvailable
-                    ? "Applied when playing over the network. Higher tiers use more bandwidth; Lossless and Original require your server (and your connection) to sustain them."
-                    : "Quality and codec selection is planned. It needs server-side transcoding support that isn't available in this build yet."
+                footnote: bitrateAvailable
+                    ? "Applied when playing over the network. Higher tiers use more bandwidth; Lossless and Original ask the server for the source uncapped, so they require it (and your connection) to sustain them. Takes effect on the next track."
+                    : "Streaming quality selection is planned but not available in this build yet."
             ) {
                 PreferenceRow(
                     label: "Quality",
-                    help: qualityAvailable ? streamingQuality.subtitle : "Coming soon."
+                    help: bitrateAvailable ? streamingQuality.subtitle : "Coming soon."
                 ) {
                     AudioQualityPicker(selection: $streamingQuality)
-                        .disabled(!qualityAvailable)
+                        .disabled(!bitrateAvailable)
                         .accessibilityLabel("Streaming quality")
                 }
             }
-            .opacity(qualityAvailable ? 1 : 0.55)
+            .opacity(bitrateAvailable ? 1 : 0.55)
 
             PreferenceSection(
                 title: "Download Quality",

@@ -11,11 +11,29 @@ import LyrebirdAudio
 extension AppModel {
     // MARK: - Playback
 
+    /// The transcode-bitrate ceiling (bits/s) the engine should apply to new
+    /// streams, resolved from the persisted Streaming Quality preference (#260).
+    /// `nil` = uncapped (the Lossless / Original tiers). When the feature is
+    /// gated off, returns the historical 320 kbps default so playback is
+    /// byte-for-byte unchanged. Seeded at audio-config time and refreshed at the
+    /// start of each `play(tracks:)`, so a quality change applies the next time
+    /// playback starts.
+    var resolvedStreamingBitrate: UInt32? {
+        guard supportsStreamingBitrate else { return 320_000 }
+        let raw = UserDefaults.standard.string(forKey: "playback.streamingQuality")
+        let quality = raw.flatMap(PlaybackQuality.init(rawValue:)) ?? .automatic
+        return quality.maxStreamingBitrate
+    }
+
     func play(tracks: [Track], startIndex: Int = 0) {
         // Starting a fresh queue disarms any leftover "Stop after current
         // track" one-shot — "Resets to off the next time you start
         // playback" (#116).
         AppModel.resetStopAfterCurrent()
+        // Refresh the engine's transcode ceiling from the Streaming Quality
+        // preference so a change picked in Settings takes effect on this fresh
+        // playback session (#260).
+        audio.maxStreamingBitrate = resolvedStreamingBitrate
         do {
             _ = try core.setQueue(tracks: tracks, startIndex: UInt32(startIndex))
             guard let first = tracks[safe: startIndex] else { return }

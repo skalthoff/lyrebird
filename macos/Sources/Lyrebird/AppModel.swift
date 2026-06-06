@@ -822,6 +822,11 @@ final class AppModel {
         // stays false, so `AudioEngine.play` never queries the core for a local
         // path and the streaming path is byte-for-byte unchanged.
         self.audio.offlinePlaybackEnabled = supportsDownloads
+        // Streaming quality (#260): seed the engine's transcode ceiling from the
+        // persisted Streaming Quality preference so the first track honours it
+        // without waiting for a `play(tracks:)`. Defaults to 320 kbps when the
+        // feature is gated off, leaving the streaming path unchanged.
+        self.audio.maxStreamingBitrate = resolvedStreamingBitrate
     }
 
     /// Internal guard for `attemptRestoreSession` — the restore pass should

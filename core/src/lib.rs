@@ -898,17 +898,24 @@ impl LyrebirdCore {
     /// item has multiple audio versions (fixes #593). `play_session_id` should
     /// be the `PlaySessionId` returned by `PlaybackInfo` and is embedded in the
     /// URL so the server can correlate the stream with its transcode job.
+    ///
+    /// `max_streaming_bitrate` caps the transcode bitrate (#260): `Some(kbps)`
+    /// sets Jellyfin's `MaxStreamingBitrate` ceiling; `None` omits it to request
+    /// the original (no transcode cap). Callers that don't expose a quality
+    /// control should pass `Some(320_000)` to preserve the historical default.
     pub fn stream_url(
         &self,
         track_id: String,
         media_source_id: Option<String>,
         play_session_id: Option<String>,
+        max_streaming_bitrate: Option<u32>,
     ) -> std::result::Result<String, LyrebirdError> {
         self.with_client(|c| {
-            Ok(c.stream_url(
+            Ok(c.stream_url_with_bitrate(
                 &track_id,
                 media_source_id.as_deref(),
                 play_session_id.as_deref(),
+                max_streaming_bitrate,
             )?
             .to_string())
         })

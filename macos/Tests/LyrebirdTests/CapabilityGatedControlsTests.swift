@@ -51,6 +51,30 @@ final class CapabilityGatedControlsTests: XCTestCase {
         XCTAssertEqual(Theme.currentPreset, .purple, "legacy/unknown theme falls back to purple")
     }
 
+    /// Streaming bitrate selection is wired (#260): the Streaming Quality picker
+    /// is live and `resolvedStreamingBitrate` maps the persisted tier to the
+    /// stream-URL `MaxStreamingBitrate` cap. Codec / transcoding / download
+    /// quality stay gated behind `supportsStreamQualitySelection`.
+    func testStreamingBitrateWired() throws {
+        let model = try AppModel()
+        XCTAssertTrue(model.supportsStreamingBitrate, "Streaming Quality picker should be live")
+        XCTAssertFalse(model.supportsStreamQualitySelection, "codec/transcoding/download-quality stay gated")
+
+        let key = "playback.streamingQuality"
+        let defaults = UserDefaults.standard
+        let original = defaults.string(forKey: key)
+        defer {
+            if let original { defaults.set(original, forKey: key) } else { defaults.removeObject(forKey: key) }
+        }
+
+        defaults.set(PlaybackQuality.low.rawValue, forKey: key)
+        XCTAssertEqual(model.resolvedStreamingBitrate, 96_000, "Low tier caps at 96 kbps")
+        defaults.set(PlaybackQuality.original.rawValue, forKey: key)
+        XCTAssertNil(model.resolvedStreamingBitrate, "Original resolves to an uncapped stream")
+        defaults.removeObject(forKey: key)
+        XCTAssertEqual(model.resolvedStreamingBitrate, 320_000, "default (automatic) keeps the historical cap")
+    }
+
     /// Language selection stays gated off until in-app localization (#345) is
     /// wired — nothing reads `general.language` back to re-render the UI, so the
     /// General Language picker is hidden rather than shown as an inert control.

@@ -747,6 +747,56 @@ fn stream_url_includes_both_media_source_id_and_play_session_id() {
 }
 
 // ---------------------------------------------------------------------------
+// stream_url — quality / MaxStreamingBitrate cap (#260)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stream_url_defaults_to_320kbps_cap() {
+    // The convenience `stream_url` preserves the long-standing 320 kbps ceiling
+    // so existing internal callers are byte-for-byte unchanged.
+    let mut client =
+        JellyfinClient::new("https://example.com", "dev".into(), "Dev".into()).unwrap();
+    client.set_session("tok".into(), "u1".into());
+    let url = client.stream_url("track-abc", None, None).unwrap();
+    assert!(
+        url.as_str().contains("MaxStreamingBitrate=320000"),
+        "default cap should be 320000: {url}"
+    );
+}
+
+#[test]
+fn stream_url_with_bitrate_sets_requested_cap() {
+    let mut client =
+        JellyfinClient::new("https://example.com", "dev".into(), "Dev".into()).unwrap();
+    client.set_session("tok".into(), "u1".into());
+    let url = client
+        .stream_url_with_bitrate("track-abc", None, None, Some(96_000))
+        .unwrap();
+    let s = url.as_str();
+    assert!(
+        s.contains("MaxStreamingBitrate=96000"),
+        "expected the requested 96k cap: {s}"
+    );
+    assert!(s.contains("/Audio/track-abc/universal"), "url: {s}");
+}
+
+#[test]
+fn stream_url_with_bitrate_none_omits_cap_for_original() {
+    // The "Original" tier passes None, which must omit MaxStreamingBitrate so
+    // the server returns the source unbounded rather than capping at a default.
+    let mut client =
+        JellyfinClient::new("https://example.com", "dev".into(), "Dev".into()).unwrap();
+    client.set_session("tok".into(), "u1".into());
+    let url = client
+        .stream_url_with_bitrate("track-abc", None, None, None)
+        .unwrap();
+    assert!(
+        !url.as_str().contains("MaxStreamingBitrate"),
+        "Original (None) must omit the bitrate cap entirely: {url}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Player — play_session_id threading (#569)
 // ---------------------------------------------------------------------------
 

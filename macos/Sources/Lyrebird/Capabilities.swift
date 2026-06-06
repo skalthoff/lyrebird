@@ -53,14 +53,19 @@ extension AppModel {
     /// pattern.
     var supportsGenreActions: Bool { true }
 
-    /// Streaming / download quality + preferred-codec selection (#260).
-    /// Gates the quality and codec pickers in the Audio pane. These need
-    /// the core to thread `MaxStreamingBitrate` + a `DeviceProfile`
-    /// (audio codec / container) into the Jellyfin `PlaybackInfo`
-    /// request; `core/src/client.rs` has no such parameter yet, so the
-    /// pickers would write a preference nothing reads. Disabled until the
-    /// core FFI lands rather than presenting controls that don't affect
-    /// playback.
+    /// Streaming **bitrate** selection (#260). Gates the Audio pane's Streaming
+    /// Quality picker only. Wired end-to-end: `PlaybackQuality.maxStreamingBitrate`
+    /// feeds `AudioEngine.maxStreamingBitrate`, which threads through the
+    /// `core.streamUrl(..., maxStreamingBitrate:)` FFI onto Jellyfin's
+    /// `MaxStreamingBitrate` ceiling. Enabled; kept as a kill-switch.
+    var supportsStreamingBitrate: Bool { true }
+
+    /// Download-quality + preferred-codec + transcoding selection (#260). Gates
+    /// those Audio-pane pickers, which still have no backing path: download
+    /// quality rides the (gated) downloads engine, and codec/transcoding need
+    /// the core to thread a `DeviceProfile` (or a transcode-aware stream URL)
+    /// into the request — `streamUrl` only caps bitrate today. Stays disabled
+    /// until that lands, rather than persisting a preference nothing reads.
     var supportsStreamQualitySelection: Bool { false }
 
     /// Crossfade between tracks (#116). Gates the crossfade slider in the

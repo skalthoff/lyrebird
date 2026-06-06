@@ -2758,18 +2758,44 @@ impl JellyfinClient {
     /// Advertises all containers AVFoundation / MediaPlayer handle natively,
     /// so Jellyfin direct-streams whenever the source matches. Exotic source
     /// formats fall back to a transcoded MP3 stream.
+    /// Default transcode ceiling for internal stream fetches and for playback
+    /// when the caller doesn't specify one. 320 kbps matches the long-standing
+    /// hardcoded value, so existing call sites stay byte-for-byte unchanged.
+    pub const DEFAULT_MAX_STREAMING_BITRATE: u32 = 320_000;
+
     pub fn stream_url(
         &self,
         track_id: &str,
         media_source_id: Option<&str>,
         play_session_id: Option<&str>,
     ) -> Result<Url> {
+        self.stream_url_with_bitrate(
+            track_id,
+            media_source_id,
+            play_session_id,
+            Some(Self::DEFAULT_MAX_STREAMING_BITRATE),
+        )
+    }
+
+    /// Like `stream_url`, but lets the caller cap the transcode bitrate (#260).
+    /// `Some(kbps)` sets Jellyfin's `MaxStreamingBitrate` ceiling (the server
+    /// transcodes down to fit); `None` omits the parameter to request the
+    /// original with no transcode cap — the "Original" quality tier.
+    pub fn stream_url_with_bitrate(
+        &self,
+        track_id: &str,
+        media_source_id: Option<&str>,
+        play_session_id: Option<&str>,
+        max_streaming_bitrate: Option<u32>,
+    ) -> Result<Url> {
         let mut url = self.endpoint(&format!("Audio/{track_id}/universal"))?;
         {
             let mut q = url.query_pairs_mut();
             q.append_pair("UserId", self.user_id.as_deref().unwrap_or(""));
             q.append_pair("DeviceId", &self.device_id);
-            q.append_pair("MaxStreamingBitrate", "320000");
+            if let Some(bitrate) = max_streaming_bitrate {
+                q.append_pair("MaxStreamingBitrate", &bitrate.to_string());
+            }
             q.append_pair("Container", "mp3,aac,m4a,flac,alac,wav,ogg,opus");
             q.append_pair("AudioCodec", "mp3,aac,flac,alac,pcm,vorbis,opus");
             q.append_pair("TranscodingContainer", "mp3");

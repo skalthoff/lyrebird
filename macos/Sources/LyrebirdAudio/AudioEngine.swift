@@ -226,6 +226,14 @@ public final class AudioEngine: NSObject {
     /// pre-#819 behaviour. The offline branch is purely additive.
     public var offlinePlaybackEnabled: Bool = false
 
+    /// Transcode bitrate ceiling (bits/s) applied when building stream URLs,
+    /// from the user's Streaming Quality preference (#260). `nil` requests the
+    /// source uncapped (the "Original"/"Lossless" tiers). Defaults to 320 kbps —
+    /// the historical hardcoded value — so the streaming path is unchanged until
+    /// the app sets a different tier. `AppModel` refreshes this from the
+    /// persisted preference at each playback start.
+    public var maxStreamingBitrate: UInt32? = 320_000
+
     public init(core: LyrebirdCore) {
         self.core = core
         super.init()
@@ -580,7 +588,8 @@ public final class AudioEngine: NSObject {
             let urlString = try core.streamUrl(
                 trackId: track.id,
                 mediaSourceId: mediaSourceId,
-                playSessionId: playSessionId
+                playSessionId: playSessionId,
+                maxStreamingBitrate: maxStreamingBitrate
             )
             guard let streamURL = URL(string: urlString) else {
                 throw AudioEngineError.invalidURL(urlString)
@@ -798,6 +807,9 @@ public final class AudioEngine: NSObject {
         // task never queries the download FFI — gapless preload is byte-for-byte
         // the streaming path (#819).
         let offlineEnabled = offlinePlaybackEnabled
+        // Capture the transcode ceiling on the actor too, so the detached
+        // preload builds the same stream URL `play(track:)` would (#260).
+        let bitrateCap = maxStreamingBitrate
         // `[weak self]` so an engine torn down mid-resolve (track change,
         // stop) doesn't get pinned alive for the duration of the network FFI —
         // matches `applyReplayGain`. The network work below only touches the
@@ -820,7 +832,8 @@ public final class AudioEngine: NSObject {
                     let urlString = try core.streamUrl(
                         trackId: track.id,
                         mediaSourceId: mediaSourceId,
-                        playSessionId: playSessionId
+                        playSessionId: playSessionId,
+                        maxStreamingBitrate: bitrateCap
                     )
                     let authHeader = try core.authHeader()
                     guard let streamURL = URL(string: urlString) else {

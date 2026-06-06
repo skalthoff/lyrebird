@@ -205,7 +205,9 @@ extension AppModel {
         let urlString: String?
         do {
             urlString = try await Task.detached(priority: .userInitiated) { [core] in
-                try core.streamUrl(trackId: sampleTrackId, mediaSourceId: nil, playSessionId: nil)
+                // Only the api_key query item is read out of this URL, so the
+                // bitrate cap is irrelevant — pass nil (no cap).
+                try core.streamUrl(trackId: sampleTrackId, mediaSourceId: nil, playSessionId: nil, maxStreamingBitrate: nil)
             }.value
         } catch {
             return nil
