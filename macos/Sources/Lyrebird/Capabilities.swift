@@ -20,14 +20,14 @@ extension AppModel {
     /// The core engine (`core/src/downloads.rs`: stream-to-disk, SQLite index,
     /// budget evict/refuse, offline-path resolution) and the full Swift wiring
     /// (`AppModel+Downloads.swift`, AudioEngine local-file branch) are
-    /// implemented and unit/integration-tested (incl. a live-server download
-    /// e2e). The flag stays `false` deliberately until the end-to-end flow is
-    /// validated interactively in the running app — flipping it activates a
-    /// live change to the playback code path, so it gets its own focused QA
-    /// pass rather than riding in with the engine landing. When enabled, a
-    /// track with no local copy still streams byte-for-byte as before, so the
-    /// branch is purely additive. See CLAUDE.md "Deferred / known-open work".
-    var supportsDownloads: Bool { false }
+    /// implemented, unit/integration-tested, and the data path has been
+    /// smoke-tested end-to-end against the live server (full-body
+    /// stream-to-disk confirmed). Enabled; kept as a kill-switch / regression
+    /// fallback (same pattern as `supportsGenreActions` / `supportsThemeSelection`).
+    /// A track with no local copy still streams byte-for-byte as before, so
+    /// the offline branch is purely additive. Interactive in-app
+    /// download/offline-playback QA is the owner's remaining step.
+    var supportsDownloads: Bool { true }
 
     /// `mark_played` / `mark_unplayed` FFIs (#133, #222). Gates
     /// "Mark All as Played" on albums and "Mark as Played" on tracks.
