@@ -151,7 +151,7 @@ extension AppModel {
 
     /// Kick off an Instant Mix ("artist radio") seeded by this artist.
     func startArtistRadio(artist: Artist) {
-        playInstantMix(seedId: artist.id)
+        playInstantMix(seedId: artist.id, seedName: artist.name)
     }
 
     /// Navigate to the artist detail screen, anchored on the discography.
@@ -243,7 +243,7 @@ extension AppModel {
     /// Kick off an Instant Mix ("song radio") seeded by a single track.
     /// Kick off an Instant Mix ("song radio") seeded by this track.
     func startSongRadio(track: Track) {
-        playInstantMix(seedId: track.id)
+        playInstantMix(seedId: track.id, seedName: track.name)
     }
 
     /// Routing for the Discover-screen "Song Radio" CTA (#255), split out from

@@ -114,7 +114,7 @@ extension AppModel {
             audio.stop()
             return
         }
-        playInstantMix(seedId: seed.id)
+        playInstantMix(seedId: seed.id, seedName: seed.name)
     }
 
     // MARK: - Now Playing details

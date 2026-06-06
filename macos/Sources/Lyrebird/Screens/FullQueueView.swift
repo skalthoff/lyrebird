@@ -218,7 +218,11 @@ struct FullQueueView: View {
         let tracks = entries.map(\.track)
         if !entries.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader(playingFromTitle)
+                if let seed = model.radioSeedName {
+                    RadioQueueHeader(seed: seed)
+                } else {
+                    sectionHeader(playingFromTitle)
+                }
                 LazyVStack(spacing: 2) {
                     ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                         FullQueueTrackRow(

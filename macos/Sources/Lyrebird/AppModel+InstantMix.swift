@@ -12,21 +12,29 @@ import Foundation
 /// of a `@MainActor` type inherit its isolation, so every method here is
 /// main-actor-bound just like the rest of the class.
 extension AppModel {
+    /// The seed label of the active radio session, or nil when radio isn't
+    /// playing. Backs the "Radio · Seed: {seed}" header copy.
+    var radioSeedName: String? {
+        guard let context = currentContext, context.sourceType == .radio else { return nil }
+        return context.name.isEmpty ? nil : context.name
+    }
+
     /// Kick off a library-seeded Instant Mix from the Discover screen's CTA.
     /// Seeds off the currently-playing track if there is one; otherwise a
     /// random recently-played track; otherwise a random album. Keeps the
     /// action productive regardless of state.
     func startInstantMix() {
-        let seedId: String? = {
-            if let current = status.currentTrack { return current.id }
-            if let recent = recentlyPlayed.first { return recent.id }
-            return albums.first?.id
+        let seed: (id: String, name: String?)? = {
+            if let current = status.currentTrack { return (current.id, current.name) }
+            if let recent = recentlyPlayed.first { return (recent.id, recent.name) }
+            if let album = albums.first { return (album.id, album.name) }
+            return nil
         }()
-        guard let seedId else {
+        guard let seed else {
             errorMessage = "Nothing to seed a mix from yet — play a track first."
             return
         }
-        playInstantMix(seedId: seedId)
+        playInstantMix(seedId: seed.id, seedName: seed.name)
     }
 
     /// Start a radio station seeded from a pinned-station subject (#253). The
@@ -46,7 +54,7 @@ extension AppModel {
         let currentId = status.currentTrack?.id
         let candidates = recentlyPlayed.filter { $0.id != currentId }
         if let seed = candidates.randomElement() {
-            playInstantMix(seedId: seed.id)
+            playInstantMix(seedId: seed.id, seedName: seed.name)
         } else {
             startInstantMix()
         }
@@ -80,16 +88,16 @@ extension AppModel {
         switch seed {
         case .track(let t):
             instantMixSeedLabel = t.name
-            playInstantMix(seedId: t.id)
+            playInstantMix(seedId: t.id, seedName: t.name)
         case .album(let a):
             instantMixSeedLabel = a.name
-            playInstantMix(seedId: a.id)
+            playInstantMix(seedId: a.id, seedName: a.name)
         case .artist(let a):
             instantMixSeedLabel = a.name
-            playInstantMix(seedId: a.id)
+            playInstantMix(seedId: a.id, seedName: a.name)
         case .playlist(let p):
             instantMixSeedLabel = p.name
-            playInstantMix(seedId: p.id)
+            playInstantMix(seedId: p.id, seedName: p.name)
         case .genre(let g):
             instantMixSeedLabel = g.name
             startGenreRadio(genre: g)
@@ -117,14 +125,35 @@ extension AppModel {
     /// is polymorphic — any item id (track, album, artist, genre, playlist)
     /// works. Wraps the FFI hop in `Task.detached` so the main actor doesn't
     /// block on a network round-trip.
-    func playInstantMix(seedId: String, limit: UInt32 = 50) {
+    ///
+    /// `seedName` is the human-readable label of whatever seeded the mix
+    /// (album / artist / genre / track). It's stamped onto `currentContext`
+    /// as a `.radio` source once playback starts so the Queue header can
+    /// switch to its "Radio · Seed: {seed}" on-air treatment. When the seed
+    /// name isn't known up front (e.g. autoplay-extend off the track that
+    /// just finished), the first returned track's name fills in.
+    func playInstantMix(seedId: String, seedName: String? = nil, limit: UInt32 = 50) {
+        // Snapshot the playback generation before the FFI await. If the user
+        // starts a different source (album / playlist) while this mix is still
+        // resolving, that newer `play(tracks:)` bumps the counter and we bail
+        // — otherwise a slow radio resolve would clobber the newer queue and
+        // stamp a stale `.radio` label onto it.
+        let generation = playbackGeneration
         Task {
             do {
                 let tracks = try await Task.detached(priority: .userInitiated) { [core] in
                     try core.instantMix(itemId: seedId, limit: limit)
                 }.value
                 guard !tracks.isEmpty else { return }
+                // A newer explicit play won the race during the await; this
+                // radio session is stale. Drop it rather than overwrite.
+                guard playbackGeneration == generation else { return }
                 play(tracks: tracks, startIndex: 0)
+                // `play(tracks:)` resets `currentContext`, so stamp the radio
+                // source *after* it. Fall back to the lead track's name when
+                // no explicit seed label was supplied.
+                let label = seedName ?? tracks.first?.name ?? "Radio"
+                currentContext = QueueContext(name: label, id: seedId, sourceType: .radio)
             } catch {
                 if handleAuthError(error) { return }
                 if ServerReachability.shouldCount(error: error) {

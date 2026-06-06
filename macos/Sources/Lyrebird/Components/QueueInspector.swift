@@ -514,7 +514,11 @@ struct QueueInspector: View {
     private var playingFromSection: some View {
         if !model.upNextAutoQueue.isEmpty || model.currentContext != nil {
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader(playingFromHeaderTitle)
+                if let seed = model.radioSeedName {
+                    RadioQueueHeader(seed: seed)
+                } else {
+                    sectionHeader(playingFromHeaderTitle)
+                }
                 if model.upNextAutoQueue.isEmpty {
                     emptyRow("Nothing else queued from this source.")
                 } else {

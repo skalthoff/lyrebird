@@ -108,7 +108,7 @@ extension AppModel {
 
     /// Kick off an Instant Mix ("album radio") seeded by this album.
     func startAlbumRadio(album: Album) {
-        playInstantMix(seedId: album.id)
+        playInstantMix(seedId: album.id, seedName: album.name)
     }
 
     /// Mark the album as played server-side. Matches Jellyfin web's

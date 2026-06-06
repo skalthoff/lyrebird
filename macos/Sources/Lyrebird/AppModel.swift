@@ -510,6 +510,14 @@ final class AppModel {
     /// playback was started from an ad-hoc selection without a known
     /// source (e.g. a single track picked from "All Tracks").
     var currentContext: QueueContext?
+
+    /// Monotonic counter bumped on every fresh `play(tracks:)`. Async radio
+    /// entry points capture it before their FFI hop and re-check it after, so
+    /// a slow Instant Mix that resolves *after* the user already started an
+    /// album/playlist doesn't clobber that newer queue or stamp a stale
+    /// `.radio` label onto it.
+    var playbackGeneration: UInt64 = 0
+
     /// Show / hide the right-side queue inspector panel. Toggled by the
     /// Cmd+Opt+Q shortcut (#79) and the View ▸ "Show Queue" menu item.
     /// `toggleQueueInspector()` lives in the Queue-inspector section below.

@@ -65,7 +65,7 @@ extension AppModel {
                 errorMessage = "Genre '\(genre.name)' not found on server"
                 return
             }
-            playInstantMix(seedId: realId)
+            playInstantMix(seedId: realId, seedName: genre.name)
         }
     }
 

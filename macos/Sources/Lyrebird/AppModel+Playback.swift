@@ -34,9 +34,17 @@ extension AppModel {
         // preference so a change picked in Settings takes effect on this fresh
         // playback session (#260).
         audio.maxStreamingBitrate = resolvedStreamingBitrate
+        // Bump the generation so any radio Task still awaiting its FFI hop
+        // sees a newer play won and bails instead of clobbering this queue.
+        playbackGeneration &+= 1
         do {
             _ = try core.setQueue(tracks: tracks, startIndex: UInt32(startIndex))
             guard let first = tracks[safe: startIndex] else { return }
+            // A fresh explicit play supersedes any prior source. Clear the
+            // context here so a leftover `.radio` label doesn't cling to an
+            // album / playlist the user just started. Radio entry points
+            // re-stamp `currentContext` after calling through here.
+            currentContext = nil
             Task {
                 do {
                     try await audio.play(track: first)
