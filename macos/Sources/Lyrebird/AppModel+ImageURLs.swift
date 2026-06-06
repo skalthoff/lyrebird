@@ -75,4 +75,35 @@ extension AppModel {
         }
         return resolved
     }
+
+    /// Resolve the ambient palette for a now-playing item — cache-first, then
+    /// a single off-main Nuke decode + Core Image average (`PaletteSampler`).
+    ///
+    /// Returns `nil` when there's no artwork URL or extraction fails; callers
+    /// (`NowPlayingView`) treat that as "no palette" and `AmbientWash` falls
+    /// back to the theme wash, so the player is never bare. The decode itself
+    /// runs off the MainActor inside `PaletteSampler.sample` (it `await`s
+    /// Nuke's pipeline), so this never blocks the main thread.
+    func ambientPalette(forItemId itemId: String, imageTag: String?) async -> AmbientPalette? {
+        if let encoded = ambientPaletteCache[itemId] {
+            return AmbientPalette(encoded: encoded)
+        }
+        if let existing = ambientPaletteTasks[itemId] {
+            return await existing.value
+        }
+        guard let url = imageURL(for: itemId, tag: imageTag, maxWidth: 512) else {
+            return nil
+        }
+
+        let task = Task<AmbientPalette?, Never> {
+            await PaletteSampler.sample(from: url)
+        }
+        ambientPaletteTasks[itemId] = task
+        let palette = await task.value
+        ambientPaletteTasks[itemId] = nil
+        if let palette {
+            ambientPaletteCache[itemId] = palette.encoded
+        }
+        return palette
+    }
 }

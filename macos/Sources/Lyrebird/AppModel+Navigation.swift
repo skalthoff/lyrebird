@@ -96,4 +96,12 @@ extension AppModel {
     func goToDiscover() {
         selectTab(.discover)
     }
+
+    /// Switch to a root tab and clear the drill stack. Use this from every
+    /// sidebar / menu tab handler so drill state doesn't survive a tab
+    /// change.
+    func selectTab(_ tab: Screen) {
+        screen = tab
+        navPath = []
+    }
 }

@@ -65,14 +65,6 @@ final class AppModel {
     /// Playing" menu command and similar reversible drills. See #1 / #4.
     var navPath: [Route] = []
 
-    /// Switch to a root tab and clear the drill stack. Use this from every
-    /// sidebar / menu tab handler so drill state doesn't survive a tab
-    /// change.
-    func selectTab(_ tab: Screen) {
-        screen = tab
-        navPath = []
-    }
-
     /// True when the full Now Playing view is the top of the drill stack.
     /// Used by the ⌘L menu toggle (see `LyrebirdApp.toggleNowPlaying`) so
     /// the second press pops back rather than stacking another copy.
@@ -878,37 +870,6 @@ final class AppModel {
     /// the same id (e.g. a fast tab toggle) coalesce onto one Nuke decode +
     /// CIAreaAverage pass instead of racing two.
     var ambientPaletteTasks: [String: Task<AmbientPalette?, Never>] = [:]
-
-    /// Resolve the ambient palette for a now-playing item — cache-first, then
-    /// a single off-main Nuke decode + Core Image average (`PaletteSampler`).
-    ///
-    /// Returns `nil` when there's no artwork URL or extraction fails; callers
-    /// (`NowPlayingView`) treat that as "no palette" and `AmbientWash` falls
-    /// back to the theme wash, so the player is never bare. The decode itself
-    /// runs off the MainActor inside `PaletteSampler.sample` (it `await`s
-    /// Nuke's pipeline), so this never blocks the main thread.
-    func ambientPalette(forItemId itemId: String, imageTag: String?) async -> AmbientPalette? {
-        if let encoded = ambientPaletteCache[itemId] {
-            return AmbientPalette(encoded: encoded)
-        }
-        if let existing = ambientPaletteTasks[itemId] {
-            return await existing.value
-        }
-        guard let url = imageURL(for: itemId, tag: imageTag, maxWidth: 512) else {
-            return nil
-        }
-
-        let task = Task<AmbientPalette?, Never> {
-            await PaletteSampler.sample(from: url)
-        }
-        ambientPaletteTasks[itemId] = task
-        let palette = await task.value
-        ambientPaletteTasks[itemId] = nil
-        if let palette {
-            ambientPaletteCache[itemId] = palette.encoded
-        }
-        return palette
-    }
 
     // MARK: - Favorite cache
 
