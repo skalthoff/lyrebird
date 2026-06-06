@@ -416,7 +416,11 @@ async function reviewPR(pr, w) {
 			label: `dispute:#${pr}`,
 		})
 	}
-	return rev || { pr, outcome: 'error', notes: 'reviewer returned null' }
+	if (!rev) return { pr, outcome: 'error', notes: 'reviewer returned null' }
+	// REVIEW_SCHEMA doesn't require `pr`, so the agent's object often omits it.
+	// Always stamp the known pr so downstream accounting (run.merged / run.unresolvedPRs)
+	// never pushes `undefined`.
+	return { ...rev, pr: rev.pr ?? pr }
 }
 
 // Newly-built item: review, then up to refixRounds in-wave retries on request-changes.
@@ -463,7 +467,7 @@ async function resolveOpenPR(pr, w) {
 		review = await reviewPR(pr.number, w)
 	}
 	if (review && review.outcome === 'close') {
-		await agent(`Close PR #${pr.number} as not-mergeable (no-op/duplicate/superseded). Run \`gh pr close ${pr.number} --comment "Closing: superseded or no-op per adversarial review — ${(review.notes || '').replace(/"/g, "'")}"\`. Do not delete the linked issue.`, {
+		await agent(`Close PR #${pr.number} as not-mergeable (no-op / duplicate of already-merged work / superseded). Run exactly: \`gh pr close ${pr.number} --comment "Closing: superseded or no-op per adversarial review; the linked issue stays open to be rebuilt clean."\` Do NOT interpolate any other text into that shell command. Do not delete the linked issue.`, {
 			phase: 'Review',
 			label: `close:#${pr.number}`,
 		})

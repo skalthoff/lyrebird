@@ -356,20 +356,22 @@ buildCeiling, backlogBatch}})`. Lessons from the first campaign (8 PRs merged:
   on green CI; nothing red merged across the whole campaign. This is the load-
   bearing safety property — rely on it rather than reasoning about each merge.
 
-- **`.wave-start` / `wave-budget.sh` is broken for these runs.** The preflight
-  agent writes `.wave-start` as `key=value` lines; `wave-budget.sh remaining`
-  parses two space-separated ints (`awk '{print $2}'`) → returns 0 → reads as
-  "expired" → `area-fixer` (≤1800s) and `problem-triager` (≤600s) abort. Both
-  workflows now tell downstream agents to **ignore the wave-budget gate** (the
-  JS wave-cap + token budget govern). If you invoke those agents outside these
-  workflows, run `Scripts/wave-budget.sh start 14400` first or tell them to
-  ignore it.
+- **`wave-budget.sh` is a no-op gate under the JS workflows.** `Scripts/wave-budget.sh
+  start` writes two space-separated ints (`<start> <deadline>`) to `.wave-start`, and
+  `remaining` reads `awk '{print $2}'`. The drive/finalize workflows never call `start`,
+  so `.wave-start` is absent → `remaining` returns `0` → reads as "expired" → `area-fixer`
+  (≤1800s) and `problem-triager` (≤600s) would abort. (An earlier preflight step also
+  wrote a `key=value` form `awk` couldn't parse — same zero result.) Either way both
+  workflows now tell downstream agents to **ignore the wave-budget gate** (the JS wave-cap
+  + token budget govern). If you invoke those agents OUTSIDE these workflows, run
+  `Scripts/wave-budget.sh start 14400` first or tell them to ignore it.
 
 - **Background runs die mid-flight** (turn end, user interrupt, multi-hour
   runtime). Recovery is cheap: relaunch `drive` — its wave-1 *resolve-open-PRs*
   phase re-reviews/refixes/merges whatever was left in flight, and it re-reads
-  the live backlog, so nothing is lost. `finalize` also supports
-  `resumeFromRunId` (cached prefix replays instantly, no duplicate issue filing).
+  the live backlog, so nothing is lost. The `Workflow` tool's `resumeFromRunId`
+  also works for any script (drive or finalize) — it replays the cached agent
+  prefix instantly; neither workflow needs special script-level resume support.
 
 - **Builder quality failures to guard:** agents have leaked internal monologue
   into PR titles (e.g. #872 "wait. these aren't matching…") and opened
