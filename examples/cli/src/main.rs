@@ -90,7 +90,8 @@ fn main() -> Result<()> {
 
     if let Some(first) = tracks.first() {
         let url = core
-            .stream_url(first.id.clone(), None, None)
+            // 320 kbps cap matches the historical default (#260).
+            .stream_url(first.id.clone(), None, None, Some(320_000))
             .map_err(|e| anyhow!("stream_url: {e}"))?;
         println!("\nStream URL for {}:\n  {}", first.name, url);
     }
