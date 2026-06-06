@@ -204,4 +204,17 @@ extension AppModel {
             downloads.insert(entry, at: 0)
         }
     }
+
+    /// Download every track on the album for offline playback (#819).
+    /// Resolves the album's tracks (cache-or-fetch), then hands them to the
+    /// shared `downloadTracks` pipeline. Gated behind `supportsDownloads`; a
+    /// no-op when the feature is dormant.
+    func enqueueDownload(album: Album) {
+        guard supportsDownloads else { return }
+        Task {
+            let tracks = await loadTracks(forAlbum: album.id)
+            guard !tracks.isEmpty else { return }
+            await downloadTracks(tracks)
+        }
+    }
 }

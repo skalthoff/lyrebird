@@ -321,4 +321,31 @@ extension AppModel {
             }
         }
     }
+
+    /// Append a batch of tracks to an existing playlist via `add_to_playlist`
+    /// on the core. Used by the album detail popover (#222) and any other
+    /// caller that has already resolved a target playlist. Returns `true` on
+    /// success so UI can dismiss the popover / show a confirmation tick.
+    ///
+    /// Errors surface on `errorMessage` rather than throwing so the popover
+    /// can stay presentation-only. An empty `trackIds` short-circuits before
+    /// the FFI hop since the server would reject it anyway.
+    @discardableResult
+    func addToPlaylist(trackIds: [String], playlistId: String) async -> Bool {
+        guard !trackIds.isEmpty else { return false }
+        do {
+            try await Task.detached(priority: .userInitiated) { [core] in
+                try core.addToPlaylist(playlistId: playlistId, itemIds: trackIds, position: nil)
+            }.value
+            serverReachability.noteSuccess()
+            return true
+        } catch {
+            if handleAuthError(error) { return false }
+            if ServerReachability.shouldCount(error: error) {
+                serverReachability.noteFailure()
+            }
+            errorMessage = LyrebirdErrorPresenter.message(for: error, context: .playlistAdd)
+            return false
+        }
+    }
 }
