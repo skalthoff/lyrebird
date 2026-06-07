@@ -18,7 +18,7 @@ import SwiftUI
 /// other caller that wants the minimal account view).
 struct PreferencesView: View {
     enum Pane: String, CaseIterable, Hashable, Identifiable {
-        case general, server, playback, audio, library, appearance, notifications, scrobbling, lyrics, downloads, advanced, about
+        case general, server, playback, audio, library, appearance, notifications, scrobbling, lyrics, downloads, advanced, experiments, about
 
         var id: String { rawValue }
 
@@ -35,6 +35,7 @@ struct PreferencesView: View {
             case .lyrics: return "Lyrics"
             case .downloads: return "Downloads"
             case .advanced: return "Advanced"
+            case .experiments: return "Experiments"
             case .about: return "About"
             }
         }
@@ -52,16 +53,19 @@ struct PreferencesView: View {
             case .lyrics: return "text.alignleft"
             case .downloads: return "arrow.down.circle"
             case .advanced: return "wrench.and.screwdriver"
+            case .experiments: return "flask"
             case .about: return "info.circle"
             }
         }
     }
 
     @State private var selection: Pane = .general
+    // Observed so the sidebar re-renders when debug_panel_enabled changes.
+    @State private var flags = FeatureFlags.shared
 
     var body: some View {
         HStack(spacing: 0) {
-            PreferencesNav(selection: $selection)
+            PreferencesNav(selection: $selection, flags: flags)
                 .frame(width: 180)
 
             Divider()
@@ -92,6 +96,7 @@ struct PreferencesView: View {
         case .lyrics: PreferencesLyrics()
         case .downloads: PreferencesDownloads()
         case .advanced: PreferencesAdvanced()
+        case .experiments: PreferencesExperiments()
         case .about: PreferencesAbout()
         }
     }
@@ -101,12 +106,24 @@ struct PreferencesView: View {
 
 private struct PreferencesNav: View {
     @Binding var selection: PreferencesView.Pane
+    /// Observed so the sidebar re-renders when `debug_panel_enabled` changes
+    /// without requiring the entire `PreferencesView` to rebuild.
+    let flags: FeatureFlags
+
+    /// The set of panes shown in the sidebar. The `experiments` entry is
+    /// omitted unless `debug_panel_enabled` is true in `flags.json`.
+    private var visiblePanes: [PreferencesView.Pane] {
+        PreferencesView.Pane.allCases.filter { pane in
+            if pane == .experiments { return flags.debugPanelEnabled }
+            return true
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             header
 
-            ForEach(PreferencesView.Pane.allCases) { pane in
+            ForEach(visiblePanes) { pane in
                 navRow(pane)
             }
 

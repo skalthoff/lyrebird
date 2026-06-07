@@ -38,6 +38,9 @@ struct LyrebirdApp: App {
 
     init() {
         FontRegistration.register()
+        // Load runtime feature flags from flags.json before constructing the
+        // model so flag values are readable immediately.
+        Task { @MainActor in FeatureFlags.shared.loadFromDisk() }
         // Capture success or failure instead of crashing. A failed core init
         // (e.g. a corrupt on-disk DB) is recoverable, so the body renders
         // `CoreInitFailureView` rather than calling `fatalError`.
