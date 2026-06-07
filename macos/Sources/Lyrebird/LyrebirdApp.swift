@@ -799,6 +799,16 @@ struct RootView: View {
             // re-entry, so a `.task` firing on every scene rebuild is safe.
             await model.attemptRestoreSession()
         }
+        .task {
+            // Start AirPlay / Bluetooth route scanning so `RouteDetector.shared`
+            // can auto-hide the picker when no alternate destinations are nearby.
+            // Enabling it here (rather than at `AVRouteDetector` allocation time)
+            // defers the radio scan until the app's root view is mounted and the
+            // main run-loop is live, matching the lifecycle contract in the
+            // AVFoundation docs. The singleton retains detection for the app
+            // lifetime; there is no corresponding disable call.
+            RouteDetector.shared.isEnabled = true
+        }
         // App-wide bare-Space Play/Pause (audit L383). Installed here on the
         // always-mounted root so it covers every screen, and routed through a
         // first-responder check so Space still types into focused text fields

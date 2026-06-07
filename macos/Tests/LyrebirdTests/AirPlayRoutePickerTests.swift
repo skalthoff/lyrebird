@@ -128,3 +128,43 @@ final class AirPlayRoutePickerTests: XCTestCase {
             && abs(a.alphaComponent - b.alphaComponent) < tol
     }
 }
+
+// MARK: - RouteDetector
+
+/// Coverage for the `RouteDetector` observable (#38): the singleton starts with
+/// detection disabled and mirrors the underlying `AVRouteDetector` state.
+///
+/// We can't realistically observe an `AVRouteDetectorMultipleRoutesDetectedDidChange`
+/// notification in a headless test run (there are no AirPlay devices to detect),
+/// so this suite verifies the structural contract — initial state, the
+/// `isEnabled` passthrough, and the singleton identity — without trying to fake
+/// hardware.
+@MainActor
+final class RouteDetectorTests: XCTestCase {
+
+    func testSharedIsSingleton() {
+        XCTAssertTrue(
+            RouteDetector.shared === RouteDetector.shared,
+            "RouteDetector.shared must be a true singleton (same object reference)"
+        )
+    }
+
+    func testInitialDetectionIsDisabled() {
+        // The detector should be off at allocation time — scanning starts
+        // only when `isEnabled` is explicitly set to `true` at app launch.
+        // In a test process `RouteDetector.shared` hasn't had `isEnabled = true`
+        // called, so `multipleRoutesDetected` must remain `false`.
+        XCTAssertFalse(
+            RouteDetector.shared.multipleRoutesDetected,
+            "multipleRoutesDetected must be false before detection is enabled"
+        )
+    }
+
+    func testIsEnabledReflectsState() {
+        // Toggle on then off; the underlying AVRouteDetector mirrors the value.
+        RouteDetector.shared.isEnabled = true
+        XCTAssertTrue(RouteDetector.shared.isEnabled, "isEnabled must round-trip to true")
+        RouteDetector.shared.isEnabled = false
+        XCTAssertFalse(RouteDetector.shared.isEnabled, "isEnabled must round-trip to false")
+    }
+}

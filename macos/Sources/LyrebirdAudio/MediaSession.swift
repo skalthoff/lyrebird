@@ -155,6 +155,16 @@ public final class MediaSession {
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
         info[MPNowPlayingInfoPropertyPlaybackRate] = rate
         info[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
+        // `MPNowPlayingInfoPropertyCurrentPlaybackDate` lets AirPlay receivers
+        // (HomePod, Apple TV) derive an absolute wall-clock timestamp from the
+        // track's start time and display a meaningful progress bar without
+        // polling the source device. Compute it as "now minus the elapsed
+        // playback position" so the receiver can extrapolate forward at the
+        // given `playbackRate`. Only set while playing — a paused receiver
+        // must not auto-advance its own scrubber.
+        if rate > 0 {
+            info[MPNowPlayingInfoPropertyCurrentPlaybackDate] = Date(timeIntervalSinceNow: -elapsed)
+        }
         lastPublishedElapsed = elapsed
         lastPublishedRate = rate
         if status.queueLength > 0 {
@@ -246,6 +256,16 @@ public final class MediaSession {
         var info = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = clamped
         info[MPNowPlayingInfoPropertyPlaybackRate] = rate
+        // Keep `currentPlaybackDate` in sync with each rate / seek transition
+        // so AirPlay receivers (HomePod, Apple TV) see the correct wall-clock
+        // anchor after a scrub or a play/pause toggle. On pause, remove the
+        // key — a stopped receiver must not drift the progress bar forward on
+        // its own. On play (or seek while playing), recompute from "now".
+        if rate > 0 {
+            info[MPNowPlayingInfoPropertyCurrentPlaybackDate] = Date(timeIntervalSinceNow: -clamped)
+        } else {
+            info.removeValue(forKey: MPNowPlayingInfoPropertyCurrentPlaybackDate)
+        }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         lastPublishedElapsed = clamped
         lastPublishedRate = rate

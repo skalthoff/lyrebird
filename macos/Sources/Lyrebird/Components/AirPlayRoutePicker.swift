@@ -1,4 +1,5 @@
 import AVKit
+import Observation
 import SwiftUI
 
 /// SwiftUI wrapper around `AVRoutePickerView` so the `PlayerBar` can offer the
@@ -100,6 +101,75 @@ struct AirPlayRoutePicker: NSViewRepresentable {
             case .active: return .active
             case .activeHighlighted: return .activeHighlighted
             }
+        }
+    }
+}
+
+// MARK: - Route detection
+
+/// Observable wrapper around `AVRouteDetector` that publishes whether multiple
+/// audio output routes are available (i.e. at least one AirPlay / Bluetooth
+/// destination besides the local speaker). Views observe this to auto-hide the
+/// `AirPlayRoutePicker` button when no alternate routes are reachable — matching
+/// the behaviour Apple Music uses to avoid showing a dead picker (#38).
+///
+/// Enable detection once on app start by setting
+/// `RouteDetector.shared.isEnabled = true`; it survives for the app lifetime.
+/// Detection scans for nearby wireless receivers so it is intentionally a
+/// singleton rather than one instance per player-bar instance.
+@MainActor
+@Observable
+final class RouteDetector {
+    /// Shared singleton. Enable once from the app's root scene or AppModel init.
+    static let shared = RouteDetector()
+
+    /// True when at least one non-local audio output (AirPlay, Bluetooth) is
+    /// within range. Mirrors `AVRouteDetector.multipleRoutesDetected`. The
+    /// `AirPlayRoutePicker` button in the transport bar is hidden when false —
+    /// the same auto-hide contract Apple Music applies.
+    private(set) var multipleRoutesDetected: Bool = false
+
+    /// Forward `isRouteDetectionEnabled` to the underlying detector. Turn on
+    /// once at startup; turning off stops the radio scan and resets
+    /// `multipleRoutesDetected` to `false`.
+    var isEnabled: Bool {
+        get { detector.isRouteDetectionEnabled }
+        set { detector.isRouteDetectionEnabled = newValue }
+    }
+
+    private let detector = AVRouteDetector()
+    /// Registration token from `NotificationCenter.addObserver(forName:…)`.
+    /// Marked `nonisolated(unsafe)` so Swift's strict-concurrency checker does
+    /// not flag the `deinit` (which runs off the main actor) accessing a
+    /// `@MainActor`-isolated property. The token is written exactly once in
+    /// `init` (on the main actor, since `shared` initialises on first access
+    /// and singletons evaluate their initialiser on the calling actor) and read
+    /// only in `deinit` after the object's lifetime ends — no concurrent access
+    /// is possible, so the suppression is safe. A singleton that lives for the
+    /// app's lifetime makes `deinit` unreachable in practice, but the compiler
+    /// still requires a conformant implementation.
+    nonisolated(unsafe) private var observerToken: NSObjectProtocol?
+
+    private init() {
+        // Mirror the initial value synchronously before registering the
+        // observer so the UI doesn't flash "hidden" on the first layout pass.
+        multipleRoutesDetected = detector.multipleRoutesDetected
+
+        observerToken = NotificationCenter.default.addObserver(
+            forName: .AVRouteDetectorMultipleRoutesDetectedDidChange,
+            object: detector,
+            queue: .main
+        ) { [weak self] _ in
+            // The notification fires on the main queue (we requested `.main`
+            // above) so the MainActor property write is safe without a
+            // detached task.
+            self?.multipleRoutesDetected = self?.detector.multipleRoutesDetected ?? false
+        }
+    }
+
+    deinit {
+        if let token = observerToken {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 }

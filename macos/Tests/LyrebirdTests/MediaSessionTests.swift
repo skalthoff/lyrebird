@@ -275,4 +275,90 @@ final class MediaSessionTests: XCTestCase {
         )
         XCTAssertFalse(MPRemoteCommandCenter.shared().likeCommand.isEnabled)
     }
+
+    // MARK: - #38 AirPlay currentPlaybackDate
+
+    /// Verify `trackChanged` publishes `currentPlaybackDate` while playing so
+    /// AirPlay receivers (HomePod, Apple TV) can derive a wall-clock anchor and
+    /// display an accurate progress bar without polling the source device.
+    func testTrackChangedPublishesCurrentPlaybackDateWhenPlaying() {
+        let track = makeTrack(id: "t-cpd", runtimeTicks: 300_000_000) // 30s
+        let delegate = MockDelegate(
+            status: makeStatus(track: track, state: .playing, position: 10)
+        )
+        let session = MediaSession()
+        session.attach(delegate: delegate)
+
+        let before = Date()
+        session.trackChanged(track)
+        let after = Date()
+
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        let dateValue = info?[MPNowPlayingInfoPropertyCurrentPlaybackDate] as? Date
+        XCTAssertNotNil(
+            dateValue,
+            "currentPlaybackDate must be set while playing so AirPlay receivers can display progress (#38)"
+        )
+        if let dateValue {
+            // The published date is "now − elapsed" (10 s behind wall clock).
+            // Allow ±2 s of test-scheduling slack.
+            let expectedLo = before.addingTimeInterval(-10 - 2)
+            let expectedHi = after.addingTimeInterval(-10 + 2)
+            XCTAssertTrue(
+                dateValue >= expectedLo && dateValue <= expectedHi,
+                "currentPlaybackDate should reflect elapsed position relative to wall clock"
+            )
+        }
+    }
+
+    /// Verify `currentPlaybackDate` is absent when the track is paused — a
+    /// paused AirPlay receiver must not auto-advance its own scrubber.
+    func testTrackChangedOmitsCurrentPlaybackDateWhenPaused() {
+        let track = makeTrack(id: "t-paused")
+        let delegate = MockDelegate(
+            status: makeStatus(track: track, state: .paused, position: 5)
+        )
+        let session = MediaSession()
+        session.attach(delegate: delegate)
+
+        session.trackChanged(track)
+
+        let info = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        XCTAssertNil(
+            info?[MPNowPlayingInfoPropertyCurrentPlaybackDate],
+            "currentPlaybackDate must be absent while paused (#38)"
+        )
+    }
+
+    /// Verify `rateChanged(isPlaying:false)` removes `currentPlaybackDate` so a
+    /// HomePod / Apple TV doesn't drift its scrubber forward after the user pauses.
+    func testRateChangedToPausedRemovesCurrentPlaybackDate() {
+        let track = makeTrack(id: "t-rate")
+        let delegate = MockDelegate(
+            status: makeStatus(track: track, state: .paused, position: 20)
+        )
+        let session = MediaSession()
+        session.attach(delegate: delegate)
+
+        // Start from a published playing state so the date key exists.
+        let playDelegate = MockDelegate(
+            status: makeStatus(track: track, state: .playing, position: 20)
+        )
+        let playSession = MediaSession()
+        playSession.attach(delegate: playDelegate)
+        playSession.trackChanged(track)
+        XCTAssertNotNil(
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyCurrentPlaybackDate],
+            "precondition: currentPlaybackDate must be set while playing"
+        )
+
+        // Pause the session.
+        session.trackChanged(track) // establishes currentTrackID on `session`
+        session.rateChanged(isPlaying: false)
+
+        XCTAssertNil(
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyCurrentPlaybackDate],
+            "pausing must remove currentPlaybackDate so AirPlay receivers stop advancing (#38)"
+        )
+    }
 }
