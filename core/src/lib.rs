@@ -424,6 +424,23 @@ impl LyrebirdCore {
         })
     }
 
+    /// Albums the artist guests on — credited at the track level but not the
+    /// album-artist (guest features, collaborations, "Various Artists"
+    /// compilations). Powers the artist page "Appears On" rail (#224); the
+    /// complement of [`Self::albums_by_artist`]'s Discography. Scopes by
+    /// `ArtistIds` on the server, then subtracts the artist's own releases.
+    pub fn appears_on_albums(
+        &self,
+        artist_id: String,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedAlbums, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime
+                .block_on(c.appears_on_albums(&artist_id, Paging::new(offset, limit)))
+        })
+    }
+
     pub fn album_tracks(&self, album_id: String) -> std::result::Result<Vec<Track>, LyrebirdError> {
         self.with_client(|c| self.runtime.block_on(c.album_tracks(&album_id)))
     }

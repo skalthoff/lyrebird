@@ -755,6 +755,53 @@ impl JellyfinClient {
             .await
     }
 
+    /// Albums where the artist is credited at the track level but is **not**
+    /// the album-artist — i.e. guest features, collaborations, and
+    /// "Various Artists" compilations the artist plays on. The conventional
+    /// "Appears On" rail of a music player's artist page (#224), the
+    /// complement of [`Self::albums_by_artist`]'s Discography.
+    ///
+    /// Scoped via `ArtistIds` (the broad "any credited artist" filter, in
+    /// contrast to `albums_by_artist`'s narrow `AlbumArtistIds`), then the
+    /// artist's *own* releases are subtracted client-side by dropping any
+    /// album whose primary `artist_id` is this artist. The server has no
+    /// single "credited but not album-artist" filter, so the broad fetch +
+    /// local subtraction is the cheapest correct expression of that set.
+    ///
+    /// Sorted by `ProductionYear` descending so the rail leads with the most
+    /// recent guest spots. `total_count` reports the count *after* the local
+    /// subtraction so callers see the size of the rail they will render, not
+    /// the pre-filter fetch window.
+    pub async fn appears_on_albums(
+        &self,
+        artist_id: &str,
+        paging: Paging,
+    ) -> Result<PaginatedAlbums> {
+        let page = ItemsQuery::new()
+            .recursive()
+            .artist(artist_id)
+            .item_types(vec![ItemKind::MusicAlbum])
+            .limit(paging.limit)
+            .offset(paging.offset)
+            .sort(ItemSortBy::ProductionYear, SortOrder::Descending)
+            .fields(vec![
+                ItemField::Genres,
+                ItemField::ProductionYear,
+                ItemField::ChildCount,
+                ItemField::PrimaryImageAspectRatio,
+            ])
+            .enable_user_data()
+            .fetch_albums(self)
+            .await?;
+        let items: Vec<Album> = page
+            .items
+            .into_iter()
+            .filter(|album| album.artist_id.as_deref() != Some(artist_id))
+            .collect();
+        let total_count = items.len() as u32;
+        Ok(PaginatedAlbums { items, total_count })
+    }
+
     /// Fetch the most recently added albums in a library, respecting the
     /// authenticated user's parental controls (enforced server-side via
     /// `userId`). Backed by `GET /Items/Latest`.

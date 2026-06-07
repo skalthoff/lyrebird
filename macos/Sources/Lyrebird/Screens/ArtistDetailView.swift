@@ -19,9 +19,11 @@ import SwiftUI
 /// 4. **Discography** — split by release type (Albums, Singles & EPs,
 ///    Compilations, Live). Because the core doesn't surface `AlbumType`
 ///    yet, we lean on a name/track-count heuristic; sections with zero
-///    matches collapse silently. ("Appears On" is deferred — no
-///    album-artist-vs-track-artist join in the core; see TODO(core-#60)
-///    on `discographyGroups`.)
+///    matches collapse silently.
+/// 4b. **Appears On** (#224) — albums the artist guests on (credited at the
+///    track level but not as the album-artist). Backed by
+///    `core.appearsOnAlbums`, which scopes by `ArtistIds` then subtracts the
+///    artist's own releases; collapses silently when there are none.
 /// 5. **Similar Artists** — backed by `model.loadSimilarArtists` →
 ///    `core.similarArtists` (Jellyfin `/Artists/{id}/Similar`); the row
 ///    collapses silently when the server returns none.
@@ -45,6 +47,11 @@ struct ArtistDetailView: View {
     @State private var topTracks: [Track] = []
     @State private var isLoadingTopTracks = true
     @State private var artistAlbums: [Album] = []
+    /// Albums the artist guests on (credited at the track level but not the
+    /// album-artist). Drives the "Appears On" rail; collapses silently when
+    /// empty. Populated by the `.task(id:)` block via
+    /// `model.loadArtistAppearsOnAlbums`. See #224.
+    @State private var appearsOnAlbums: [Album] = []
     @State private var fetchedArtist: Artist?
     @State private var isBioExpanded = false
     @State private var similarArtistsState: [Artist] = []
@@ -129,6 +136,7 @@ struct ArtistDetailView: View {
                 transportBar(artist)
                 topSongsSection
                 discographySection
+                appearsOnSection(artist)
                 featuringPlaylistsSection(artist)
                 similarArtistsSection
                 aboutSection(artist)
@@ -155,6 +163,7 @@ struct ArtistDetailView: View {
             isBioExpanded = false
             scopedQuery = ""
             featuringPlaylists = []
+            appearsOnAlbums = []
             discographyArtwork = [:]
             isLoadingTopTracks = true
             if model.artists.first(where: { $0.id == artistID }) == nil {
@@ -180,6 +189,22 @@ struct ArtistDetailView: View {
             isLoadingTopTracks = false
             similarArtistsState = await model.loadSimilarArtists(artistId: artistID)
             featuringPlaylists = await model.loadPlaylistsFeaturingArtist(artistId: artistID)
+            // "Appears On" — albums the artist guests on. Loaded after the
+            // primary sections so it never delays the Discography / Top Songs.
+            // Its tiles reuse `ArtistDiscographyTile`, so its artwork is warmed
+            // into the shared `discographyArtwork` map (merged, not replaced)
+            // off the main thread — same gap-pattern-#2 reasoning as above. See
+            // #224.
+            appearsOnAlbums = await model.loadArtistAppearsOnAlbums(artistId: artistID)
+            if !appearsOnAlbums.isEmpty {
+                let appearsArt = await model.resolveImageURLs(
+                    for: appearsOnAlbums.map { (id: $0.id, tag: $0.imageTag) },
+                    maxWidth: 400
+                )
+                for (id, url) in appearsArt where url != nil {
+                    discographyArtwork[id] = url
+                }
+            }
             // Biography is independent of the lists above so a missing or slow
             // detail fetch never blocks the rest of the page. The server
             // overview may carry HTML, so it is stripped to plain text before
@@ -187,7 +212,7 @@ struct ArtistDetailView: View {
             if let detail = await model.artistDetail(artistId: artistID) {
                 bioOverview = Self.plainTextOverview(detail.overview)
             }
-            Log.app.info("ArtistDetailView.task done artist=\(artistID, privacy: .public) albums=\(artistAlbums.count, privacy: .public) topTracks=\(topTracks.count, privacy: .public) similar=\(similarArtistsState.count, privacy: .public) bio=\(bioOverview != nil, privacy: .public)")
+            Log.app.info("ArtistDetailView.task done artist=\(artistID, privacy: .public) albums=\(artistAlbums.count, privacy: .public) appearsOn=\(appearsOnAlbums.count, privacy: .public) topTracks=\(topTracks.count, privacy: .public) similar=\(similarArtistsState.count, privacy: .public) bio=\(bioOverview != nil, privacy: .public)")
         }
     }
 
@@ -574,10 +599,10 @@ struct ArtistDetailView: View {
     ///   standard 4-6 track EP formats).
     /// - **Albums** — everything else.
     ///
-    /// "Appears On" would be albums where the artist is credited at the
-    /// track level but not as the album-artist. We don't have that join in
-    /// the core yet, so the section is surfaced only when we can build it.
-    /// Tracked in TODO(core-#60) along with real `AlbumType` support.
+    /// Albums where the artist is credited only at the track level (not as
+    /// the album-artist) are handled separately by `appearsOnSection` (#224) —
+    /// `albums_by_artist` scopes by `AlbumArtistIds`, so guest spots never
+    /// reach this grouping in the first place.
     ///
     /// Empty sections collapse silently. Each section sorts by year
     /// descending and renders a horizontal carousel of 160pt album tiles.
@@ -640,10 +665,6 @@ struct ArtistDetailView: View {
     /// `AlbumType` field once the core exposes it from Jellyfin's
     /// `Album.AlbumType` (MusicBrainz plugin populates this; otherwise we
     /// keep the heuristic as a reasonable fallback).
-    /// TODO(core-#60): add an "Appears On" group once the core can tell us
-    /// which albums credit this artist only at the track level. Needs either
-    /// an `album_artist_id` vs `track_artist_ids` split on the `Album` record
-    /// or a dedicated `artist_appearances` query.
     private func discographyGroups() -> [DiscographyGroup] {
         var singles: [Album] = []
         var compilations: [Album] = []
@@ -710,6 +731,43 @@ struct ArtistDetailView: View {
     private struct DiscographyGroup {
         let title: String
         let albums: [Album]
+    }
+
+    // MARK: - Appears On (#224)
+
+    /// Horizontal carousel of albums the artist guests on — credited at the
+    /// track level but not as the album-artist (guest features,
+    /// collaborations, "Various Artists" compilations). The complement of the
+    /// Discography above; the core's `appearsOnAlbums` scopes by `ArtistIds`
+    /// then subtracts the artist's own releases, so this rail never duplicates
+    /// a Discography tile. Reuses `ArtistDiscographyTile` for visual
+    /// consistency with the Discography carousels, and hides entirely when the
+    /// artist guests on nothing so it never reads as a broken empty shelf.
+    /// Data comes from `appearsOnAlbums`, populated by the `.task(id:)` block.
+    @ViewBuilder
+    private func appearsOnSection(_ artist: Artist?) -> some View {
+        if !appearsOnAlbums.isEmpty, let artist = artist {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionHeader(eyebrow: "APPEARS ON", title: "\(artist.name) Guests On")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    // Eager `HStack` (not `LazyHStack`) for the same macOS 26.4
+                    // recycle-UAF reason documented in `discographyGroup`. The
+                    // rail is capped at `loadArtistAppearsOnAlbums`'s limit, so
+                    // eager rendering stays cheap.
+                    HStack(alignment: .top, spacing: 16) {
+                        ForEach(appearsOnAlbums, id: \.id) { album in
+                            ArtistDiscographyTile(
+                                album: album,
+                                artworkURL: discographyArtwork[album.id]
+                            )
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+        }
     }
 
     // MARK: - Playlists featuring artist

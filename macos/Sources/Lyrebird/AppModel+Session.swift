@@ -117,6 +117,7 @@ extension AppModel {
         artistSimilarCache = [:]
         artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
+        artistAppearsOnCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
         ambientPaletteCache.removeAll()
@@ -197,6 +198,7 @@ extension AppModel {
         artistSimilarCache = [:]
         artistPlaylistsCache = [:]
         artistAlbumsCache = [:]
+        artistAppearsOnCache = [:]
         artistDetailCache = [:]
         resolvedNameCache = [:]
         ambientPaletteCache.removeAll()

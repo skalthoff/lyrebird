@@ -857,6 +857,10 @@ final class AppModel {
     /// Per-session cache for `loadArtistAlbums`. Cleared on `logout()`.
     var artistAlbumsCache: [String: [Album]] = [:]
 
+    /// Per-session cache for `loadArtistAppearsOnAlbums` (the "Appears On"
+    /// rail — albums the artist guests on, #224). Cleared on `logout()`.
+    var artistAppearsOnCache: [String: [Album]] = [:]
+
     /// Memoized cache keyed on (itemID, tag, maxWidth). Each grid cell calls
     /// `imageURL` during every scroll-driven body recomputation; without this
     /// cache every cell crosses the UniFFI boundary (Swift → C → Rust) and
