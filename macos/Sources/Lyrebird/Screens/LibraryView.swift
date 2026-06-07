@@ -128,24 +128,41 @@ struct LibraryView: View {
         ZStack(alignment: .bottom) {
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
-                        chipRow
-                        if model.isLoadingLibrary && model.albums.isEmpty {
-                            ProgressView()
-                                .tint(Theme.ink2)
-                                .padding(.top, 40)
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            content
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Sticky progress banner: visible once the server has
+                        // reported a total (albumsTotal > 0, meaning at least one
+                        // page has come back) while the full initial fetch is still
+                        // running. Before the first page returns albumsTotal is 0
+                        // and the skeleton grid alone signals "loading". See #437.
+                        if model.isLoadingLibrary && model.albumsTotal > 0 {
+                            LibraryLoadingBanner(
+                                loaded: model.albums.count,
+                                total: Int(model.albumsTotal)
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
                         }
-                        Spacer(minLength: 24)
+                        VStack(alignment: .leading, spacing: 18) {
+                            header
+                            chipRow
+                            if model.isLoadingLibrary && model.albums.isEmpty {
+                                // Skeleton grid replaces the full-screen spinner.
+                                // 20 album-tile placeholders fill the visible area
+                                // so first-interaction is instant — the user can
+                                // switch to Search or any other tab while albums
+                                // stream in. Tiles crossfade to real content when
+                                // the first page arrives. See #437.
+                                LibrarySkeletonGrid(columns: columns)
+                            } else {
+                                content
+                            }
+                            Spacer(minLength: 24)
+                        }
+                        .padding(.horizontal, 32)
+                        .padding(.top, 28)
+                        // Leave room for the floating selection banner so the last
+                        // rows aren't occluded while a selection is active.
+                        .padding(.bottom, selectedTracks.isEmpty ? 32 : 88)
                     }
-                    .padding(.horizontal, 32)
-                    .padding(.top, 28)
-                    // Leave room for the floating selection banner so the last
-                    // rows aren't occluded while a selection is active.
-                    .padding(.bottom, selectedTracks.isEmpty ? 32 : 88)
                 }
                 .background(backgroundWash)
                 // A–Z fast-scroll rail (#216). Only shown for large, A–Z-sorted
@@ -175,6 +192,13 @@ struct LibraryView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: selectedTrackIds.isEmpty)
+        // Crossfade the skeleton grid → real album grid when the first library
+        // page arrives, and animate the progress banner in/out. Both are keyed
+        // on `isLoadingLibrary` so they use the same 200ms easing curve. The
+        // skeleton → content swap (keyed on albums.isEmpty) is intentionally a
+        // different key so it can fire independently. See #437.
+        .animation(.easeOut(duration: 0.2), value: model.isLoadingLibrary)
+        .animation(.easeOut(duration: 0.2), value: model.albums.isEmpty)
         // Esc clears the selection from anywhere in the view (the banner's ✕
         // also has the .escape shortcut for when it holds focus). See #217.
         .onKeyPress(.escape) {
@@ -1699,5 +1723,90 @@ enum TrackSelectionResolver {
         } else {
             return Outcome(selection: [], anchorIndex: clickedIndex, shouldPlay: true)
         }
+    }
+}
+
+// MARK: - First-launch loading UX (#437)
+
+/// Sticky banner shown at the top of `LibraryView` while the initial library
+/// fetch is running and the server has already reported a total. Renders a
+/// thin progress bar below a "LOADING LIBRARY (N / M)" label so the user
+/// knows loading is active and how far along it is, without blocking any tab
+/// interaction. Disappears with a slide-up/fade when `isLoadingLibrary` goes
+/// false. See `LibraryView.body` for the gate condition.
+private struct LibraryLoadingBanner: View {
+    let loaded: Int
+    let total: Int
+
+    /// 0…1 fraction consumed so the bar grows left-to-right.
+    private var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(1, Double(loaded) / Double(total))
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("LOADING LIBRARY (\(loaded) / \(total))")
+                    .font(Theme.font(10, weight: .bold))
+                    .foregroundStyle(Theme.ink3)
+                    .tracking(1.2)
+                Spacer()
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+
+            // Indeterminate-then-determinate bar: zero-width while the total
+            // is still unknown (fraction == 0) so the bar grows correctly once
+            // the first page comes back and we know the total. GeometryReader
+            // measures the banner's full width; the fill animates as `loaded`
+            // increments with each paged response.
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(Theme.surface2)
+                    Rectangle()
+                        .fill(Theme.primary.opacity(0.6))
+                        .frame(width: max(0, geo.size.width * fraction))
+                        .animation(.linear(duration: 0.3), value: fraction)
+                }
+            }
+            .frame(height: 2)
+
+            Divider()
+                .background(Theme.border)
+        }
+        .background(Theme.bg)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading library, \(loaded) of \(total) items")
+    }
+}
+
+/// A fixed grid of `LoadingSkeleton(shape: .albumTile)` placeholders that
+/// fills the library viewport on first launch. Replaces the former
+/// full-screen `ProgressView` spinner — 20 shimmering tiles make the grid
+/// layout immediately visible while the real content streams in, so
+/// interaction (chip switches, tab changes, Search) is unblocked from the
+/// first frame. The tile count (20) comfortably fills a 1440×900 window
+/// in the `GridItem(.adaptive(minimum: 180, maximum: 220))` column layout.
+/// Matches the same `columns` definition used by the real album grid so the
+/// tile sizes are identical and the transition is smooth. See #437.
+private struct LibrarySkeletonGrid: View {
+    let columns: [GridItem]
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let tileCount = 20
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
+            ForEach(0..<tileCount, id: \.self) { _ in
+                LoadingSkeleton(shape: .albumTile)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading albums")
     }
 }
