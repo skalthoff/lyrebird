@@ -59,6 +59,26 @@ struct MainShell: View {
     /// post-connect *teaching* overlay.
     @AppStorage(FeatureTourSeenStore.seenKey) private var hasSeenFeatureTour: Bool = false
 
+    /// Which top-level region currently owns keyboard focus for the Tab /
+    /// Shift+Tab region cycle. One `@FocusState` for the whole shell:
+    /// each region container binds `.focused($focusedRegion, equals: .x)` so
+    /// SwiftUI keeps exactly one region focused and the region focus ring
+    /// reads off the same source of truth. `nil` until the first Tab press (or
+    /// when focus is inside an inner control rather than parked on a region
+    /// container). Cycling between regions is driven by `cycleRegion(_:)`,
+    /// invoked from the `.onKeyPress(.tab)` handler so the hop works with or
+    /// without macOS Full Keyboard Access enabled — FKA only traverses *within*
+    /// a focusable subtree, never between these named regions.
+    @FocusState private var focusedRegion: FocusRegion?
+
+    /// Mirrors region focus onto the toolbar Search field. The Search "region"
+    /// in the region cycle is that text field; binding its own `@FocusState`
+    /// lets the region cycle land the cursor in it (and lets the field report
+    /// back so Shift+Tab out of Search is observable). Kept distinct from
+    /// `model.isSearchFieldFocused` (the global ⌘⇧F path, which targets the
+    /// full Search *page*, not this toolbar field).
+    @FocusState private var searchFieldFocused: Bool
+
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
@@ -92,6 +112,14 @@ struct MainShell: View {
                     // floor (brand mark + nav rows stay legible) and a 360pt
                     // ceiling (so the rail can't swallow the detail column).
                     .navigationSplitViewColumnWidth(min: 200, ideal: 252, max: 360)
+                    // Tab region cycle: the sidebar is the first region.
+                    // `.focusable` makes the whole rail a Tab stop the shell can
+                    // park focus on; `.focused` binds it to the shared region
+                    // state; the region ring is the visible focus indicator on
+                    // each transition.
+                    .focusable()
+                    .focused($focusedRegion, equals: .sidebar)
+                    .regionFocusRing(isActive: focusedRegion == .sidebar)
             } detail: {
                 HStack(spacing: 0) {
                     NavigationStack(path: $model.navPath) {
@@ -130,6 +158,13 @@ struct MainShell: View {
                                             .font(Theme.font(13, weight: .medium))
                                             .foregroundStyle(Theme.ink)
                                             .frame(maxWidth: 280)
+                                            // Tab region cycle: this
+                                            // toolbar field is the Search
+                                            // region. Binding its own focus
+                                            // state lets `cycleRegion(_:)` land
+                                            // the cursor here and lets a
+                                            // Shift+Tab out of it be observed.
+                                            .focused($searchFieldFocused)
                                             .onSubmit {
                                                 // Hand off to the Search page so
                                                 // `runFullSearch` and the existing
@@ -163,6 +198,12 @@ struct MainShell: View {
                     // container so it lands on the container, keeping the
                     // #334 tab order (content second, after the sidebar).
                     .accessibilitySortPriority(90)
+                    // Tab region cycle: the content pane is the second
+                    // region. Same focusable + focused + ring trio as the
+                    // sidebar so Tab can park focus on the whole pane.
+                    .focusable()
+                    .focused($focusedRegion, equals: .content)
+                    .regionFocusRing(isActive: focusedRegion == .content)
 
                     // Right-side Queue Inspector (#79). Hidden by default;
                     // toggled by Cmd+Opt+Q or a future PlayerBar button
@@ -177,6 +218,14 @@ struct MainShell: View {
                             .frame(width: 320)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                             .accessibilitySortPriority(70)
+                            // Tab region cycle: the Up Next inspector is
+                            // the third region — but only while it's mounted.
+                            // `FocusRegionCycle` skips `.upNext` when the
+                            // inspector is closed, so Tab never strands focus on
+                            // a region that isn't on screen.
+                            .focusable()
+                            .focused($focusedRegion, equals: .upNext)
+                            .regionFocusRing(isActive: focusedRegion == .upNext)
                     }
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.isQueueInspectorOpen)
@@ -199,8 +248,39 @@ struct MainShell: View {
                 // sort priority is the only thing the shell needs to set,
                 // pinning the player bar last in the #334 tab order.
                 .accessibilitySortPriority(50)
+                // Tab region cycle: the player bar is the fourth region
+                // (Search, the toolbar field, is the fifth and wraps back to
+                // the sidebar). Same focusable + focused + ring trio.
+                .focusable()
+                .focused($focusedRegion, equals: .playerBar)
+                .regionFocusRing(isActive: focusedRegion == .playerBar)
         }
         .background(Theme.bg)
+        // Tab / Shift+Tab region cycle. One `onKeyPress` keyed on Tab
+        // for the `.down` phase; the `.shift` modifier on the `KeyPress` picks
+        // the direction (Tab forward, Shift+Tab backward). Handling it here —
+        // rather than relying on macOS Full Keyboard Access — is what makes the
+        // region hop work whether or not FKA is enabled (the acceptance
+        // criterion): FKA only moves focus *within* a focusable subtree, never
+        // between these named regions. The handler always returns `.handled`,
+        // consuming the press so the same Tab doesn't *also* step focus inside
+        // the current region — Tab is the app-level "move between regions"
+        // gesture. This ancestor modifier only sees the event when no focused
+        // descendant claimed it first, so a control that genuinely needs Tab
+        // (none today) would still take precedence.
+        .onKeyPress(keys: [.tab], phases: .down) { press in
+            handleTabKey(shift: press.modifiers.contains(.shift))
+        }
+        // Keep region state and the Search field's own focus in sync. When the
+        // user clicks straight into the toolbar Search field (bypassing the Tab
+        // cycle), clear the parked region so a subsequent Shift+Tab steps
+        // backward from Search (computed via `currentRegion`) rather than from a
+        // stale region container.
+        .onChange(of: searchFieldFocused) { _, isFocused in
+            if isFocused {
+                focusedRegion = nil
+            }
+        }
         // Width-driven sidebar auto-hide (#318). A zero-cost GeometryReader in
         // the background reports the shell's width; `onChange` runs the pure
         // `SidebarAutoHide` reducer to collapse the rail on narrow windows and
@@ -343,6 +423,51 @@ struct MainShell: View {
     /// which records the seen flag when it closes.
     private var shouldShowFeatureTour: Bool {
         !hasSeenFeatureTour || model.isFeatureTourPresented
+    }
+
+    // MARK: - Tab region cycle
+
+    /// The region keyboard focus is effectively on right now. The toolbar
+    /// Search field tracks its own `@FocusState` (`searchFieldFocused`) rather
+    /// than the shared region state, so when it's focused the effective region
+    /// is `.search`; otherwise it's whatever container is parked in
+    /// `focusedRegion` (possibly `nil` before the first Tab).
+    private var currentRegion: FocusRegion? {
+        searchFieldFocused ? .search : focusedRegion
+    }
+
+    /// Handles a Tab (`shift == false`) or Shift+Tab (`shift == true`) press by
+    /// advancing the region focus one step through `FocusRegionCycle` and
+    /// returning `.handled` so the press is consumed (preventing the OS from
+    /// *also* stepping focus inside the current region on the same keystroke).
+    ///
+    /// The cycle's order — Sidebar → Content → Up Next → Player Bar → Search →
+    /// (wrap) — and its skip-the-inspector-when-closed rule live in the pure,
+    /// unit-tested `FocusRegionCycle`; this method only applies the result.
+    private func handleTabKey(shift: Bool) -> KeyPress.Result {
+        cycleRegion(shift ? .backward : .forward)
+        return .handled
+    }
+
+    /// Moves region focus one step in `direction`, mapping the chosen
+    /// `FocusRegion` onto the two backing focus states. Search is special: it's
+    /// the toolbar text field, so landing on `.search` drives
+    /// `searchFieldFocused` (and clears the parked region) to put the cursor in
+    /// the field; every other region drives `focusedRegion` (and clears the
+    /// search field) so exactly one region container shows the focus ring.
+    private func cycleRegion(_ direction: FocusRegionCycle.Direction) {
+        let target = FocusRegionCycle.next(
+            from: currentRegion,
+            direction: direction,
+            inspectorPresent: model.isQueueInspectorOpen
+        )
+        if target == .search {
+            focusedRegion = nil
+            searchFieldFocused = true
+        } else {
+            searchFieldFocused = false
+            focusedRegion = target
+        }
     }
 
     /// Toolbar `Toggle Sidebar` handler (#318). Flips `columnVisibility` and
