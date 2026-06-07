@@ -792,6 +792,17 @@ final class AppModel {
             UserDefaults.standard.string(forKey: AppModel.palettePinnedActionIdsKey) ?? "[]"
         )
 
+    /// User overrides for keyboard shortcuts, keyed by `AppShortcuts` action id
+    /// (#120 / #265). Only genuine customizations live here — an action at its
+    /// catalog default has *no* entry. Mirrored into `UserDefaults` as JSON
+    /// through the mutations in `AppModel+Shortcuts`; initialised from the
+    /// persisted map so remaps survive relaunch. See that file for the resolver
+    /// + conflict-detection contract.
+    var shortcutOverrides: [String: KeyChord] =
+        AppModel.decodeShortcutOverrides(
+            UserDefaults.standard.string(forKey: AppModel.shortcutOverridesKey) ?? "{}"
+        )
+
     init() throws {
         let core = try LyrebirdCore(
             config: CoreConfig(dataDir: "", deviceName: "Lyrebird macOS")
