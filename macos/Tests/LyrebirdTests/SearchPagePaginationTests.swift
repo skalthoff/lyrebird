@@ -185,4 +185,85 @@ final class SearchPagePaginationTests: XCTestCase {
         XCTAssertEqual(model.searchPageLoaded, 0)
         XCTAssertFalse(model.searchPageExhausted, "exhaustion resets on a fresh (empty) query")
     }
+
+    // MARK: - suggestedSearchArtists (#87)
+
+    func testSuggestedSearchArtistsEmptyWhenNoArtistsLoaded() throws {
+        let model = try AppModel()
+        // artists defaults to [] — suggestions must be empty so the view
+        // can hide the section without any additional guard.
+        XCTAssertTrue(model.artists.isEmpty)
+        XCTAssertTrue(
+            model.suggestedSearchArtists.isEmpty,
+            "no artists loaded → empty suggestions, not a crash"
+        )
+    }
+
+    func testSuggestedSearchArtistsCappedAtFive() throws {
+        let model = try AppModel()
+        // Populate 10 never-played artists — the property must return at most 5.
+        model.artists = (0..<10).map { i in
+            makeArtist(id: "a\(i)", name: "Artist \(i)")
+        }
+        let suggestions = model.suggestedSearchArtists
+        XCTAssertEqual(suggestions.count, 5, "suggestions are always capped at 5")
+    }
+
+    func testSuggestedSearchArtistsPrefersUnplayed() throws {
+        let model = try AppModel()
+        // Mix of played and unplayed artists. The property must select only
+        // from the unplayed pool when any unplayed artists exist.
+        let playedUserData = UserItemData(
+            isFavorite: false, played: true, playCount: 3,
+            playbackPositionTicks: 0, lastPlayedAt: nil, likes: nil, rating: nil
+        )
+        let playedArtists: [Artist] = (0..<8).map { i in
+            Artist(
+                id: "played-\(i)", name: "Played \(i)", albumCount: 2,
+                songCount: 10, genres: [], imageTag: nil, userData: playedUserData
+            )
+        }
+        let unplayedArtists: [Artist] = (0..<3).map { i in
+            makeArtist(id: "unplayed-\(i)", name: "Unplayed \(i)")
+        }
+        model.artists = playedArtists + unplayedArtists
+
+        let suggestions = model.suggestedSearchArtists
+        // All returned artists must be from the unplayed pool.
+        let suggestedIds = Set(suggestions.map(\.id))
+        let unplayedIds = Set(unplayedArtists.map(\.id))
+        XCTAssertTrue(
+            suggestedIds.isSubset(of: unplayedIds),
+            "suggestions must come exclusively from the unplayed pool when one exists"
+        )
+        XCTAssertEqual(suggestions.count, 3, "pool smaller than cap → all 3 returned")
+    }
+
+    func testSuggestedSearchArtistsFallsBackToAllWhenAllPlayed() throws {
+        let model = try AppModel()
+        // Every artist has been played — suggestions must still return up to 5
+        // rather than an empty list.
+        let playedUserData = UserItemData(
+            isFavorite: false, played: true, playCount: 1,
+            playbackPositionTicks: 0, lastPlayedAt: nil, likes: nil, rating: nil
+        )
+        model.artists = (0..<7).map { i in
+            Artist(
+                id: "p\(i)", name: "Played \(i)", albumCount: 1,
+                songCount: 4, genres: [], imageTag: nil, userData: playedUserData
+            )
+        }
+        let suggestions = model.suggestedSearchArtists
+        XCTAssertEqual(suggestions.count, 5, "falls back to full pool when all artists are played")
+    }
+
+    func testSuggestedSearchArtistsDailyStabilityIsIdempotent() throws {
+        let model = try AppModel()
+        model.artists = (0..<20).map { i in makeArtist(id: "a\(i)", name: "Artist \(i)") }
+        // Calling the property twice within the same process (same day) must
+        // return identical results — no RNG call that isn't seeded by the date.
+        let first = model.suggestedSearchArtists.map(\.id)
+        let second = model.suggestedSearchArtists.map(\.id)
+        XCTAssertEqual(first, second, "seeded daily shuffle must be stable within a session")
+    }
 }
