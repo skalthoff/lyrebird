@@ -46,9 +46,8 @@ extension AppModel {
             return 320_000
         case .metered:
             // Cellular or metered Wi-Fi: use 192 kbps so the opening buffer
-            // fills quickly on a 2 Mbps link — matching the issue-#447
-            // acceptance criterion. The server transcodes to mp3 at this
-            // ceiling (see `stream_url_with_bitrate` in core/src/client.rs).
+            // fills quickly on a 2 Mbps link. The server transcodes to mp3 at
+            // this ceiling (see `stream_url_with_bitrate` in core/src/client.rs).
             return 192_000
         }
     }
