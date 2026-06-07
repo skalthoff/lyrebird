@@ -26,8 +26,6 @@ import os
 /// dispatches a reload onto the main actor, so no additional synchronization
 /// is needed in call sites.
 ///
-/// ## Closed issue
-/// Resolves #451 (Feature flags — static file + in-app toggles).
 @MainActor
 @Observable
 final class FeatureFlags {

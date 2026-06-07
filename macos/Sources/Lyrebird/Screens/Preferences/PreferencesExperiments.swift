@@ -12,8 +12,6 @@ import SwiftUI
 /// story — power-user ergonomics are deliberate. This is NOT a general-
 /// audience settings pane; it is surfaced only when the user has already
 /// touched the config file (because they set `debug_panel_enabled: true`).
-///
-/// Closes #451 (Feature flags — static file + in-app toggles).
 struct PreferencesExperiments: View {
 
     // MARK: - State
