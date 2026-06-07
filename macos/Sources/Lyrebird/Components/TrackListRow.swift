@@ -136,6 +136,14 @@ struct TrackListRow: View {
                 }
             }
             .contextMenu { TrackContextMenu(selection: [track]) }
+            // Drag to Finder: materialises a `.m3u` file when the user drops
+            // the row onto Finder or any M3U-accepting app (#14). Mirrors the
+            // same modifier on `TrackRow`.
+            .draggable(TrackM3UDrag(
+                tracks: [track],
+                serverURL: model.serverURL,
+                core: model.core
+            ))
             // A single row should read as one VoiceOver element — the wrapping
             // Button already carries a label, but we override it here to pull
             // in the active state so playing rows announce "Now playing" and

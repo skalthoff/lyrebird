@@ -162,6 +162,17 @@ struct TrackRow: View {
         .onHover { isHovering = $0 }
         .onTapGesture(count: 1) { onPlay?() }
         .contextMenu { TrackContextMenu(selection: [track], playlistScope: playlistScope) }
+        // Drag to Finder: materialises a `.m3u` file referencing the Jellyfin
+        // stream URL so the user can drop the row onto VLC/Finder and play it
+        // outside the app (#14). `TrackM3UDrag` is a `Transferable` whose
+        // `FileRepresentation` exporter resolves the api_key and writes the
+        // temp file asynchronously once the user completes the drop — the drag
+        // gesture itself is instantaneous.
+        .draggable(TrackM3UDrag(
+            tracks: [track],
+            serverURL: model.serverURL,
+            core: model.core
+        ))
         // VoiceOver reads the row as a single "<title> by <artist>" line
         // with the button trait + hint so the double-tap play action is
         // discoverable without sighted hover affordances. See #331.
