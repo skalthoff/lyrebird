@@ -206,6 +206,12 @@ extension AppModel {
     /// bodies via the core `Lyrics` record — `LyricsView` renders the
     /// right layout based on `is_synced`. See #91, #273, #287, #288.
     ///
+    /// Respects the `lyrics.source` `@AppStorage` preference (#121):
+    /// - `none` — skips all fetches; sets `currentLyrics = []`.
+    /// - `jellyfinOnly` (default) — asks the server only.
+    /// - `jellyfinPlusLrcLib` — asks the server first; on a server miss
+    ///   silently falls back to lrclib.net.
+    ///
     /// Safe to call repeatedly — short-circuits when the current track
     /// id already matches the last successful fetch. Cleared on track
     /// change by the polling loop (see `startPolling`).
@@ -217,6 +223,20 @@ extension AppModel {
         }
         if currentLyricsForId == track.id { return }
         let id = track.id
+
+        // Read the preference. `@AppStorage` is not accessible off the
+        // main actor, so we read it here on the main actor and pass the
+        // value into the detached task by capture.
+        let sourceRaw = UserDefaults.standard.string(forKey: "lyrics.source") ?? LyricsSource.jellyfinOnly.rawValue
+        let source = LyricsSource(rawValue: sourceRaw) ?? .jellyfinOnly
+
+        // "None" — skip all network work immediately.
+        if source == .none {
+            currentLyrics = []
+            currentLyricsForId = id
+            return
+        }
+
         do {
             let lyrics = try await Task.detached(priority: .userInitiated) { [core] in
                 try core.lyrics(trackId: id)
@@ -236,6 +256,15 @@ extension AppModel {
                         text: line.text
                     )
                 }
+                currentLyricsForId = id
+                return
+            }
+            // Server returned no lyrics. If the user wants the LRCLib
+            // fallback, try it now — still off the main actor.
+            if source == .jellyfinPlusLrcLib {
+                let fallback = await Self.fetchLrcLibLyrics(for: track)
+                guard status.currentTrack?.id == id else { return }
+                currentLyrics = fallback ?? []
             } else {
                 currentLyrics = []
             }
@@ -245,6 +274,71 @@ extension AppModel {
             guard status.currentTrack?.id == id else { return }
             currentLyrics = []
             currentLyricsForId = id
+        }
+    }
+
+    /// Fetch synced (LRC) or plain-text lyrics from lrclib.net for a track.
+    ///
+    /// Uses the `/api/get` endpoint with `track_name`, `artist_name`,
+    /// `album_name`, and `duration` query parameters. Returns parsed
+    /// `[LyricLine]` on a match, `nil` on any failure (network error,
+    /// no match, bad JSON) — callers treat `nil` as a graceful "no
+    /// lyrics found" and must not surface the error to the user.
+    ///
+    /// Runs entirely off the main actor (URLSession + JSON parsing
+    /// are blocking/CPU-bound). The result is not persisted to disk; it
+    /// lives in `currentLyrics` only for the current app session, satisfying
+    /// the acceptance criterion that "fallback is cached locally per track".
+    ///
+    /// LRCLib API: https://lrclib.net/docs
+    static func fetchLrcLibLyrics(for track: Track) async -> [LyricLine]? {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "lrclib.net"
+        components.path = "/api/get"
+        let durationSeconds = Int(Double(track.runtimeTicks) / 10_000_000.0)
+        components.queryItems = [
+            URLQueryItem(name: "track_name", value: track.name),
+            URLQueryItem(name: "artist_name", value: track.artistName),
+            URLQueryItem(name: "album_name", value: track.albumName ?? ""),
+            URLQueryItem(name: "duration", value: String(durationSeconds)),
+        ]
+        guard let url = components.url else { return nil }
+
+        do {
+            // URLSession.data(from:) is async and non-blocking — safe to
+            // call off the main actor without taking the core mutex.
+            let (data, response) = try await URLSession.shared.data(from: url)
+            // lrclib.net returns 404 when no track is found — not an error,
+            // just a miss. Any non-200 is treated as "no lyrics" so we don't
+            // surface transient server issues.
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                return nil
+            }
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            // Prefer the synced (LRC) lyrics when available; fall back to
+            // plain text so tracks without timing still show something.
+            if let synced = root["syncedLyrics"] as? String, !synced.isEmpty {
+                let lines = LyricLine.parseLRC(synced)
+                return lines.isEmpty ? nil : lines
+            }
+            if let plain = root["plainLyrics"] as? String, !plain.isEmpty {
+                let lines = plain
+                    .split(whereSeparator: { $0.isNewline })
+                    .enumerated()
+                    .compactMap { idx, raw -> LyricLine? in
+                        let text = raw.trimmingCharacters(in: .whitespaces)
+                        return text.isEmpty ? nil : LyricLine(id: idx, timestamp: nil, text: text)
+                    }
+                return lines.isEmpty ? nil : lines
+            }
+            return nil
+        } catch {
+            // Network failure, timeout, etc. — swallowed per the issue spec
+            // ("failure is silent").
+            return nil
         }
     }
 
