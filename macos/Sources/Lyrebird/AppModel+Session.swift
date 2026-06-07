@@ -46,6 +46,92 @@ extension AppModel {
         }
     }
 
+    // MARK: - Device name
+
+    /// Host-derived default device name (e.g. "Soren's MacBook Pro"), used the
+    /// first time the app launches before the user has set one. Falls back to a
+    /// generic product name if the host name can't be resolved (#202).
+    static func defaultDeviceName() -> String {
+        let host = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let host, !host.isEmpty {
+            return host
+        }
+        return "Lyrebird macOS"
+    }
+
+    /// Persist a user-edited device name through the core (which trims it,
+    /// stores it in its DB, and applies it to every subsequent auth header) and
+    /// mirror the resolved value back onto the model. A blank name is ignored —
+    /// the core rejects it — so the field can't be cleared into an empty
+    /// `Device` header (#202).
+    func updateDeviceName(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != deviceName else { return }
+        do {
+            try core.setDeviceName(name: trimmed)
+            deviceName = core.deviceName()
+        } catch {
+            Log.auth.error("setDeviceName failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    // MARK: - Quick Connect
+
+    /// Begin a Quick Connect handshake against `url`. Returns the
+    /// `QuickConnectInfo` (the short code to display + the polling secret) or
+    /// `nil` on failure, surfacing a localized error on the model. Runs the
+    /// blocking FFI off the main actor (#202, gap pattern #2).
+    func quickConnectInitiate(url: String) async -> QuickConnectInfo? {
+        do {
+            return try await Task.detached(priority: .userInitiated) { [core] in
+                try core.quickConnectInitiate(url: url)
+            }.value
+        } catch {
+            errorMessage = LyrebirdErrorPresenter.message(for: error, context: .login)
+            return nil
+        }
+    }
+
+    /// Poll whether a pending Quick Connect `secret` has been approved on
+    /// another client. Returns `true` once authorised. Off-main-actor FFI.
+    func quickConnectPoll(url: String, secret: String) async -> Bool {
+        do {
+            return try await Task.detached(priority: .userInitiated) { [core] in
+                try core.quickConnectPoll(url: url, secret: secret)
+            }.value
+        } catch {
+            // Transient poll failures shouldn't tear down the sheet — the next
+            // tick retries. Surface only at debug level.
+            Log.auth.debug("quickConnectPoll failed: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    /// Exchange an approved Quick Connect `secret` for a session and finish
+    /// sign-in (load library, start polling) exactly like a password login.
+    /// Returns `true` on success. Off-main-actor FFI.
+    @discardableResult
+    func quickConnectComplete(url: String, secret: String) async -> Bool {
+        isLoggingIn = true
+        defer { isLoggingIn = false }
+        do {
+            let session = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.quickConnectComplete(url: url, secret: secret)
+            }.value
+            self.session = session
+            self.serverURL = session.server.url
+            self.username = session.user.name
+            self.errorMessage = nil
+            startPolling()
+            await refreshLibrary()
+            await refreshDownloads()
+            return true
+        } catch {
+            self.errorMessage = LyrebirdErrorPresenter.message(for: error, context: .login)
+            return false
+        }
+    }
+
     /// Rehydrate the previous session from on-disk settings + the keychain
     /// token. Called once from `RootView.task` on cold start. No-ops when the
     /// core has nothing to restore (first launch, post-logout, etc.); in that

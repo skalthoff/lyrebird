@@ -24,6 +24,18 @@ pub struct Session {
     pub device_id: String,
 }
 
+/// A pending Jellyfin Quick Connect handshake. Returned by
+/// `LyrebirdCore::quick_connect_initiate`: `code` is the short numeric code the
+/// user types into another already-signed-in Jellyfin client (or scans as a
+/// QR), and `secret` is the opaque token the desktop app polls with until the
+/// pairing is approved, then exchanges for a real session. The secret is never
+/// shown to the user — only the code is.
+#[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]
+pub struct QuickConnectInfo {
+    pub secret: String,
+    pub code: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, uniffi::Record)]
 pub struct Artist {
     pub id: String,

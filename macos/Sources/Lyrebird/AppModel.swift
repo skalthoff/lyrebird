@@ -601,6 +601,13 @@ final class AppModel {
     var isLoadingLibrary = false
     var errorMessage: String?
 
+    /// The device name Jellyfin sees for this client (the `Device="…"` auth
+    /// header field). Seeded from the core in `init()` — which itself prefers a
+    /// previously user-edited value persisted in the DB over the host-derived
+    /// default — and edited via the login gear popover through
+    /// `updateDeviceName(_:)` (#202).
+    var deviceName: String = ""
+
     /// Set during the one-shot `attemptRestoreSession` pass at launch. `RootView`
     /// renders a minimal loading state while this is true so we don't briefly
     /// flash `LoginView` on cold start even though a valid session is about to
@@ -808,9 +815,13 @@ final class AppModel {
 
     init() throws {
         let core = try LyrebirdCore(
-            config: CoreConfig(dataDir: "", deviceName: "Lyrebird macOS")
+            config: CoreConfig(dataDir: "", deviceName: AppModel.defaultDeviceName())
         )
         self.core = core
+        // The core prefers a previously user-edited name (persisted in its DB)
+        // over the host-derived default we just passed, so read the resolved
+        // value back rather than re-deriving it here (#202).
+        self.deviceName = core.deviceName()
         self.audio = AudioEngine(core: core)
         self.mediaSession = MediaSession()
         self.network = NetworkMonitor()
