@@ -684,6 +684,10 @@ final class AppModel {
     /// pinned-stations store uses.
     static let miniPlayerAlwaysOnTopKey = "miniPlayer.alwaysOnTop"
 
+    /// UserDefaults key for the persisted transparent-when-inactive preference.
+    /// Same `@Observable` → UserDefaults bridge as the always-on-top flag.
+    static let miniPlayerTransparentWhenInactiveKey = "miniPlayer.transparentWhenInactive"
+
     /// Whether the detached Mini Player window is currently open.
     /// `LyrebirdApp` observes this and drives `openWindow` / `dismissWindow`
     /// for the `mini-player` scene. The ⌘⌥P menu `Toggle` writes this flag
@@ -701,6 +705,16 @@ final class AppModel {
     /// `UserDefaults`; write through `setMiniPlayerAlwaysOnTop(_:)` so the
     /// stored value and the live window level stay consistent.
     var miniPlayerAlwaysOnTop: Bool = UserDefaults.standard.bool(forKey: AppModel.miniPlayerAlwaysOnTopKey)
+
+    /// Whether the Mini Player fades to semi-transparent when the app loses
+    /// focus. Persisted across launches; write through
+    /// `setMiniPlayerTransparentWhenInactive(_:)`. `MiniPlayerWindowConfigurator`
+    /// reads this and re-applies `NSWindow.alphaValue` on
+    /// `NSApplication.didBecomeActiveNotification` /
+    /// `NSApplication.didResignActiveNotification`.
+    var miniPlayerTransparentWhenInactive: Bool = UserDefaults.standard.bool(
+        forKey: AppModel.miniPlayerTransparentWhenInactiveKey
+    )
 
     // MARK: - Autoplay (queue end)
 

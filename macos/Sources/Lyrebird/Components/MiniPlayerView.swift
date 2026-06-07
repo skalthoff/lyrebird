@@ -103,7 +103,14 @@ struct MiniPlayerView: View {
         }
         // Configure the host NSWindow exactly once. Mounted as a background
         // so it adds no visual element of its own.
-        .background(MiniPlayerWindowConfigurator(alwaysOnTop: model.miniPlayerAlwaysOnTop))
+        .background(MiniPlayerWindowConfigurator(
+            alwaysOnTop: model.miniPlayerAlwaysOnTop,
+            transparentWhenInactive: model.miniPlayerTransparentWhenInactive
+        ))
+        // Right-click context menu exposes the same three knobs as the
+        // gear button but is always reachable without hovering — useful when
+        // the window is in its minimal resting state and controls are hidden.
+        .contextMenu { miniPlayerContextMenu }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text("mini_player.accessibility.label"))
     }
@@ -281,25 +288,17 @@ struct MiniPlayerView: View {
         .accessibilityAddTraits(isFav ? [.isSelected] : [])
     }
 
-    /// Gear menu with the always-on-top toggle and a return-to-full-window
-    /// entry. Apple Music's MiniPlayer exposes "Always on Top" here; we mirror
-    /// that and add the explicit return action so the contract is reachable
-    /// even on a trackpad without hover.
+    /// Gear menu with the always-on-top and transparent-when-inactive toggles,
+    /// plus the return-to-full-window and close-mini-player actions. Apple
+    /// Music's MiniPlayer exposes "Always on Top" here; we mirror that and add
+    /// the explicit return action so the contract is reachable even on a
+    /// trackpad without hover. The same items are also accessible via the
+    /// right-click context menu (`miniPlayerContextMenu`) so the minimal resting
+    /// card — which hides this gear button — is still fully controllable.
     @ViewBuilder
     private var settingsMenu: some View {
         Menu {
-            Toggle(isOn: Binding(
-                get: { model.miniPlayerAlwaysOnTop },
-                set: { model.setMiniPlayerAlwaysOnTop($0) }
-            )) {
-                Text("mini_player.menu.always_on_top")
-            }
-            Divider()
-            Button {
-                model.returnToFullWindow()
-            } label: {
-                Text("mini_player.menu.return_to_full")
-            }
+            miniPlayerMenuItems
         } label: {
             Image(systemName: "ellipsis.circle")
                 .font(.system(size: 13))
@@ -309,6 +308,44 @@ struct MiniPlayerView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .accessibilityLabel(Text("mini_player.menu.label"))
+    }
+
+    /// The three menu items shared between the gear button and the right-click
+    /// context menu. Factored here to avoid duplication; both callers wrap them
+    /// in their respective `Menu` / `.contextMenu` containers.
+    @ViewBuilder
+    private var miniPlayerMenuItems: some View {
+        Toggle(isOn: Binding(
+            get: { model.miniPlayerAlwaysOnTop },
+            set: { model.setMiniPlayerAlwaysOnTop($0) }
+        )) {
+            Text("mini_player.menu.always_on_top")
+        }
+        Toggle(isOn: Binding(
+            get: { model.miniPlayerTransparentWhenInactive },
+            set: { model.setMiniPlayerTransparentWhenInactive($0) }
+        )) {
+            Text("mini_player.menu.transparent_when_inactive")
+        }
+        Divider()
+        Button {
+            model.returnToFullWindow()
+        } label: {
+            Text("mini_player.menu.return_to_full")
+        }
+        Button(role: .destructive) {
+            model.closeMiniPlayer()
+        } label: {
+            Text("mini_player.menu.close")
+        }
+    }
+
+    /// Right-click context menu — the same controls as the gear button but
+    /// reachable from the resting card (before controls hover in). Mounted on
+    /// the root `body` via `.contextMenu`.
+    @ViewBuilder
+    private var miniPlayerContextMenu: some View {
+        miniPlayerMenuItems
     }
 
     // MARK: - Resting progress (minimal card)
@@ -543,10 +580,11 @@ private struct MiniVolumePopover: View {
 /// Invisible `NSViewRepresentable` that reaches up to the hosting `NSWindow`
 /// and applies the mini-player chrome: chromeless (no title bar, no traffic
 /// lights), transparent background so the SwiftUI rounded surface shows the
-/// desktop through its corners, draggable from anywhere, and an optional
-/// always-on-top floating level. SwiftUI's scene modifiers can't express these
-/// `NSWindow` properties, so the bridge does it on `makeNSView` (and re-applies
-/// the level whenever `alwaysOnTop` changes).
+/// desktop through its corners, draggable from anywhere, an optional
+/// always-on-top floating level, and optional fade-to-transparent-when-inactive
+/// behaviour. SwiftUI's scene modifiers can't express these `NSWindow`
+/// properties, so the bridge does it on `makeNSView` (and re-applies the level
+/// and alpha whenever `alwaysOnTop` / `transparentWhenInactive` change).
 ///
 /// We intentionally keep the window's `.titled` style mask (the scene's
 /// `.windowStyle(.hiddenTitleBar)` already hides the bar) rather than forcing
@@ -555,11 +593,76 @@ private struct MiniVolumePopover: View {
 /// un-clickable. Hiding the three standard buttons + the transparent
 /// titlebar gets the borderless *look* while the window stays focusable.
 ///
-/// The window-level toggle is the only piece that updates after first mount;
-/// the transparent / chromeless setup is one-shot because reapplying it on
-/// every SwiftUI update would fight the user's live resize.
+/// The window-level and alpha toggles are the only pieces that update after
+/// first mount; the transparent / chromeless setup is one-shot because
+/// reapplying it on every SwiftUI update would fight the user's live resize.
+///
+/// ## Transparent-when-inactive
+///
+/// When `transparentWhenInactive` is on, the window fades to 30% opacity
+/// whenever the app loses main-window focus (matching Silicio's behaviour).
+/// The coordinator registers for `NSApplication.didBecomeActiveNotification`
+/// and `NSApplication.didResignActiveNotification` on first mount and removes
+/// the observers in `deinit`. `updateNSView` re-evaluates the alpha immediately
+/// whenever the preference changes so a live toggle is reflected instantly.
 private struct MiniPlayerWindowConfigurator: NSViewRepresentable {
     let alwaysOnTop: Bool
+    let transparentWhenInactive: Bool
+
+    /// Alpha applied to the window when the app is inactive and
+    /// `transparentWhenInactive` is on.
+    static let inactiveAlpha: CGFloat = 0.3
+
+    // MARK: Coordinator
+
+    final class Coordinator {
+        weak var window: NSWindow?
+        var transparentWhenInactive: Bool = false
+        private var tokens: [NSObjectProtocol] = []
+
+        func register(window: NSWindow, transparentWhenInactive: Bool) {
+            self.window = window
+            self.transparentWhenInactive = transparentWhenInactive
+
+            let center = NotificationCenter.default
+            tokens.append(center.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyAlpha(appIsActive: true)
+            })
+            tokens.append(center.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyAlpha(appIsActive: false)
+            })
+
+            // Sync immediately with current activation state.
+            applyAlpha(appIsActive: NSApplication.shared.isActive)
+        }
+
+        func update(transparentWhenInactive: Bool) {
+            self.transparentWhenInactive = transparentWhenInactive
+            applyAlpha(appIsActive: NSApplication.shared.isActive)
+        }
+
+        func applyAlpha(appIsActive: Bool) {
+            guard let window else { return }
+            window.alphaValue = (!appIsActive && transparentWhenInactive)
+                ? MiniPlayerWindowConfigurator.inactiveAlpha
+                : 1.0
+        }
+
+        deinit {
+            let center = NotificationCenter.default
+            tokens.forEach { center.removeObserver($0) }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
@@ -570,6 +673,7 @@ private struct MiniPlayerWindowConfigurator: NSViewRepresentable {
             guard let window = view?.window else { return }
             Self.applyChrome(to: window)
             Self.applyLevel(to: window, alwaysOnTop: alwaysOnTop)
+            context.coordinator.register(window: window, transparentWhenInactive: transparentWhenInactive)
         }
         return view
     }
@@ -577,6 +681,7 @@ private struct MiniPlayerWindowConfigurator: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard let window = nsView.window else { return }
         Self.applyLevel(to: window, alwaysOnTop: alwaysOnTop)
+        context.coordinator.update(transparentWhenInactive: transparentWhenInactive)
     }
 
     /// One-shot chromeless / transparent setup. Keeps the window focusable

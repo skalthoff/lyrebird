@@ -19,6 +19,22 @@ extension AppModel {
         UserDefaults.standard.set(on, forKey: AppModel.miniPlayerAlwaysOnTopKey)
     }
 
+    /// Set + persist the transparent-when-inactive preference.
+    /// `MiniPlayerWindowConfigurator` observes activation notifications and
+    /// applies `NSWindow.alphaValue` accordingly whenever this flag is set.
+    func setMiniPlayerTransparentWhenInactive(_ on: Bool) {
+        miniPlayerTransparentWhenInactive = on
+        UserDefaults.standard.set(on, forKey: AppModel.miniPlayerTransparentWhenInactiveKey)
+    }
+
+    /// Dismiss the Mini Player without activating the main window. Used by the
+    /// right-click "Close Mini Player" menu item — the user is explicitly
+    /// closing the floating widget, not switching back to the full view.
+    /// Contrast with `returnToFullWindow`, which raises the main window.
+    func closeMiniPlayer() {
+        isMiniPlayerVisible = false
+    }
+
     /// Resolve the persisted autoplay flag, defaulting to `true` when the key
     /// has never been written. `UserDefaults.bool(forKey:)` returns `false`
     /// for a missing key, which would silently invert this feature's "default

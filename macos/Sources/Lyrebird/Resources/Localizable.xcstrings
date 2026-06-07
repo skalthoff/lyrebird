@@ -2641,6 +2641,30 @@
         }
       }
     },
+    "mini_player.menu.transparent_when_inactive" : {
+      "comment" : "Toggle in the Mini Player settings menu that fades the window when the app loses focus.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparent When Inactive"
+          }
+        }
+      }
+    },
+    "mini_player.menu.close" : {
+      "comment" : "Menu item that dismisses the Mini Player without switching to the full app window.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Mini Player"
+          }
+        }
+      }
+    },
     "mini_player.accessibility.open_album" : {
       "comment" : "VoiceOver label for the Mini Player album-art region when it links to the album page (a click opens the album in the main window). A drag still repositions the window.",
       "extractionState" : "manual",
