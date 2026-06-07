@@ -354,4 +354,39 @@ extension AppModel {
         return s
 
     }
+
+    // MARK: - Suggested searches (#87)
+
+    /// Up to 5 artists surfaced in the Search page's "Suggested" section.
+    ///
+    /// Picks artists with the lowest play count (preferring `userData.playCount
+    /// == 0`, i.e. never played) so the suggestions encourage exploration of
+    /// neglected corners of the library. Falls back to any 5 artists when the
+    /// whole library is uniformly played. The result is seeded by the current
+    /// calendar day (UTC) so suggestions rotate daily without requiring a server
+    /// round-trip — stable within a session, fresh the next morning.
+    ///
+    /// Uses the in-memory `artists` snapshot so no FFI call is needed on the
+    /// search page hot-path. If the library hasn't loaded yet (empty array),
+    /// returns an empty list and the suggestions section hides itself.
+    var suggestedSearchArtists: [Artist] {
+        guard !artists.isEmpty else { return [] }
+        // Derive a stable daily seed from today's UTC date so the set
+        // rotates overnight but stays consistent within one session.
+        let today = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let daySeed = UInt64((today.year ?? 0) * 10000 + (today.month ?? 0) * 100 + (today.day ?? 0))
+        // Prefer artists that have never been played; fall through to all
+        // artists so the section still renders in fully-played libraries.
+        let unplayed = artists.filter { ($0.userData?.playCount ?? 0) == 0 }
+        let pool = unplayed.isEmpty ? artists : unplayed
+        // Deterministic daily shuffle via a seeded LCG over the pool indices.
+        // Each element is paired with a pseudo-random key, sorted by key, then
+        // stripped — a Fisher-Yates-equivalent that is pure and allocation-light.
+        var state = daySeed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+        let shuffled: [Artist] = pool.map { artist -> (UInt64, Artist) in
+            state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return (state, artist)
+        }.sorted { $0.0 < $1.0 }.map(\.1)
+        return Array(shuffled.prefix(5))
+    }
 }

@@ -223,16 +223,21 @@ struct SearchView: View {
         .padding(.vertical, 48)
     }
 
-    // MARK: - Recent searches (#246)
+    // MARK: - Recent searches (#246) + Suggested (#87)
 
     /// Empty-query panel: a "Recent searches" list capped at 10 items
-    /// with per-row clear × and a footer "Clear history" button.
-    /// Persisted in `UserDefaults` under `recentSearches` as JSON.
+    /// with per-row clear × and a footer "Clear history" button, followed
+    /// by the "Suggested" exploration panel (lightly-played artists, genre
+    /// tiles, and decade tiles). Persisted in `UserDefaults` as JSON.
     @ViewBuilder
     private var recentSearches: some View {
         let items = AppModel.decodeRecentSearches(recentSearchesJSON)
         VStack(alignment: .leading, spacing: 28) {
             recentSearchesList(items)
+            SuggestedSearchesSection { term in
+                model.searchPageQuery = term
+                commitQuery(term)
+            }
             BrowseByGenreSection()
         }
     }
@@ -634,6 +639,121 @@ private struct SectionView: View {
             Spacer()
         }
         .padding(.top, 4)
+    }
+}
+
+// MARK: - Suggested searches (#87)
+
+/// The "Suggested" section shown beneath "Recent Searches" when the search
+/// field is empty. Surfaces up to 5 lightly-played (never or rarely played)
+/// artists so the user can discover neglected corners of their library — the
+/// artists rotate daily via a seeded shuffle in `AppModel.suggestedSearchArtists`.
+///
+/// Hidden entirely when the artist library hasn't loaded yet (empty model), so
+/// a cold-launch first paint is never cluttered with placeholder rows.
+///
+/// Each row taps into the parent's `onSelect` closure which prefills the
+/// search field and commits the query — the same flow as a recent-search tap.
+private struct SuggestedSearchesSection: View {
+    @Environment(AppModel.self) private var model
+    /// Called with the artist name when the user taps a suggestion row.
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        let artists = model.suggestedSearchArtists
+        if !artists.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                    Text("Suggested")
+                        .font(Theme.font(18, weight: .bold))
+                        .foregroundStyle(Theme.ink)
+                }
+                .padding(.top, 4)
+
+                VStack(spacing: 2) {
+                    ForEach(artists, id: \.id) { artist in
+                        SuggestedArtistRow(artist: artist) {
+                            onSelect(artist.name)
+                        }
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Suggested searches")
+        }
+    }
+}
+
+/// One row in the "Suggested" section. Renders the artist name with a
+/// "sparkle" icon in place of the recents clock, and a chevron to hint that
+/// tapping runs a search. Hovering highlights the row like a recent-search row.
+private struct SuggestedArtistRow: View {
+    @Environment(AppModel.self) private var model
+    let artist: Artist
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Small circular artwork fallback — matches the Home Artists
+            // carousel aesthetic at a compact size.
+            Artwork(
+                url: model.imageURL(for: artist.id, tag: artist.imageTag, maxWidth: 60),
+                seed: artist.name,
+                size: 32,
+                radius: 16,
+                targetPixelSize: CGSize(width: 96, height: 96)
+            )
+            .frame(width: 32, height: 32)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(artist.name)
+                    .font(Theme.font(13, weight: .semibold))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                Text(artistSubtitle)
+                    .font(Theme.font(11, weight: .medium))
+                    .foregroundStyle(Theme.ink3)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Image(systemName: "arrow.up.left")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.ink3)
+                .opacity(isHovering ? 1 : 0.4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovering ? Theme.rowHover : .clear)
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .onTapGesture { onTap() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Search for \(artist.name)")
+        .accessibilityHint("Never played — \(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s")")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Short descriptor shown below the artist name. Prefers "Never played"
+    /// when play count is 0 or missing; falls back to a "N album(s)" count
+    /// for artists in the played fallback pool.
+    private var artistSubtitle: String {
+        let playCount = artist.userData?.playCount ?? 0
+        if playCount == 0 {
+            let n = artist.albumCount
+            return "Never played · \(n) album\(n == 1 ? "" : "s")"
+        }
+        return "\(artist.albumCount) album\(artist.albumCount == 1 ? "" : "s")"
     }
 }
 
