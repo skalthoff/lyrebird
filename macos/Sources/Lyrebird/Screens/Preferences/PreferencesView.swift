@@ -12,13 +12,13 @@ import SwiftUI
 /// live in follow-up work and intentionally aren't listed here yet.
 ///
 /// Issues closed here: #114 (top-level org), #115 (Server section), #116
-/// (Playback gap-fill), #117 (Audio quality section). The Server pane
-/// incorporates the Account workflow previously split under its own sidebar
-/// entry (still available as `PreferencesAccount` for any other caller that
-/// wants the minimal account view).
+/// (Playback gap-fill), #117 (Audio quality section), #121 (Lyrics source).
+/// The Server pane incorporates the Account workflow previously split under
+/// its own sidebar entry (still available as `PreferencesAccount` for any
+/// other caller that wants the minimal account view).
 struct PreferencesView: View {
     enum Pane: String, CaseIterable, Hashable, Identifiable {
-        case general, server, playback, audio, library, appearance, notifications, scrobbling, downloads, advanced, about
+        case general, server, playback, audio, library, appearance, notifications, scrobbling, lyrics, downloads, advanced, about
 
         var id: String { rawValue }
 
@@ -32,6 +32,7 @@ struct PreferencesView: View {
             case .appearance: return "Appearance"
             case .notifications: return "Notifications"
             case .scrobbling: return "Scrobbling"
+            case .lyrics: return "Lyrics"
             case .downloads: return "Downloads"
             case .advanced: return "Advanced"
             case .about: return "About"
@@ -48,6 +49,7 @@ struct PreferencesView: View {
             case .appearance: return "paintpalette"
             case .notifications: return "bell"
             case .scrobbling: return "dot.radiowaves.up.forward"
+            case .lyrics: return "text.alignleft"
             case .downloads: return "arrow.down.circle"
             case .advanced: return "wrench.and.screwdriver"
             case .about: return "info.circle"
@@ -87,6 +89,7 @@ struct PreferencesView: View {
         case .appearance: AppearancePane()
         case .notifications: PreferencesNotifications()
         case .scrobbling: PreferencesScrobbling()
+        case .lyrics: PreferencesLyrics()
         case .downloads: PreferencesDownloads()
         case .advanced: PreferencesAdvanced()
         case .about: PreferencesAbout()
