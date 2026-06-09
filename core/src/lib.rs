@@ -135,6 +135,15 @@ impl LyrebirdCore {
             }
         };
 
+        // A user-edited device name (set via `set_device_name`, e.g. from the
+        // login gear popover, #202) is persisted in the DB and wins over the
+        // platform-supplied default in `config.device_name`. On first launch
+        // the setting is absent, so the host-derived default is used as-is.
+        let device_name = db
+            .get_setting("device_name")?
+            .filter(|n| !n.trim().is_empty())
+            .unwrap_or(config.device_name);
+
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
@@ -152,7 +161,7 @@ impl LyrebirdCore {
                 client: None,
                 db,
                 device_id,
-                device_name: config.device_name,
+                device_name,
                 data_dir,
             })),
             player,
@@ -165,6 +174,32 @@ impl LyrebirdCore {
 
     pub fn device_id(&self) -> String {
         self.inner.lock().device_id.clone()
+    }
+
+    /// The current device name sent to Jellyfin as the `Device="…"` field of
+    /// the auth header. Defaults to the platform-supplied value passed at
+    /// construction (e.g. the host name) unless overridden via
+    /// [`Self::set_device_name`].
+    pub fn device_name(&self) -> String {
+        self.inner.lock().device_name.clone()
+    }
+
+    /// Override the device name. Persisted in the local DB so it survives
+    /// relaunch and sign-out, and applied to every subsequent client build
+    /// (`probe_server`, `login`, `resume_session`, quick-connect). An empty or
+    /// whitespace-only name is rejected so the auth header always carries a
+    /// usable `Device` field (#202).
+    pub fn set_device_name(&self, name: String) -> std::result::Result<(), LyrebirdError> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(LyrebirdError::InvalidInput(
+                "device name must not be empty".to_string(),
+            ));
+        }
+        let mut inner = self.inner.lock();
+        inner.db.set_setting("device_name", trimmed)?;
+        inner.device_name = trimmed.to_string();
+        Ok(())
     }
 
     pub fn probe_server(&self, url: String) -> std::result::Result<Server, LyrebirdError> {
@@ -210,27 +245,66 @@ impl LyrebirdCore {
         let session = self
             .runtime
             .block_on(client.authenticate_by_name(&username, &password))?;
+        self.persist_session(&session, client, &db)?;
+        Ok(session)
+    }
 
-        if let Some(server_id) = &session.server.id {
-            CredentialStore::save_token(server_id, &session.user.name, &session.access_token)
-                .map_err(|e| LyrebirdError::KeyringWrite {
-                    reason: e.to_string(),
-                })?;
-        }
-        {
+    /// Begin a Jellyfin Quick Connect handshake. Returns the short numeric
+    /// `code` the user enters into another already-signed-in client (rendered
+    /// as text + a QR by the UI) plus the opaque `secret` the caller passes
+    /// back to [`Self::quick_connect_poll`] / [`Self::quick_connect_complete`].
+    /// No session is required to start the flow (#202).
+    pub fn quick_connect_initiate(
+        &self,
+        url: String,
+    ) -> std::result::Result<QuickConnectInfo, LyrebirdError> {
+        let (device_id, device_name) = {
             let inner = self.inner.lock();
-            inner
-                .db
-                .set_setting("last_server_url", &session.server.url)?;
-            inner.db.set_setting("last_username", &session.user.name)?;
-            if let Some(server_id) = &session.server.id {
-                inner.db.set_setting("last_server_id", server_id)?;
-            }
-            inner.db.set_setting("last_user_id", &session.user.id)?;
-        }
-        let client = Arc::new(client);
-        Self::install_refresh_callback(&client, &db);
-        self.inner.lock().client = Some(client);
+            (inner.device_id.clone(), inner.device_name.clone())
+        };
+        let client = JellyfinClient::new(&url, device_id, device_name)?;
+        let info = self.runtime.block_on(client.quick_connect_initiate())?;
+        Ok(info)
+    }
+
+    /// Poll whether a pending Quick Connect `secret` has been approved on
+    /// another client. Returns `true` once authorised — the UI should then call
+    /// [`Self::quick_connect_complete`] to exchange the secret for a session.
+    pub fn quick_connect_poll(
+        &self,
+        url: String,
+        secret: String,
+    ) -> std::result::Result<bool, LyrebirdError> {
+        let (device_id, device_name) = {
+            let inner = self.inner.lock();
+            (inner.device_id.clone(), inner.device_name.clone())
+        };
+        let client = JellyfinClient::new(&url, device_id, device_name)?;
+        let authenticated = self.runtime.block_on(client.quick_connect_state(&secret))?;
+        Ok(authenticated)
+    }
+
+    /// Exchange an approved Quick Connect `secret` for a full session. Persists
+    /// the token + last-server identity exactly like a password sign-in, so
+    /// `resume_session` works after a quick-connect login (#202).
+    pub fn quick_connect_complete(
+        &self,
+        url: String,
+        secret: String,
+    ) -> std::result::Result<models::Session, LyrebirdError> {
+        let (device_id, device_name, db) = {
+            let inner = self.inner.lock();
+            (
+                inner.device_id.clone(),
+                inner.device_name.clone(),
+                inner.db.clone(),
+            )
+        };
+        let mut client = JellyfinClient::new(&url, device_id, device_name)?;
+        let session = self
+            .runtime
+            .block_on(client.authenticate_with_quick_connect(&secret))?;
+        self.persist_session(&session, client, &db)?;
         Ok(session)
     }
 
@@ -421,6 +495,23 @@ impl LyrebirdCore {
         self.with_client(|c| {
             self.runtime
                 .block_on(c.albums_by_artist(&artist_id, Paging::new(offset, limit)))
+        })
+    }
+
+    /// Albums the artist guests on — credited at the track level but not the
+    /// album-artist (guest features, collaborations, "Various Artists"
+    /// compilations). Powers the artist page "Appears On" rail (#224); the
+    /// complement of [`Self::albums_by_artist`]'s Discography. Scopes by
+    /// `ArtistIds` on the server, then subtracts the artist's own releases.
+    pub fn appears_on_albums(
+        &self,
+        artist_id: String,
+        offset: u32,
+        limit: u32,
+    ) -> std::result::Result<PaginatedAlbums, LyrebirdError> {
+        self.with_client(|c| {
+            self.runtime
+                .block_on(c.appears_on_albums(&artist_id, Paging::new(offset, limit)))
         })
     }
 
@@ -1607,6 +1698,42 @@ impl LyrebirdCore {
     fn install_refresh_callback(client: &JellyfinClient, db: &Arc<Database>) {
         let db = db.clone();
         client.set_refresh_callback(Arc::new(move || storage::refresh_token_from_keyring(&db)));
+    }
+
+    /// Shared post-auth bookkeeping for password + quick-connect sign-in: save
+    /// the access token to the OS keyring, write the `last_*` identity settings
+    /// so `resume_session` can rehydrate, install the 401 refresh callback, and
+    /// stash the live client on `Inner`.
+    ///
+    /// Deliberately **not** in the `#[uniffi::export]` block — it takes a raw
+    /// [`JellyfinClient`], which is not an FFI-liftable type.
+    fn persist_session(
+        &self,
+        session: &models::Session,
+        client: JellyfinClient,
+        db: &Arc<Database>,
+    ) -> std::result::Result<(), LyrebirdError> {
+        if let Some(server_id) = &session.server.id {
+            CredentialStore::save_token(server_id, &session.user.name, &session.access_token)
+                .map_err(|e| LyrebirdError::KeyringWrite {
+                    reason: e.to_string(),
+                })?;
+        }
+        {
+            let inner = self.inner.lock();
+            inner
+                .db
+                .set_setting("last_server_url", &session.server.url)?;
+            inner.db.set_setting("last_username", &session.user.name)?;
+            if let Some(server_id) = &session.server.id {
+                inner.db.set_setting("last_server_id", server_id)?;
+            }
+            inner.db.set_setting("last_user_id", &session.user.id)?;
+        }
+        let client = Arc::new(client);
+        Self::install_refresh_callback(&client, db);
+        self.inner.lock().client = Some(client);
+        Ok(())
     }
 }
 

@@ -89,10 +89,15 @@ extension AppModel {
                 play(tracks: tracks, startIndex: 0)
                 return
             }
-            _ = try? await Task.detached(priority: .userInitiated) { [core] in
-                core.playNext(tracks: tracks)
-            }.value
-            self.status = core.status()
+            do {
+                _ = try await Task.detached(priority: .userInitiated) { [core] in
+                    core.playNext(tracks: tracks)
+                }.value
+                self.status = core.status()
+            } catch {
+                if handleAuthError(error) { return }
+                self.errorMessage = LyrebirdErrorPresenter.message(for: error, context: .playback)
+            }
         }
     }
 
@@ -108,10 +113,15 @@ extension AppModel {
                 play(tracks: tracks, startIndex: 0)
                 return
             }
-            _ = try? await Task.detached(priority: .userInitiated) { [core] in
-                core.addToQueue(tracks: tracks)
-            }.value
-            self.status = core.status()
+            do {
+                _ = try await Task.detached(priority: .userInitiated) { [core] in
+                    core.addToQueue(tracks: tracks)
+                }.value
+                self.status = core.status()
+            } catch {
+                if handleAuthError(error) { return }
+                self.errorMessage = LyrebirdErrorPresenter.message(for: error, context: .playback)
+            }
         }
     }
 }

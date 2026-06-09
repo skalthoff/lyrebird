@@ -611,6 +611,77 @@ impl JellyfinClient {
         })
     }
 
+    /// Begin a Quick Connect handshake. `POST /QuickConnect/Initiate` returns
+    /// an opaque `Secret` plus the short numeric `Code` the user enters into an
+    /// already-signed-in Jellyfin client to authorise this device. No auth
+    /// token is required to start the flow — the device is anonymous until the
+    /// pairing is approved server-side.
+    pub async fn quick_connect_initiate(&self) -> Result<QuickConnectInfo> {
+        let url = self.endpoint("QuickConnect/Initiate")?;
+        let resp = self
+            .send_with_retry(|| Ok(self.http.post(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let state: QuickConnectResponse = resp.json().await?;
+        Ok(QuickConnectInfo {
+            secret: state.secret,
+            code: state.code,
+        })
+    }
+
+    /// Poll the state of a pending Quick Connect handshake.
+    /// `GET /QuickConnect/Connect?Secret=…` returns `Authenticated: true` once
+    /// the user has approved the code on another client. Returns the raw
+    /// `Authenticated` flag so the caller can decide when to exchange the
+    /// secret for a session via [`Self::authenticate_with_quick_connect`].
+    pub async fn quick_connect_state(&self, secret: &str) -> Result<bool> {
+        let mut url = self.endpoint("QuickConnect/Connect")?;
+        url.query_pairs_mut().append_pair("Secret", secret);
+        let resp = self
+            .send_with_retry(|| Ok(self.http.get(url.clone()).headers(self.build_headers()?)))
+            .await?;
+        let state: QuickConnectResponse = resp.json().await?;
+        Ok(state.authenticated)
+    }
+
+    /// Exchange an approved Quick Connect secret for a full session.
+    /// `POST /Users/AuthenticateWithQuickConnect` mirrors the response shape of
+    /// [`Self::authenticate_by_name`], so on success the access token + user id
+    /// are stored on the client exactly as a password sign-in would.
+    pub async fn authenticate_with_quick_connect(&mut self, secret: &str) -> Result<Session> {
+        let url = self.endpoint("Users/AuthenticateWithQuickConnect")?;
+        let body = QuickConnectAuthBody {
+            secret: secret.to_string(),
+        };
+        let resp = self
+            .send_with_retry(|| {
+                Ok(self
+                    .http
+                    .post(url.clone())
+                    .headers(self.build_headers()?)
+                    .json(&body))
+            })
+            .await?;
+        let auth: AuthResult = resp.json().await?;
+        *self.token.lock() = Some(auth.access_token.clone());
+        self.user_id = Some(auth.user.id.clone());
+        Ok(Session {
+            server: Server {
+                url: self.base_url.to_string(),
+                name: auth.server_name.unwrap_or_default(),
+                version: None,
+                id: auth.server_id,
+            },
+            user: User {
+                id: auth.user.id,
+                name: auth.user.name,
+                server_id: auth.user.server_id,
+                primary_image_tag: auth.user.primary_image_tag,
+            },
+            access_token: auth.access_token,
+            device_id: self.device_id.clone(),
+        })
+    }
+
     // ----- Library queries -----
 
     pub async fn artists(&self, paging: Paging) -> Result<PaginatedArtists> {
@@ -753,6 +824,53 @@ impl JellyfinClient {
             .enable_user_data()
             .fetch_albums(self)
             .await
+    }
+
+    /// Albums where the artist is credited at the track level but is **not**
+    /// the album-artist — i.e. guest features, collaborations, and
+    /// "Various Artists" compilations the artist plays on. The conventional
+    /// "Appears On" rail of a music player's artist page (#224), the
+    /// complement of [`Self::albums_by_artist`]'s Discography.
+    ///
+    /// Scoped via `ArtistIds` (the broad "any credited artist" filter, in
+    /// contrast to `albums_by_artist`'s narrow `AlbumArtistIds`), then the
+    /// artist's *own* releases are subtracted client-side by dropping any
+    /// album whose primary `artist_id` is this artist. The server has no
+    /// single "credited but not album-artist" filter, so the broad fetch +
+    /// local subtraction is the cheapest correct expression of that set.
+    ///
+    /// Sorted by `ProductionYear` descending so the rail leads with the most
+    /// recent guest spots. `total_count` reports the count *after* the local
+    /// subtraction so callers see the size of the rail they will render, not
+    /// the pre-filter fetch window.
+    pub async fn appears_on_albums(
+        &self,
+        artist_id: &str,
+        paging: Paging,
+    ) -> Result<PaginatedAlbums> {
+        let page = ItemsQuery::new()
+            .recursive()
+            .artist(artist_id)
+            .item_types(vec![ItemKind::MusicAlbum])
+            .limit(paging.limit)
+            .offset(paging.offset)
+            .sort(ItemSortBy::ProductionYear, SortOrder::Descending)
+            .fields(vec![
+                ItemField::Genres,
+                ItemField::ProductionYear,
+                ItemField::ChildCount,
+                ItemField::PrimaryImageAspectRatio,
+            ])
+            .enable_user_data()
+            .fetch_albums(self)
+            .await?;
+        let items: Vec<Album> = page
+            .items
+            .into_iter()
+            .filter(|album| album.artist_id.as_deref() != Some(artist_id))
+            .collect();
+        let total_count = items.len() as u32;
+        Ok(PaginatedAlbums { items, total_count })
     }
 
     /// Fetch the most recently added albums in a library, respecting the
@@ -2918,6 +3036,26 @@ struct AuthByNameBody {
     username: String,
     #[serde(rename = "Pw")]
     pw: String,
+}
+
+#[derive(Serialize)]
+struct QuickConnectAuthBody {
+    #[serde(rename = "Secret")]
+    secret: String,
+}
+
+/// Wire shape of Jellyfin's `QuickConnectResult`, returned by both
+/// `/QuickConnect/Initiate` and `/QuickConnect/Connect`. We only read the three
+/// fields the pairing flow needs; the rest (`DeviceId`, `AppName`, `DateAdded`,
+/// …) are ignored.
+#[derive(Debug, Deserialize)]
+struct QuickConnectResponse {
+    #[serde(rename = "Authenticated", default)]
+    authenticated: bool,
+    #[serde(rename = "Secret", default)]
+    secret: String,
+    #[serde(rename = "Code", default)]
+    code: String,
 }
 
 // PlaybackProgressBody and PlaybackStoppedBody are kept as thin private

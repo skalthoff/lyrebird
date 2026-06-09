@@ -28,7 +28,7 @@ The pipeline runs each `check:` line as a sanity gate. A target is satisfied iff
       slices: slice:scaffold, slice:screens
 
 - [ ] Real-server smoke test passes for: login, library page 1, search, queue add, playback start/stop
-      check: # add a smoke-test script here, e.g. Scripts/smoke-test.sh
+      check: Scripts/smoke-test.sh
       slices: slice:client, slice:state
 
 - [ ] All `priority:p0` issues are either resolved or downgraded with rationale

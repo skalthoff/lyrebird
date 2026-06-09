@@ -374,7 +374,14 @@ extension AppModel {
         // Derive a stable daily seed from today's UTC date so the set
         // rotates overnight but stays consistent within one session.
         let today = Calendar.current.dateComponents([.year, .month, .day], from: Date())
-        let daySeed = UInt64((today.year ?? 0) * 10000 + (today.month ?? 0) * 100 + (today.day ?? 0))
+        // Split into explicitly-typed Int sub-expressions: the chained
+        // optional-arithmetic + UInt64() conversion on one line trips the
+        // Swift type-checker's "unable to type-check in reasonable time"
+        // blowup on a clean build.
+        let year: Int = today.year ?? 0
+        let month: Int = today.month ?? 0
+        let day: Int = today.day ?? 0
+        let daySeed = UInt64(year * 10000 + month * 100 + day)
         // Prefer artists that have never been played; fall through to all
         // artists so the section still renders in fully-played libraries.
         let unplayed = artists.filter { ($0.userData?.playCount ?? 0) == 0 }

@@ -83,22 +83,37 @@ extension AppModel {
             serverReachability.noteSuccess()
         }
         _ = await playlistsResult
-        await refreshRecentlyPlayed()
-        await refreshForYou()
-        await refreshGenresToExplore()
-        await refreshBrowseGenres()
-        // Home screen carousels (#49 / #51–#55). Kicked off after the main
-        // library so first paint isn't blocked on these secondary shelves.
-        // Each of these is best-effort — empty or errored rows just hide in
-        // the Home layout.
-        await refreshJumpBackIn()
-        await refreshRecentlyAdded()
-        await refreshQuickPicks()
-        await refreshFavoriteAlbums()
-        await refreshFavoriteArtists()
-        await refreshRecentlyDiscoveredArtists()
-        await refreshRediscover()
-        await refreshSuggestions()
+        // Secondary Home shelves (#49 / #51–#55). These are NOT needed to
+        // render MainShell/Home — the library page fetched above is — so they
+        // must not gate first paint. Previously they were `await`ed serially
+        // right here, which held `refreshLibrary` (and therefore
+        // `isRestoringSession`, the restore splash) open for ~45s on a large
+        // library: the genre, recently-discovered-artists, and suggestions
+        // endpoints alone run ~13s / ~11s / ~7s each. Kick them off WITHOUT
+        // blocking so `refreshLibrary` returns right after the page fetch
+        // (splash dismisses in ~1s), and run them CONCURRENTLY so the slow
+        // endpoints overlap instead of summing. Each shelf is best-effort —
+        // empty/errored rows just hide — and each owns its error handling, so
+        // one detached failure can't sink the others. `refreshGenres()`
+        // fetches the (expensive) genre list ONCE and feeds both the Explore
+        // and Browse grids, replacing the old back-to-back duplicate calls.
+        Task { [weak self] in
+            guard let self else { return }
+            async let recentlyPlayed: Void = self.refreshRecentlyPlayed()
+            async let forYou: Void = self.refreshForYou()
+            async let genres: Void = self.refreshGenres()
+            async let jumpBackIn: Void = self.refreshJumpBackIn()
+            async let recentlyAdded: Void = self.refreshRecentlyAdded()
+            async let quickPicks: Void = self.refreshQuickPicks()
+            async let favoriteAlbums: Void = self.refreshFavoriteAlbums()
+            async let favoriteArtists: Void = self.refreshFavoriteArtists()
+            async let discovered: Void = self.refreshRecentlyDiscoveredArtists()
+            async let rediscover: Void = self.refreshRediscover()
+            async let suggestions: Void = self.refreshSuggestions()
+            _ = await (recentlyPlayed, forYou, genres, jumpBackIn, recentlyAdded,
+                       quickPicks, favoriteAlbums, favoriteArtists, discovered,
+                       rediscover, suggestions)
+        }
     }
 
     /// Fetch the next page of albums and append to `albums`. No-op when a
@@ -459,6 +474,28 @@ extension AppModel {
             self.browseGenres = AppModel.rankBrowseGenres(
                 page.items.map { (id: $0.id, name: $0.name, songCount: $0.songCount) }
             )
+        } catch {
+            _ = handleAuthError(error)
+        }
+    }
+
+    /// Fetch the genre list ONCE and feed both the "Genres to Explore" (#250)
+    /// and "Browse by Genre" (#247) grids. `/MusicGenres` is expensive on a
+    /// large library (~13s — Jellyfin computes library-wide item counts), so
+    /// the two grids share a single `core.genres` hop instead of issuing the
+    /// identical request back-to-back the way the startup path used to. Both
+    /// rankers are pure/static. Used by `refreshLibrary`; the per-screen
+    /// `refreshGenresToExplore` / `refreshBrowseGenres` remain for Discover /
+    /// Search / Radio refreshes. Runs off the MainActor (gap pattern #2);
+    /// failures leave the prior grids intact, auth expiry surfaces for re-login.
+    func refreshGenres() async {
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.genres(offset: 0, limit: 500)
+            }.value
+            let tuples = page.items.map { (id: $0.id, name: $0.name, songCount: $0.songCount) }
+            self.genresToExplore = AppModel.rankGenresToExplore(tuples)
+            self.browseGenres = AppModel.rankBrowseGenres(tuples)
         } catch {
             _ = handleAuthError(error)
         }

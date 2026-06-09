@@ -1362,3 +1362,148 @@ async fn login_forwards_whitespace_only_password_as_empty() {
         "whitespace-only Pw must be trimmed to empty"
     );
 }
+
+#[tokio::test]
+async fn quick_connect_initiate_poll_and_complete_persists_session() {
+    // End-to-end Quick Connect (#202): initiate → poll (pending then approved)
+    // → complete, then assert the session is persisted like a password login so
+    // `resume_session` works on the next launch.
+    let tmp = tempfile::tempdir().unwrap();
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/QuickConnect/Initiate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Authenticated": false,
+            "Secret": "qc-secret-abc",
+            "Code": "123456"
+        })))
+        .mount(&server)
+        .await;
+    // First poll: still pending. Second poll: approved. `up_to_n_times` lets us
+    // chain two responses against the same GET so the test exercises the
+    // pending→approved transition the UI polls through.
+    Mock::given(method("GET"))
+        .and(path("/QuickConnect/Connect"))
+        .and(query_param("Secret", "qc-secret-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Authenticated": false,
+            "Secret": "qc-secret-abc",
+            "Code": "123456"
+        })))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/QuickConnect/Connect"))
+        .and(query_param("Secret", "qc-secret-abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Authenticated": true,
+            "Secret": "qc-secret-abc",
+            "Code": "123456"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateWithQuickConnect"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "qc-token",
+            "ServerId": "srv-qc",
+            "ServerName": "QC Jellyfin",
+            "User": {
+                "Id": "usr-qc",
+                "Name": "qc-user",
+                "ServerId": "srv-qc",
+                "PrimaryImageTag": null
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let server_url = server.uri();
+    let tmp_path = tmp.path().to_string_lossy().into_owned();
+    let url = server_url.clone();
+    tokio::task::spawn_blocking(move || {
+        install_mock_keyring();
+        let core = LyrebirdCore::new(CoreConfig {
+            data_dir: tmp_path,
+            device_name: "Test".into(),
+        })
+        .expect("core init");
+
+        let info = core
+            .quick_connect_initiate(url.clone())
+            .expect("quick_connect_initiate");
+        assert_eq!(info.code, "123456");
+        assert_eq!(info.secret, "qc-secret-abc");
+        // The code is what the user sees; the secret is the polling token.
+
+        assert!(
+            !core
+                .quick_connect_poll(url.clone(), info.secret.clone())
+                .expect("first poll"),
+            "first poll should report not-yet-approved"
+        );
+        assert!(
+            core.quick_connect_poll(url.clone(), info.secret.clone())
+                .expect("second poll"),
+            "second poll should report approved"
+        );
+
+        let session = core
+            .quick_connect_complete(url, info.secret)
+            .expect("quick_connect_complete");
+        assert_eq!(session.access_token, "qc-token");
+        assert_eq!(session.user.id, "usr-qc");
+
+        // Persisted identically to a password login so resume works.
+        let inner = core.inner.lock();
+        assert_eq!(
+            inner.db.get_setting("last_user_id").unwrap().as_deref(),
+            Some("usr-qc")
+        );
+        assert_eq!(
+            inner.db.get_setting("last_server_id").unwrap().as_deref(),
+            Some("srv-qc")
+        );
+        assert!(
+            inner.client.is_some(),
+            "quick_connect_complete must install a live client"
+        );
+    })
+    .await
+    .expect("join quick-connect task");
+}
+
+#[test]
+fn set_device_name_persists_overrides_default_and_rejects_empty() {
+    // #202: a user-edited device name persists in the DB, wins over the
+    // platform-supplied `CoreConfig.device_name` on the next launch, and an
+    // empty/whitespace name is rejected so the auth header always has a usable
+    // `Device` field.
+    let tmp = tempfile::tempdir().unwrap();
+
+    let core = resume_test_core(&tmp);
+    assert_eq!(core.device_name(), "Test", "starts from the config default");
+
+    // Whitespace-only is rejected and leaves the name untouched.
+    let err = core
+        .set_device_name("   ".into())
+        .expect_err("blank device name must be rejected");
+    assert!(matches!(err, LyrebirdError::InvalidInput(_)));
+    assert_eq!(core.device_name(), "Test");
+
+    // A real edit is trimmed, applied live, and persisted.
+    core.set_device_name("  Soren's MacBook Pro  ".into())
+        .expect("set_device_name");
+    assert_eq!(core.device_name(), "Soren's MacBook Pro");
+
+    // A fresh core over the same data dir reads the persisted name in
+    // preference to the default it was constructed with.
+    let core2 = LyrebirdCore::new(CoreConfig {
+        data_dir: tmp.path().to_string_lossy().into_owned(),
+        device_name: "Different Default".into(),
+    })
+    .expect("core init");
+    assert_eq!(core2.device_name(), "Soren's MacBook Pro");
+}

@@ -256,20 +256,20 @@ struct MainShell: View {
                 .regionFocusRing(isActive: focusedRegion == .playerBar)
         }
         .background(Theme.bg)
-        // Tab / Shift+Tab region cycle. One `onKeyPress` keyed on Tab
-        // for the `.down` phase; the `.shift` modifier on the `KeyPress` picks
-        // the direction (Tab forward, Shift+Tab backward). Handling it here —
-        // rather than relying on macOS Full Keyboard Access — is what makes the
-        // region hop work whether or not FKA is enabled (the acceptance
-        // criterion): FKA only moves focus *within* a focusable subtree, never
-        // between these named regions. The handler always returns `.handled`,
-        // consuming the press so the same Tab doesn't *also* step focus inside
-        // the current region — Tab is the app-level "move between regions"
-        // gesture. This ancestor modifier only sees the event when no focused
-        // descendant claimed it first, so a control that genuinely needs Tab
-        // (none today) would still take precedence.
+        // ⌃Tab / ⌃⇧Tab region cycle. Region hopping now REQUIRES the Control
+        // modifier: a *plain* Tab returns `.ignored` and propagates normally,
+        // so Tab no longer hijacks every keystroke to jump between regions.
+        // The unconditional hop (one `onKeyPress(.tab)` that always consumed
+        // the press) was disruptive for mouse-first users and fought normal
+        // field/control focus — this is the #107 follow-up. ⌃Tab works whether
+        // or not macOS Full Keyboard Access is enabled (FKA only moves focus
+        // *within* a focusable subtree, never between these named regions); the
+        // `.shift` modifier picks direction (⌃Tab forward, ⌃⇧Tab backward).
+        // This ancestor modifier only sees the event when no focused descendant
+        // claimed it first.
         .onKeyPress(keys: [.tab], phases: .down) { press in
-            handleTabKey(shift: press.modifiers.contains(.shift))
+            guard press.modifiers.contains(.control) else { return .ignored }
+            return handleTabKey(shift: press.modifiers.contains(.shift))
         }
         // Keep region state and the Search field's own focus in sync. When the
         // user clicks straight into the toolbar Search field (bypassing the Tab

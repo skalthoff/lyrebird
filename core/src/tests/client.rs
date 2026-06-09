@@ -1427,6 +1427,117 @@ async fn albums_by_artist_clamps_zero_limit_to_one() {
 }
 
 // ============================================================================
+// appears_on_albums — #224, ArtistDetailView "Appears On" rail
+// ============================================================================
+
+/// Covers the "Appears On" rail endpoint. Unlike `albums_by_artist` (which
+/// scopes by `AlbumArtistIds`), this scopes by the broad `ArtistIds` filter so
+/// guest features are captured, then subtracts the artist's *own* releases
+/// (albums whose primary `artist_id` is this artist) client-side. Asserts the
+/// query shape and that the own-release is filtered out while the guest spot
+/// remains.
+#[tokio::test]
+async fn appears_on_albums_uses_artist_ids_and_subtracts_own_releases() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/Users/AuthenticateByName"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "AccessToken": "t", "ServerId": "s", "ServerName": "S",
+            "User": { "Id": "u1", "Name": "n", "ServerId": "s", "PrimaryImageTag": null }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/Users/u1/Items"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "Items": [
+                // Own release — album-artist IS the target artist. Must be
+                // subtracted (it belongs in Discography, not Appears On).
+                {
+                    "Id": "own1", "Name": "My Own Record", "Type": "MusicAlbum",
+                    "AlbumArtist": "Guest",
+                    "AlbumArtistId": "artist-guest",
+                    "AlbumArtists": [{"Id": "artist-guest", "Name": "Guest"}],
+                    "ArtistItems": [{"Id": "artist-guest", "Name": "Guest"}],
+                    "ProductionYear": 2021, "RunTimeTicks": 1800000000000u64,
+                    "ChildCount": 10, "Genres": ["Rock"],
+                    "ImageTags": { "Primary": "imgOwn" }
+                },
+                // Guest spot — album-artist is someone else; the target artist
+                // is only a track-level credit. Must remain in the rail.
+                {
+                    "Id": "feat1", "Name": "Someone Else's LP", "Type": "MusicAlbum",
+                    "AlbumArtist": "Headliner",
+                    "AlbumArtistId": "artist-headliner",
+                    "AlbumArtists": [{"Id": "artist-headliner", "Name": "Headliner"}],
+                    "ArtistItems": [
+                        {"Id": "artist-headliner", "Name": "Headliner"},
+                        {"Id": "artist-guest", "Name": "Guest"}
+                    ],
+                    "ProductionYear": 2023, "RunTimeTicks": 2400000000000u64,
+                    "ChildCount": 12, "Genres": ["Rock"],
+                    "ImageTags": { "Primary": "imgFeat" }
+                },
+                // Compilation — "Various Artists" headlines; target artist is a
+                // track credit. Must remain in the rail.
+                {
+                    "Id": "comp1", "Name": "Summer Hits", "Type": "MusicAlbum",
+                    "AlbumArtist": "Various Artists",
+                    "AlbumArtistId": "artist-va",
+                    "AlbumArtists": [{"Id": "artist-va", "Name": "Various Artists"}],
+                    "ArtistItems": [{"Id": "artist-guest", "Name": "Guest"}],
+                    "ProductionYear": 2019, "RunTimeTicks": 3600000000000u64,
+                    "ChildCount": 18, "Genres": ["Pop"],
+                    "ImageTags": { "Primary": "imgComp" }
+                }
+            ],
+            "TotalRecordCount": 3
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = mock_client(&server.uri());
+    client.authenticate_by_name("n", "pw").await.unwrap();
+    let page = client
+        .appears_on_albums("artist-guest", crate::Paging::new(0, 60))
+        .await
+        .unwrap();
+
+    // The own release is subtracted; the guest spot + compilation remain.
+    assert_eq!(page.items.len(), 2, "own release should be filtered out");
+    assert_eq!(
+        page.total_count, 2,
+        "total_count reports the post-filter rail size"
+    );
+    let ids: Vec<&str> = page.items.iter().map(|a| a.id.as_str()).collect();
+    assert!(ids.contains(&"feat1"), "guest spot should remain: {ids:?}");
+    assert!(ids.contains(&"comp1"), "compilation should remain: {ids:?}");
+    assert!(
+        !ids.contains(&"own1"),
+        "own release must be subtracted: {ids:?}"
+    );
+
+    let requests = server.received_requests().await.unwrap();
+    let get = requests
+        .iter()
+        .find(|r| r.method.as_str() == "GET")
+        .expect("expected a GET request");
+    let q = get.url.query().expect("expected a query string");
+    // Scopes by the broad ArtistIds filter (captures guest credits), NOT the
+    // narrow AlbumArtistIds (which would exclude the guest spots entirely).
+    assert!(
+        q.starts_with("ArtistIds=") || q.contains("&ArtistIds="),
+        "should scope by the broad ArtistIds filter, got: {q}"
+    );
+    assert!(
+        !q.contains("AlbumArtistIds="),
+        "should NOT use AlbumArtistIds (that's the Discography scope), got: {q}"
+    );
+    assert!(q.contains("IncludeItemTypes=MusicAlbum"), "query: {q}");
+    assert!(q.contains("Recursive=true"), "query: {q}");
+}
+
+// ============================================================================
 // artists endpoint — MusicArtist filter regression (UX fix)
 // ============================================================================
 
