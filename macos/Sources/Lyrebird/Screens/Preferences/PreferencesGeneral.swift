@@ -13,16 +13,17 @@ import SwiftUI
 /// - **Auto-start on login**: wired to `SMAppService.mainApp` via
 ///   `LaunchAtLogin`. The stored `@AppStorage` value shadows the system
 ///   registration so the toggle reflects the true state on every launch.
-/// - **Show in menu bar**: wired to `MenuBarController.shared`. The
-///   `NSStatusItem` is created on enable and released on disable. The persisted
-///   value is re-applied at app launch from `AppDelegate` so the icon survives
-///   relaunch without the user reopening this pane.
+/// - **Show in menu bar**: a plain `@AppStorage` toggle. `LyrebirdApp`'s
+///   `MenuBarExtra(isInserted:)` binding observes the same key, so flipping it
+///   here inserts/removes the menu-bar extra reactively, and the persisted
+///   value is re-applied on every launch by construction — no controller or
+///   launch-time re-apply needed (#984).
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 66 top-level General bullet.
 struct PreferencesGeneral: View {
     /// Stable `@AppStorage` key for the persistent "Show in menu bar" toggle.
-    /// Shared with `AppDelegate`, which re-applies the stored value at launch
-    /// so the icon survives relaunch without the pane being opened.
+    /// Shared with `LyrebirdApp`, whose `MenuBarExtra(isInserted:)` binding
+    /// reads it to resolve menu-bar presence (see `MenuBarVisibility`).
     static let showInMenuBarKey = "general.showInMenuBar"
 
     @Environment(AppModel.self) private var model
@@ -50,18 +51,6 @@ struct PreferencesGeneral: View {
                 } else {
                     LaunchAtLogin.disable()
                 }
-            }
-        )
-    }
-
-    /// Binding that syncs `@AppStorage` with `MenuBarController` whenever
-    /// the value changes.
-    private var showInMenuBarBinding: Binding<Bool> {
-        Binding(
-            get: { showInMenuBar },
-            set: { newValue in
-                showInMenuBar = newValue
-                MenuBarController.shared.setVisible(newValue)
             }
         )
     }
@@ -123,7 +112,7 @@ struct PreferencesGeneral: View {
                         ? "On — a compact icon stays in the menu bar."
                         : "Off — Lyrebird lives only in the Dock."
                 ) {
-                    Toggle("", isOn: showInMenuBarBinding)
+                    Toggle("", isOn: $showInMenuBar)
                         .labelsHidden()
                         .toggleStyle(.switch)
                         .accessibilityLabel("Show in menu bar")
@@ -135,11 +124,10 @@ struct PreferencesGeneral: View {
         .onAppear {
             // Reconcile stored value with true SMAppService state on every
             // pane open so the toggle is never stale (e.g. if the user
-            // toggled the login item from System Settings).
+            // toggled the login item from System Settings). Menu-bar presence
+            // needs no equivalent reconcile: `MenuBarExtra(isInserted:)`
+            // derives it from the stored key reactively (#984).
             autoStartOnLogin = LaunchAtLogin.isEnabled
-            // Re-apply the menu-bar state in case the controller lost its
-            // item during a Settings window close/reopen cycle.
-            MenuBarController.shared.setVisible(showInMenuBar)
         }
     }
 

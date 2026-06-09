@@ -36,6 +36,18 @@ struct LyrebirdApp: App {
     /// actual colours; this property exists only to drive that refresh.
     @AppStorage(AppearanceKeys.theme) private var themeRaw: String = AppearanceTheme.purple.rawValue
 
+    /// Persistent "Show in menu bar" (Settings ▸ General). Read here because
+    /// the `MenuBarExtra(isInserted:)` binding — the single owner of menu-bar
+    /// presence since `MenuBarController` was retired (#984) — resolves
+    /// visibility from this toggle plus the transient while-playing input.
+    @AppStorage(PreferencesGeneral.showInMenuBarKey)
+    private var showInMenuBar: Bool = false
+
+    /// Transient "Show in menu bar while playing" (Settings ▸ Notifications).
+    /// AND'd with live playback state before feeding `MenuBarVisibility.resolve`.
+    @AppStorage(NotificationPreference.showInMenuBarWhilePlayingKey)
+    private var showInMenuBarWhilePlaying: Bool = false
+
     init() {
         FontRegistration.register()
         // Load runtime feature flags from flags.json before constructing the
@@ -69,6 +81,12 @@ struct LyrebirdApp: App {
     }
 
     var body: some Scene {
+        // Read playback state eagerly so the scene body registers an
+        // Observation dependency on it — the menu-bar extra's `isInserted`
+        // binding below must re-resolve when playback starts or stops, not
+        // only when one of the two `@AppStorage` toggles moves.
+        let isPlaying = model?.status.state == .playing
+
         // Primary window. The scene is always declared; only its *content*
         // branches — the full shell when the core came up, or the recovery
         // screen (reset / diagnostics) when it didn't, replacing the old
@@ -170,7 +188,29 @@ struct LyrebirdApp: App {
         // renders artwork + a rich transport cluster; the label reflects play
         // state. "Open Lyrebird" routes through `returnToFullWindow`, which
         // activates the app and raises the main window.
-        MenuBarExtra {
+        //
+        // Presence is owned by `isInserted:` (#984): the persistent
+        // Settings ▸ General toggle pins the icon; the Settings ▸ Notifications
+        // "while playing" toggle surfaces it transiently during playback.
+        // Precedence lives in `MenuBarVisibility.resolve` (unit-tested).
+        // The system writes `false` through the binding when the user ⌘-drags
+        // the icon out of the menu bar — honour that as "stop showing this"
+        // by clearing both toggles, so the icon doesn't pop straight back in
+        // on the next track. `true` writes are ignored: insertion is always
+        // derived from the preferences, never forced from the menu-bar side.
+        MenuBarExtra(isInserted: Binding(
+            get: {
+                MenuBarVisibility.resolve(
+                    playing: showInMenuBarWhilePlaying && isPlaying,
+                    persistent: showInMenuBar
+                )
+            },
+            set: { inserted in
+                guard !inserted else { return }
+                showInMenuBar = false
+                showInMenuBarWhilePlaying = false
+            }
+        )) {
             if let model {
                 MenuBarNowPlaying()
                     .environment(model)

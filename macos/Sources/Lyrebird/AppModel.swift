@@ -469,10 +469,6 @@ final class AppModel {
     // MARK: - Player
     var status: PlayerStatus
     var pollTimer: Timer?
-    /// Whether the menu-bar "while playing" visibility has been seeded since
-    /// polling started. Lets the first poll apply the icon on a resume-into-
-    /// playing launch instead of waiting for a pause/resume transition. See #266.
-    var didApplyMenuBarPlayingState = false
 
     // MARK: - Scrobbling (#46)
     /// Decides when to fire a `playing_now` vs a durable `single` listen. Driven
