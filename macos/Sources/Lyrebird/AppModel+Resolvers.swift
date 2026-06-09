@@ -355,6 +355,37 @@ extension AppModel {
         }
     }
 
+    /// Albums the artist guests on — credited at the track level but not the
+    /// album-artist (guest features, collaborations, "Various Artists"
+    /// compilations). Drives the artist page "Appears On" rail (#224), the
+    /// complement of `loadArtistAlbums`'s Discography. Backed by
+    /// `core.appearsOnAlbums`, which scopes by `ArtistIds` on the server then
+    /// subtracts the artist's own releases. Detached off the MainActor (gap
+    /// pattern #2), cached per-artist for the session in `artistAppearsOnCache`
+    /// (cleared on logout), and silently falls back to an empty rail on error
+    /// — the rail collapses when empty, so an error reads as "no guest spots"
+    /// rather than a broken section.
+    @discardableResult
+    func loadArtistAppearsOnAlbums(artistId: String, limit: UInt32 = 60) async -> [Album] {
+        if let cached = artistAppearsOnCache[artistId] { return cached }
+        do {
+            let page = try await Task.detached(priority: .userInitiated) { [core] in
+                try core.appearsOnAlbums(artistId: artistId, offset: 0, limit: limit)
+            }.value
+            artistAppearsOnCache[artistId] = page.items
+            serverReachability.noteSuccess()
+            return page.items
+        } catch {
+            // Silent fallback — don't surface errors for a secondary rail.
+            Log.app.notice("loadArtistAppearsOnAlbums failed artist=\(artistId, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            if handleAuthError(error) { return [] }
+            if ServerReachability.shouldCount(error: error) {
+                serverReachability.noteFailure()
+            }
+            return []
+        }
+    }
+
     /// Fetch the top 5 most-played tracks for an artist, driving the
     /// "Top Tracks" section on the artist detail screen (#229). Backed by
     /// `/Items?ArtistIds=<id>&SortBy=PlayCount,SortName&SortOrder=Descending,Ascending`

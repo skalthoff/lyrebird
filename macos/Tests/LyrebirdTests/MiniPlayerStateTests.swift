@@ -107,4 +107,43 @@ final class MiniPlayerStateTests: XCTestCase {
 
         UserDefaults.standard.removeObject(forKey: key)
     }
+
+    // MARK: - setMiniPlayerTransparentWhenInactive (persistence)
+
+    func testSetTransparentWhenInactiveUpdatesPropertyAndPersists() throws {
+        let model = try AppModel()
+        let key = "miniPlayer.transparentWhenInactive"
+
+        UserDefaults.standard.removeObject(forKey: key)
+
+        model.setMiniPlayerTransparentWhenInactive(true)
+        XCTAssertTrue(
+            model.miniPlayerTransparentWhenInactive,
+            "live property reflects the set value"
+        )
+        XCTAssertTrue(
+            UserDefaults.standard.bool(forKey: key),
+            "transparent-when-inactive must persist across launches"
+        )
+
+        model.setMiniPlayerTransparentWhenInactive(false)
+        XCTAssertFalse(model.miniPlayerTransparentWhenInactive)
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: key))
+
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    // MARK: - closeMiniPlayer
+
+    func testCloseMiniPlayerClearsVisibilityWithoutActivatingMainWindow() throws {
+        let model = try AppModel()
+        model.isMiniPlayerVisible = true
+
+        model.closeMiniPlayer()
+
+        XCTAssertFalse(
+            model.isMiniPlayerVisible,
+            "closeMiniPlayer must clear the visibility flag"
+        )
+    }
 }

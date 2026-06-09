@@ -469,10 +469,6 @@ final class AppModel {
     // MARK: - Player
     var status: PlayerStatus
     var pollTimer: Timer?
-    /// Whether the menu-bar "while playing" visibility has been seeded since
-    /// polling started. Lets the first poll apply the icon on a resume-into-
-    /// playing launch instead of waiting for a pause/resume transition. See #266.
-    var didApplyMenuBarPlayingState = false
 
     // MARK: - Scrobbling (#46)
     /// Decides when to fire a `playing_now` vs a durable `single` listen. Driven
@@ -601,6 +597,13 @@ final class AppModel {
     var isLoadingLibrary = false
     var errorMessage: String?
 
+    /// The device name Jellyfin sees for this client (the `Device="…"` auth
+    /// header field). Seeded from the core in `init()` — which itself prefers a
+    /// previously user-edited value persisted in the DB over the host-derived
+    /// default — and edited via the login gear popover through
+    /// `updateDeviceName(_:)` (#202).
+    var deviceName: String = ""
+
     /// Set during the one-shot `attemptRestoreSession` pass at launch. `RootView`
     /// renders a minimal loading state while this is true so we don't briefly
     /// flash `LoginView` on cold start even though a valid session is about to
@@ -684,6 +687,10 @@ final class AppModel {
     /// pinned-stations store uses.
     static let miniPlayerAlwaysOnTopKey = "miniPlayer.alwaysOnTop"
 
+    /// UserDefaults key for the persisted transparent-when-inactive preference.
+    /// Same `@Observable` → UserDefaults bridge as the always-on-top flag.
+    static let miniPlayerTransparentWhenInactiveKey = "miniPlayer.transparentWhenInactive"
+
     /// Whether the detached Mini Player window is currently open.
     /// `LyrebirdApp` observes this and drives `openWindow` / `dismissWindow`
     /// for the `mini-player` scene. The ⌘⌥P menu `Toggle` writes this flag
@@ -701,6 +708,16 @@ final class AppModel {
     /// `UserDefaults`; write through `setMiniPlayerAlwaysOnTop(_:)` so the
     /// stored value and the live window level stay consistent.
     var miniPlayerAlwaysOnTop: Bool = UserDefaults.standard.bool(forKey: AppModel.miniPlayerAlwaysOnTopKey)
+
+    /// Whether the Mini Player fades to semi-transparent when the app loses
+    /// focus. Persisted across launches; write through
+    /// `setMiniPlayerTransparentWhenInactive(_:)`. `MiniPlayerWindowConfigurator`
+    /// reads this and re-applies `NSWindow.alphaValue` on
+    /// `NSApplication.didBecomeActiveNotification` /
+    /// `NSApplication.didResignActiveNotification`.
+    var miniPlayerTransparentWhenInactive: Bool = UserDefaults.standard.bool(
+        forKey: AppModel.miniPlayerTransparentWhenInactiveKey
+    )
 
     // MARK: - Autoplay (queue end)
 
@@ -794,9 +811,13 @@ final class AppModel {
 
     init() throws {
         let core = try LyrebirdCore(
-            config: CoreConfig(dataDir: "", deviceName: "Lyrebird macOS")
+            config: CoreConfig(dataDir: "", deviceName: AppModel.defaultDeviceName())
         )
         self.core = core
+        // The core prefers a previously user-edited name (persisted in its DB)
+        // over the host-derived default we just passed, so read the resolved
+        // value back rather than re-deriving it here (#202).
+        self.deviceName = core.deviceName()
         self.audio = AudioEngine(core: core)
         self.mediaSession = MediaSession()
         self.network = NetworkMonitor()
@@ -856,6 +877,10 @@ final class AppModel {
 
     /// Per-session cache for `loadArtistAlbums`. Cleared on `logout()`.
     var artistAlbumsCache: [String: [Album]] = [:]
+
+    /// Per-session cache for `loadArtistAppearsOnAlbums` (the "Appears On"
+    /// rail — albums the artist guests on, #224). Cleared on `logout()`.
+    var artistAppearsOnCache: [String: [Album]] = [:]
 
     /// Memoized cache keyed on (itemID, tag, maxWidth). Each grid cell calls
     /// `imageURL` during every scroll-driven body recomputation; without this

@@ -40,7 +40,7 @@ jobs:
       - name: Generate coverage (summary)
         run: cargo llvm-cov report --summary-only
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           fail_ci_if_error: false

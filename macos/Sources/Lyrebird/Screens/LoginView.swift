@@ -45,6 +45,12 @@ struct LoginView: View {
     /// failures (#203).
     @State private var hasSeenRepeatedUnreachable: Bool = false
 
+    /// Presents the Quick Connect pairing sheet (#202).
+    @State private var showQuickConnect: Bool = false
+
+    /// Presents the device-name editing popover anchored on the gear (#202).
+    @State private var showDeviceName: Bool = false
+
     @FocusState private var focusedField: Field?
 
     private enum Field: Hashable {
@@ -137,9 +143,69 @@ struct LoginView: View {
             }
 
             signInButton
+
+            secondaryActions
         }
         .padding(.horizontal, 0)
         .padding(.vertical, 40)
+        .sheet(isPresented: $showQuickConnect) {
+            QuickConnectSheet(serverURL: url)
+        }
+    }
+
+    /// "Use Jellyfin Quick Connect" link plus the device-name gear, sitting just
+    /// below the primary sign-in button (#202). The gear opens a popover so the
+    /// user can rename the device Jellyfin shows for this client.
+    @ViewBuilder
+    private var secondaryActions: some View {
+        HStack(spacing: 12) {
+            Button {
+                showQuickConnect = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "qrcode")
+                        .font(.system(size: 11, weight: .bold))
+                    Text("login.quick_connect.link")
+                        .font(Theme.font(13, weight: .semibold))
+                }
+                .foregroundStyle(Theme.teal)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("login.quick_connect.link")
+            .accessibilityHint("login.quick_connect.a11y_hint")
+
+            Spacer(minLength: 0)
+
+            deviceNameGear
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Gear button that reveals the device-name editor. Shows the current name
+    /// in its accessibility label so VoiceOver users know what's editable.
+    @ViewBuilder
+    private var deviceNameGear: some View {
+        Button {
+            showDeviceName = true
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(model.deviceName)
+                    .font(Theme.font(12, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .foregroundStyle(Theme.ink3)
+            .frame(maxWidth: 180, alignment: .trailing)
+        }
+        .buttonStyle(.plain)
+        .help("login.device_name.help")
+        .accessibilityLabel(deviceNameA11yLabel)
+        .popover(isPresented: $showDeviceName, arrowEdge: .bottom) {
+            DeviceNamePopover()
+                .environment(model)
+        }
     }
 
     @ViewBuilder
@@ -410,6 +476,13 @@ struct LoginView: View {
         case .ok: return 2
         case .failed: return 3
         }
+    }
+
+    /// VoiceOver label for the device-name gear, naming the current device so
+    /// the user knows what tapping it edits. Built via `String(localized:)` with
+    /// an argument so the device name isn't baked into the catalog key.
+    private var deviceNameA11yLabel: Text {
+        Text("login.device_name.a11y_label \(model.deviceName)")
     }
 
     private func probeOkLabel(version: String, name: String) -> String {

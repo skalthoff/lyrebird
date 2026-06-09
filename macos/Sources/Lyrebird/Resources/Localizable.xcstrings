@@ -2641,6 +2641,30 @@
         }
       }
     },
+    "mini_player.menu.transparent_when_inactive" : {
+      "comment" : "Toggle in the Mini Player settings menu that fades the window when the app loses focus.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transparent When Inactive"
+          }
+        }
+      }
+    },
+    "mini_player.menu.close" : {
+      "comment" : "Menu item that dismisses the Mini Player without switching to the full app window.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Mini Player"
+          }
+        }
+      }
+    },
     "mini_player.accessibility.open_album" : {
       "comment" : "VoiceOver label for the Mini Player album-art region when it links to the album page (a click opens the album in the main window). A drag still repositions the window.",
       "extractionState" : "manual",
@@ -3394,6 +3418,234 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Lyrebird couldn’t start"
+          }
+        }
+      }
+    },
+    "login.device_name.a11y_field" : {
+      "comment" : "Accessibility label for the device-name text field.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Device name"
+          }
+        }
+      }
+    },
+    "login.device_name.a11y_label %@" : {
+      "comment" : "Accessibility label for the device-name gear; the argument is the current device name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Device name: %@"
+          }
+        }
+      }
+    },
+    "login.device_name.cancel" : {
+      "comment" : "Button that dismisses the device-name popover.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "login.device_name.help" : {
+      "comment" : "Tooltip on the device-name gear.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change the name Jellyfin shows for this device."
+          }
+        }
+      }
+    },
+    "login.device_name.placeholder" : {
+      "comment" : "Placeholder for the device-name field.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "My Mac"
+          }
+        }
+      }
+    },
+    "login.device_name.save" : {
+      "comment" : "Button that saves the edited device name.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
+          }
+        }
+      }
+    },
+    "login.device_name.subtitle" : {
+      "comment" : "Explains where the device name appears.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown on this server's Dashboard and in other Jellyfin clients."
+          }
+        }
+      }
+    },
+    "login.device_name.title" : {
+      "comment" : "Title of the device-name editing popover.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Device name"
+          }
+        }
+      }
+    },
+    "login.quick_connect.a11y_hint" : {
+      "comment" : "Accessibility hint for the Quick Connect link.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pair this device by entering a code in another signed-in Jellyfin client."
+          }
+        }
+      }
+    },
+    "login.quick_connect.cancel" : {
+      "comment" : "Button to dismiss the Quick Connect sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "login.quick_connect.code_label" : {
+      "comment" : "Label above the numeric Quick Connect code.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CODE"
+          }
+        }
+      }
+    },
+    "login.quick_connect.error" : {
+      "comment" : "Shown when Quick Connect fails to start or complete.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Connect couldn't be completed. Please try again."
+          }
+        }
+      }
+    },
+    "login.quick_connect.link" : {
+      "comment" : "Secondary link under the sign-in button that opens the Quick Connect pairing sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Jellyfin Quick Connect"
+          }
+        }
+      }
+    },
+    "login.quick_connect.needs_server" : {
+      "comment" : "Shown when no server URL has been entered yet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter your server address on the login screen first, then try Quick Connect."
+          }
+        }
+      }
+    },
+    "login.quick_connect.retry" : {
+      "comment" : "Button to retry a failed Quick Connect.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        }
+      }
+    },
+    "login.quick_connect.starting" : {
+      "comment" : "Shown while the Quick Connect code is being requested.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting Quick Connect…"
+          }
+        }
+      }
+    },
+    "login.quick_connect.subtitle" : {
+      "comment" : "Subtitle explaining how Quick Connect works.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter this code in another signed-in Jellyfin app to pair this device."
+          }
+        }
+      }
+    },
+    "login.quick_connect.title" : {
+      "comment" : "Title of the Quick Connect pairing sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quick Connect"
+          }
+        }
+      }
+    },
+    "login.quick_connect.waiting" : {
+      "comment" : "Shown while waiting for the user to approve the code elsewhere.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for approval…"
           }
         }
       }

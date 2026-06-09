@@ -98,9 +98,10 @@ final class NotificationManager {
 }
 
 /// Single source of truth for the Notifications preference keys, shared by the
-/// `PreferencesNotifications` pane (`@AppStorage`) and `NotificationManager`
-/// (raw `UserDefaults`). Keys are stable user-defaults strings so on-disk
-/// preferences survive across launches.
+/// `PreferencesNotifications` pane (`@AppStorage`), `NotificationManager`
+/// (raw `UserDefaults`), and `LyrebirdApp`, whose `MenuBarExtra(isInserted:)`
+/// binding reads the while-playing key (#984). Keys are stable user-defaults
+/// strings so on-disk preferences survive across launches.
 enum NotificationPreference {
     static let trackChangeKey = "notifications.trackChange"
     static let soundKey = "notifications.sound"
@@ -112,9 +113,5 @@ enum NotificationPreference {
 
     static var soundEnabled: Bool {
         UserDefaults.standard.bool(forKey: soundKey)
-    }
-
-    static var showInMenuBarWhilePlaying: Bool {
-        UserDefaults.standard.bool(forKey: showInMenuBarWhilePlayingKey)
     }
 }
