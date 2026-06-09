@@ -124,7 +124,7 @@ struct KeyboardShortcutsView: View {
 				.font(.system(size: 13))
 				.foregroundStyle(Theme.ink)
 			Spacer(minLength: 16)
-			KeyChord(glyphs: row.glyphs)
+			KeyCapChip(glyphs: row.glyphs)
 		}
 		.padding(.horizontal, 14)
 		.padding(.vertical, 10)
@@ -153,7 +153,7 @@ struct KeyboardShortcutsView: View {
 /// chip — e.g. `⌘⇧→`. Monospaced digits keep the glyph baseline steady, and the
 /// subtle bordered fill reads as a physical key the way Apple's own
 /// key-equivalent rendering does.
-private struct KeyChord: View {
+private struct KeyCapChip: View {
 	let glyphs: String
 
 	var body: some View {

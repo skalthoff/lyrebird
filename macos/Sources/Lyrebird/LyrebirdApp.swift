@@ -368,7 +368,8 @@ struct LyrebirdCommands: Commands {
                 model.selectTab(.library)
                 model.beginNewPlaylist()
             }
-            .keyboardShortcut("n", modifiers: .command)
+            .appShortcut("file.new_playlist", model: model,
+                         default: KeyboardShortcut("n", modifiers: .command))
             .disabled(model.session == nil)
         }
 
@@ -442,19 +443,22 @@ struct LyrebirdCommands: Commands {
             Button("menu.nav.home") {
                 model.selectTab(.home)
             }
-            .keyboardShortcut("1", modifiers: .command)
+            .appShortcut("nav.home", model: model,
+                         default: KeyboardShortcut("1", modifiers: .command))
             .disabled(model.session == nil)
 
             Button("menu.nav.library") {
                 model.selectTab(.library)
             }
-            .keyboardShortcut("2", modifiers: .command)
+            .appShortcut("nav.library", model: model,
+                         default: KeyboardShortcut("2", modifiers: .command))
             .disabled(model.session == nil)
 
             Button("menu.nav.search") {
                 model.selectTab(.search)
             }
-            .keyboardShortcut("3", modifiers: .command)
+            .appShortcut("nav.search", model: model,
+                         default: KeyboardShortcut("3", modifiers: .command))
             .disabled(model.session == nil)
 
             Divider()
@@ -466,7 +470,8 @@ struct LyrebirdCommands: Commands {
             Button("menu.nav.find") {
                 model.requestFind()
             }
-            .keyboardShortcut("f", modifiers: .command)
+            .appShortcut("nav.find", model: model,
+                         default: KeyboardShortcut("f", modifiers: .command))
             .disabled(model.session == nil)
 
             // ⌘⇧F always jumps to the full global Search surface and focuses
@@ -485,7 +490,8 @@ struct LyrebirdCommands: Commands {
             Button("menu.nav.now_playing") {
                 toggleNowPlaying()
             }
-            .keyboardShortcut("l", modifiers: .command)
+            .appShortcut("nav.now_playing", model: model,
+                         default: KeyboardShortcut("l", modifiers: .command))
             .disabled(model.session == nil)
 
             // ⌘U opens the full-page Play Queue view and toggles back when
@@ -494,7 +500,8 @@ struct LyrebirdCommands: Commands {
             Button("menu.nav.play_queue") {
                 model.toggleFullQueue()
             }
-            .keyboardShortcut("u", modifiers: .command)
+            .appShortcut("nav.play_queue", model: model,
+                         default: KeyboardShortcut("u", modifiers: .command))
             .disabled(model.session == nil)
 
             // Command Palette (#305). Full-screen ⌘K overlay with library
@@ -504,7 +511,8 @@ struct LyrebirdCommands: Commands {
             Button("menu.nav.command_palette") {
                 model.isCommandPaletteOpen.toggle()
             }
-            .keyboardShortcut("k", modifiers: .command)
+            .appShortcut("nav.command_palette", model: model,
+                         default: KeyboardShortcut("k", modifiers: .command))
             .disabled(model.session == nil)
 
             // New Instant Mix… (#327). Opens the seed-picker sheet so the
@@ -538,7 +546,8 @@ struct LyrebirdCommands: Commands {
                 // sufficient.
                 set: { model.isMiniPlayerVisible = $0 }
             ))
-            .keyboardShortcut("p", modifiers: [.command, .option])
+            .appShortcut("view.mini_player", model: model,
+                         default: KeyboardShortcut("p", modifiers: [.command, .option]))
             .disabled(model.session == nil)
         }
 
@@ -568,13 +577,15 @@ struct LyrebirdCommands: Commands {
             Button("menu.playback.next") {
                 model.skipNext()
             }
-            .keyboardShortcut(.rightArrow, modifiers: .command)
+            .appShortcut("playback.next", model: model,
+                         default: KeyboardShortcut(.rightArrow, modifiers: .command))
             .disabled(model.status.currentTrack == nil)
 
             Button("menu.playback.previous") {
                 model.skipPrevious()
             }
-            .keyboardShortcut(.leftArrow, modifiers: .command)
+            .appShortcut("playback.previous", model: model,
+                         default: KeyboardShortcut(.leftArrow, modifiers: .command))
             .disabled(model.status.currentTrack == nil)
 
             Divider()
@@ -583,26 +594,30 @@ struct LyrebirdCommands: Commands {
                 let next = min(1.0, model.status.volume + 0.05)
                 model.setVolume(next)
             }
-            .keyboardShortcut(.upArrow, modifiers: .command)
+            .appShortcut("playback.volume_up", model: model,
+                         default: KeyboardShortcut(.upArrow, modifiers: .command))
 
             Button("menu.playback.volume_down") {
                 let next = max(0.0, model.status.volume - 0.05)
                 model.setVolume(next)
             }
-            .keyboardShortcut(.downArrow, modifiers: .command)
+            .appShortcut("playback.volume_down", model: model,
+                         default: KeyboardShortcut(.downArrow, modifiers: .command))
 
             Divider()
 
             Button("menu.playback.seek_forward") {
                 model.seek(by: 10)
             }
-            .keyboardShortcut(.rightArrow, modifiers: [.command, .shift])
+            .appShortcut("playback.seek_forward", model: model,
+                         default: KeyboardShortcut(.rightArrow, modifiers: [.command, .shift]))
             .disabled(model.status.currentTrack == nil)
 
             Button("menu.playback.seek_back") {
                 model.seek(by: -10)
             }
-            .keyboardShortcut(.leftArrow, modifiers: [.command, .shift])
+            .appShortcut("playback.seek_back", model: model,
+                         default: KeyboardShortcut(.leftArrow, modifiers: [.command, .shift]))
             .disabled(model.status.currentTrack == nil)
 
             Divider()
@@ -610,7 +625,8 @@ struct LyrebirdCommands: Commands {
             Button("menu.playback.stop") {
                 model.stop()
             }
-            .keyboardShortcut(".", modifiers: .command)
+            .appShortcut("playback.stop", model: model,
+                         default: KeyboardShortcut(".", modifiers: .command))
             .disabled(model.status.currentTrack == nil)
 
             Button("menu.nav.now_playing") {
@@ -634,12 +650,14 @@ struct LyrebirdCommands: Commands {
             Button("menu.window.tile_left") {
                 tileCurrentWindow(edge: .left)
             }
-            .keyboardShortcut(.leftArrow, modifiers: [.control, .option, .command])
+            .appShortcut("window.tile_left", model: model,
+                         default: KeyboardShortcut(.leftArrow, modifiers: [.control, .option, .command]))
 
             Button("menu.window.tile_right") {
                 tileCurrentWindow(edge: .right)
             }
-            .keyboardShortcut(.rightArrow, modifiers: [.control, .option, .command])
+            .appShortcut("window.tile_right", model: model,
+                         default: KeyboardShortcut(.rightArrow, modifiers: [.control, .option, .command]))
         }
 
         // MARK: - Help menu (replace default "Lyrebird Help" placeholder)

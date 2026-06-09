@@ -34,6 +34,12 @@ enum AppShortcuts {
 		let key: KeyEquivalent
 		let modifiers: EventModifiers
 
+		/// The factory-default chord for this action, as a `Codable` value the
+		/// customization store can persist, diff, and reset back to.
+		var defaultChord: KeyChord {
+			KeyChord(key: key, modifiers: modifiers)
+		}
+
 		/// Human-facing rendering of `modifiers` + `key` using the standard
 		/// macOS symbol glyphs (⌃⌥⇧⌘ then the key glyph). Order matches the
 		/// Apple HIG modifier-key ordering shown in menu key-equivalents.
