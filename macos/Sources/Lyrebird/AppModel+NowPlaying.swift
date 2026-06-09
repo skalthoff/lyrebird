@@ -10,8 +10,8 @@ import LyrebirdAudio
 /// reactive surface.
 ///
 /// The backing state (`scrobbleGate`, `currentTrackPeopleForId`,
-/// `currentLyricsForId`, `trackAnnounceTask`, `didApplyMenuBarPlayingState`,
-/// `pollTimer`, `currentTrackPeople`, `currentLyrics`, …) stays declared on the
+/// `currentLyricsForId`, `trackAnnounceTask`, `pollTimer`,
+/// `currentTrackPeople`, `currentLyrics`, …) stays declared on the
 /// main `AppModel` class — stored properties can't live in an extension.
 /// Extensions of a `@MainActor` type inherit its isolation, so every method
 /// here is main-actor-bound just like the rest of the class.
@@ -376,7 +376,6 @@ extension AppModel {
                 let before = beforeTrack?.id
                 let beforeQueuePos = self.status.queuePosition
                 let beforeQueueLen = self.status.queueLength
-                let beforeState = self.status.state
                 self.status = self.core.status()
                 let after = self.status.currentTrack?.id
                 // Keep the custom Dock tile's progress ring filling in real
@@ -404,7 +403,6 @@ extension AppModel {
                         self.currentTrackPeopleForId = nil
                         self.currentLyrics = nil
                         self.currentLyricsForId = nil
-                        MenuBarController.shared.setNowPlaying(nil)
                     } else {
                         Task { await self.fetchCurrentTrackDetails() }
                         Task { await self.fetchCurrentTrackLyrics() }
@@ -419,23 +417,14 @@ extension AppModel {
                                 artist: track.artistName,
                                 album: track.albumName
                             )
-                            MenuBarController.shared.setNowPlaying(track.name)
                         }
                     }
                 }
-                // Menu-bar "while playing": mirror the play/pause state onto the
-                // transient menu-bar icon when the user opts in. Apply on the
-                // first eligible poll (so a session that resumes already-playing
-                // shows the icon immediately, without waiting for a pause/resume
-                // transition) and thereafter only on a real state transition, so
-                // we don't churn the NSStatusItem every tick.
-                if NotificationPreference.showInMenuBarWhilePlaying,
-                    !self.didApplyMenuBarPlayingState || beforeState != self.status.state {
-                    MenuBarController.shared.setVisibleWhilePlaying(
-                        self.status.state == .playing
-                    )
-                    self.didApplyMenuBarPlayingState = true
-                }
+                // Menu-bar "while playing" needs no poll-driven mirroring:
+                // `LyrebirdApp`'s `MenuBarExtra(isInserted:)` binding observes
+                // `status.state` directly, so the transient icon tracks
+                // play/pause reactively (#984 retired the old
+                // `MenuBarController.setVisibleWhilePlaying` call here).
                 // Keep MediaSession's queue index in sync when a skip
                 // happens. `AudioEngine.play(track:)` already fires
                 // `trackChanged` for the new item; `queueChanged` handles
@@ -461,6 +450,5 @@ extension AppModel {
     func stopPolling() {
         pollTimer?.invalidate()
         pollTimer = nil
-        didApplyMenuBarPlayingState = false
     }
 }
