@@ -21,6 +21,15 @@ struct HomeView: View {
     /// pin infrastructure ships. See `PinnedStationTile.swift`.
     @AppStorage(PinnedStationsStore.defaultsKey) private var pinnedStationsData: Data = Data()
 
+    /// User-chosen section order + hidden set (#56). Two CSV strings the
+    /// `CustomizeHomeSheet` edits and `HomeSectionLayout` sorts the shelf stack
+    /// by; an empty value is the shipped default order with every shelf shown.
+    @AppStorage(HomeLayoutDefaults.sectionOrderKey) private var sectionOrderRaw = ""
+    @AppStorage(HomeLayoutDefaults.sectionHiddenKey) private var sectionHiddenRaw = ""
+
+    /// Drives the "Customize Home" sheet.
+    @State private var isCustomizing = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -29,19 +38,14 @@ struct HomeView: View {
                 // placeholder for "top tracks of the day"; random albums are
                 // not meaningful here. Re-enable once the ranked data sources
                 // land (#206, #209).
-                recentlyPlayedSection
-                artistsYouLoveSection
-                recentlyDiscoveredArtistsSection
-                jumpBackInSection
-                recentlyPlayedTracksSection
-                yourPlaylistsSection
-                recentlyAddedSection
-                rediscoverSection
-                quickPicksSection
-                suggestionsSection
-                favoritesSection
-                pinnedStationsRow
-                artistRadioRow
+                //
+                // Section stack order + visibility is user-customizable (#56):
+                // render the catalog through `HomeSectionLayout`, skipping hidden
+                // shelves. Each shelf still hides itself when its own data is
+                // empty, so this governs order + explicit show/hide only.
+                ForEach(visibleSections, id: \.self) { section in
+                    sectionView(for: section)
+                }
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 32)
@@ -49,6 +53,9 @@ struct HomeView: View {
             .padding(.bottom, 32)
         }
         .background(backgroundWash)
+        .sheet(isPresented: $isCustomizing) {
+            CustomizeHomeSheet()
+        }
         // Keep the Recently Played carousel fresh as tracks play (#794).
         // `loadHomeData()` only seeds the section on initial library load,
         // so without this hook a user who plays a few songs and returns to
@@ -58,6 +65,38 @@ struct HomeView: View {
         // which is exactly when the server's recently-played list grows.
         .task(id: model.status.currentTrack?.id) {
             await model.refreshRecentlyPlayed()
+        }
+    }
+
+    // MARK: - Section customization (#56)
+
+    /// The shelves to render, in the user's chosen order, with hidden ones
+    /// removed. Reconciled against the live `HomeSection` catalog on every
+    /// paint so a shelf added in a future build appears automatically. See
+    /// `HomeSectionLayout`.
+    private var visibleSections: [HomeSection] {
+        HomeSectionLayout.visibleOrder(order: sectionOrderRaw, hidden: sectionHiddenRaw)
+    }
+
+    /// Map a catalog entry to its shelf view. Each case is the same shelf the
+    /// body used to list inline; the shelves themselves still self-hide when
+    /// their data slice is empty.
+    @ViewBuilder
+    private func sectionView(for section: HomeSection) -> some View {
+        switch section {
+        case .recentlyPlayed: recentlyPlayedSection
+        case .artistsYouLove: artistsYouLoveSection
+        case .recentlyDiscoveredArtists: recentlyDiscoveredArtistsSection
+        case .jumpBackIn: jumpBackInSection
+        case .recentTracks: recentlyPlayedTracksSection
+        case .yourPlaylists: yourPlaylistsSection
+        case .recentlyAdded: recentlyAddedSection
+        case .rediscover: rediscoverSection
+        case .quickPicks: quickPicksSection
+        case .suggestions: suggestionsSection
+        case .favorites: favoritesSection
+        case .pinnedStations: pinnedStationsRow
+        case .artistRadio: artistRadioRow
         }
     }
 
@@ -169,6 +208,23 @@ struct HomeView: View {
             .disabled(model.albums.isEmpty)
             .opacity(model.albums.isEmpty ? 0.5 : 1)
             .accessibilityLabel("Shuffle your entire library")
+
+            // "Customize Home" entry point (#56). Compact icon-only ghost
+            // button so it sits beside the two primary CTAs without competing
+            // with them; opens the reorder / show-hide sheet.
+            Button {
+                isCustomizing = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.ink2)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 13)
+                    .background(Capsule().stroke(Theme.borderStrong, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .help("Customize Home — reorder, show, or hide sections")
+            .accessibilityLabel("Customize Home")
         }
     }
 
@@ -876,6 +932,17 @@ struct HomeView: View {
                     .buttonStyle(.plain)
                     .help("Open \(title) in full")
                     .accessibilityLabel("See all \(title)")
+                }
+            }
+            // Right-click (the Mac-native "long-press on a section header")
+            // opens the same Customize Home sheet (#56). `contentShape` makes
+            // the whole header row the hit target, not just the glyphs.
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button {
+                    isCustomizing = true
+                } label: {
+                    Label("Customize Home…", systemImage: "slider.horizontal.3")
                 }
             }
             ScrollView(.horizontal, showsIndicators: false) {
