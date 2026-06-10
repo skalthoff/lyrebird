@@ -285,4 +285,72 @@ final class CrossfadeSettingsTests: XCTestCase {
         engine.dspApplyCrossfade(CrossfadeSettings(durationSeconds: 0))
         XCTAssertFalse(pipeline.crossfadeIsEnabled)
     }
+
+    // MARK: - 6. Envelope sampling (preview math)
+
+    /// `envelopeSamples` must return arrays of exactly `count` elements for
+    /// every requested count ≥ 2 and for both curves.
+    func testEnvelopeSamplesCountMatchesRequest() {
+        for count in [2, 8, 32, 64] {
+            for curve in CrossfadeSettings.Curve.allCases {
+                let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: count, curve: curve)
+                XCTAssertEqual(fadeIn.count, count, "fadeIn must have \(count) samples for curve \(curve)")
+                XCTAssertEqual(fadeOut.count, count, "fadeOut must have \(count) samples for curve \(curve)")
+            }
+        }
+    }
+
+    /// A count below the minimum (< 2) is coerced to 2 so callers can't
+    /// produce an empty or single-point path.
+    func testEnvelopeSamplesMinimumCountIsTwo() {
+        let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: 0, curve: .equalPower)
+        XCTAssertEqual(fadeIn.count, 2)
+        XCTAssertEqual(fadeOut.count, 2)
+    }
+
+    /// First sample must be 0/1 (start of overlap — incoming silent, outgoing
+    /// full) and the last must be 1/0 (overlap complete — swap).
+    func testEnvelopeSamplesEndpoints() {
+        for curve in CrossfadeSettings.Curve.allCases {
+            let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: 32, curve: curve)
+            XCTAssertEqual(fadeIn.first!, 0, accuracy: 0.001, "incoming must start silent (\(curve))")
+            XCTAssertEqual(fadeIn.last!, 1, accuracy: 0.001, "incoming must end at full (\(curve))")
+            XCTAssertEqual(fadeOut.first!, 1, accuracy: 0.001, "outgoing must start at full (\(curve))")
+            XCTAssertEqual(fadeOut.last!, 0, accuracy: 0.001, "outgoing must end silent (\(curve))")
+        }
+    }
+
+    /// All sample values must be finite and in [0, 1] — a jittery clock
+    /// must never push an out-of-range value onto a `Path` Y coordinate.
+    func testEnvelopeSamplesAllValuesFiniteAndBounded() {
+        for curve in CrossfadeSettings.Curve.allCases {
+            let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: 64, curve: curve)
+            for (i, (gin, gout)) in zip(fadeIn, fadeOut).enumerated() {
+                XCTAssertTrue(gin.isFinite, "fadeIn[\(i)] must be finite (\(curve))")
+                XCTAssertTrue(gout.isFinite, "fadeOut[\(i)] must be finite (\(curve))")
+                XCTAssertGreaterThanOrEqual(gin, 0, "fadeIn[\(i)] must be ≥ 0 (\(curve))")
+                XCTAssertLessThanOrEqual(gin, 1, "fadeIn[\(i)] must be ≤ 1 (\(curve))")
+                XCTAssertGreaterThanOrEqual(gout, 0, "fadeOut[\(i)] must be ≥ 0 (\(curve))")
+                XCTAssertLessThanOrEqual(gout, 1, "fadeOut[\(i)] must be ≤ 1 (\(curve))")
+            }
+        }
+    }
+
+    /// Equal-power samples must satisfy the constant-power identity at every
+    /// point: fadeIn² + fadeOut² == 1.
+    func testEnvelopeSamplesEqualPowerHoldsConstantPower() {
+        let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: 32, curve: .equalPower)
+        for (i, (gin, gout)) in zip(fadeIn, fadeOut).enumerated() {
+            let power = Double(gin) * Double(gin) + Double(gout) * Double(gout)
+            XCTAssertEqual(power, 1, accuracy: 0.001, "equal-power identity must hold at sample \(i)")
+        }
+    }
+
+    /// Linear samples must sum to exactly 1 at every point (amplitude-sum).
+    func testEnvelopeSamplesLinearSumsToOne() {
+        let (fadeIn, fadeOut) = CrossfadeSettings.envelopeSamples(count: 32, curve: .linear)
+        for (i, (gin, gout)) in zip(fadeIn, fadeOut).enumerated() {
+            XCTAssertEqual(Double(gin) + Double(gout), 1, accuracy: 0.001, "linear sum must be 1 at sample \(i)")
+        }
+    }
 }

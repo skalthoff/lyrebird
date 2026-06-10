@@ -119,6 +119,33 @@ public struct CrossfadeSettings: Equatable, Sendable {
         }
     }
 
+    // MARK: - Preview sampling (pure, testable)
+
+    /// Uniform sample points for the gain envelopes across the fade window.
+    ///
+    /// `count` must be ≥ 2; the first sample is at progress 0 (start of
+    /// overlap) and the last at progress 1 (overlap complete). Returns
+    /// parallel arrays: `fadeIn[i]` and `fadeOut[i]` are the gains the two
+    /// decks carry at the same moment in time, sampled at `count` evenly-
+    /// spaced steps. All values are in [0, 1] and guaranteed finite.
+    ///
+    /// Intended for drawing the envelope shape in the Preferences preview;
+    /// each call is O(count) and allocation-free beyond the arrays themselves.
+    public static func envelopeSamples(
+        count: Int,
+        curve: Curve
+    ) -> (fadeIn: [Float], fadeOut: [Float]) {
+        let n = max(count, 2)
+        var fadeIn  = [Float](repeating: 0, count: n)
+        var fadeOut = [Float](repeating: 0, count: n)
+        for i in 0..<n {
+            let t = Double(i) / Double(n - 1)
+            fadeIn[i]  = Self.fadeInGain(progress: t, curve: curve)
+            fadeOut[i] = Self.fadeOutGain(progress: t, curve: curve)
+        }
+        return (fadeIn, fadeOut)
+    }
+
     // MARK: - Scheduling decisions (pure, testable)
 
     /// How early before the fade window the standby deck starts buffering the
