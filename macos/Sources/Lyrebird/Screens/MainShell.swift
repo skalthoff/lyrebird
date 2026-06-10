@@ -366,8 +366,14 @@ struct MainShell: View {
     /// still `false`) or whenever the user explicitly re-opens it from
     /// Help ▸ "Show Tour". Either path renders the same `FeatureTourOverlay`,
     /// which records the seen flag when it closes.
+    ///
+    /// Yields (without recording "seen") while the Command Palette is open:
+    /// the palette mounts in `RootView`'s overlay — *above* this one — so the
+    /// two scrims would otherwise stack and bury the tour card under the
+    /// palette, with Esc only reaching the palette. The tour comes back as
+    /// soon as the palette closes.
     private var shouldShowFeatureTour: Bool {
-        !hasSeenFeatureTour || model.isFeatureTourPresented
+        (!hasSeenFeatureTour || model.isFeatureTourPresented) && !model.isCommandPaletteOpen
     }
 
     /// Whether the Queue Inspector panel should be on screen right now.

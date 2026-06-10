@@ -55,7 +55,7 @@ struct FavoritesView: View {
                 .tracking(2)
                 .foregroundStyle(Theme.ink3)
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("Your Library")
+                Text("Favorites")
                     .font(Theme.font(34, weight: .black, italic: true))
                     .foregroundStyle(Theme.ink)
                 Spacer()

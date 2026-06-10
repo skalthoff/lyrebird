@@ -17,9 +17,7 @@ import SwiftUI
 /// rather than an empty string so the row still has a visible value.
 ///
 /// This pane replaces the standalone "Account" entry from the pre-#114 layout
-/// by incorporating the same sign-out / change-server flows. The old
-/// `PreferencesAccount` remains in the module as a smaller subset view any
-/// non-preferences caller can reuse, but the sidebar no longer routes to it.
+/// by incorporating the same sign-out / change-server flows.
 ///
 /// Issue: #115.
 struct PreferencesServer: View {

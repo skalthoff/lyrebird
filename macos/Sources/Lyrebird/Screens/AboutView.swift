@@ -165,8 +165,7 @@ struct AboutView: View {
     // Real rendering requires an `AppModel` in the environment; the dedicated
     // About `Window` in `LyrebirdApp` injects one. Previews without a model
     // will crash on `@Environment(AppModel.self)` — this preview is kept as
-    // documentation for where the view lives, matching `PreferencesServer` /
-    // `PreferencesAccount`.
+    // documentation for where the view lives, matching `PreferencesServer`.
     AboutView()
         .preferredColorScheme(.dark)
 }

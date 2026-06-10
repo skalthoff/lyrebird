@@ -792,7 +792,7 @@ struct ArtistDetailView: View {
     private func featuringPlaylistsSection(_ artist: Artist?) -> some View {
         if !featuringPlaylists.isEmpty, let artist = artist {
             VStack(alignment: .leading, spacing: 12) {
-                sectionHeader(eyebrow: "APPEARS ON", title: "Featuring \(artist.name)")
+                sectionHeader(eyebrow: "FEATURED IN", title: "Featuring \(artist.name)")
                 ScrollView(.horizontal, showsIndicators: false) {
                     // Eager `HStack` (not `LazyHStack`) for the same macOS 26.4
                     // recycle-UAF reason documented in `discographyGroup`. The

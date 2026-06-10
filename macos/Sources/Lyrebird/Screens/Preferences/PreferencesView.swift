@@ -14,8 +14,7 @@ import SwiftUI
 /// Issues closed here: #114 (top-level org), #115 (Server section), #116
 /// (Playback gap-fill), #117 (Audio quality section), #121 (Lyrics source).
 /// The Server pane incorporates the Account workflow previously split under
-/// its own sidebar entry (still available as `PreferencesAccount` for any
-/// other caller that wants the minimal account view).
+/// its own sidebar entry.
 struct PreferencesView: View {
     enum Pane: String, CaseIterable, Hashable, Identifiable {
         case general, server, playback, audio, equalizer, library, appearance, keyboard, notifications, scrobbling, lyrics, downloads, privacy, advanced, experiments, about
