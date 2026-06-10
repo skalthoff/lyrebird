@@ -54,6 +54,14 @@ struct ArtistDetailView: View {
     @State private var appearsOnAlbums: [Album] = []
     @State private var fetchedArtist: Artist?
     @State private var isBioExpanded = false
+    /// Whether the biography text actually overflows the 4-line clamp (#1012).
+    /// Driven by comparing clamped vs. full rendered height; `false` until both
+    /// measurements arrive so the button never flickers in on first layout.
+    @State private var isBioTruncated = false
+    /// Rendered height of the visible 4-line-clamped bio text.
+    @State private var clampedBioHeight: CGFloat = 0
+    /// Rendered height of an off-screen, unclamped copy of the bio text.
+    @State private var fullBioHeight: CGFloat = 0
     @State private var similarArtistsState: [Artist] = []
     /// Playlists whose track list features this artist. Populated by
     /// the `.task(id:)` block; the rail collapses silently when empty.
@@ -161,6 +169,9 @@ struct ArtistDetailView: View {
             // never bleeds into this page while the new fetch is in flight.
             bioOverview = nil
             isBioExpanded = false
+            isBioTruncated = false
+            clampedBioHeight = 0
+            fullBioHeight = 0
             scopedQuery = ""
             featuringPlaylists = []
             appearsOnAlbums = []
@@ -864,28 +875,83 @@ struct ArtistDetailView: View {
     /// button that opens the full text in a popover. The popover is driven by
     /// a plain SwiftUI `Button` → focusable and Return-activatable for free,
     /// satisfying the "Read more is keyboard accessible" criterion.
+    ///
+    /// "Read more" is shown only when the overview actually overflows the
+    /// 4-line clamp (#1012): the clamped `Text` reports its rendered height via
+    /// a background `GeometryReader`, while an off-screen unclamped copy reports
+    /// the full height. When the clamp is shorter the button appears; for a
+    /// short bio that fits in ≤4 lines the heights match and the button is
+    /// omitted. This mirrors the pattern already used in `AlbumDetailView`.
     @ViewBuilder
     private func aboutBody(overview: String, artistName: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
+            // The visible 4-line-clamped text drives layout; an off-screen
+            // unclamped copy is attached as a `.background` so it measures the
+            // full height without expanding the visible text's footprint. A
+            // ZStack sibling would size the stack to the max of both children —
+            // the full height — leaving a blank gap above "Read more" exactly
+            // when the bio is truncated. Background/overlay content is proposed
+            // the host's size but never grows it.
             Text(overview)
                 .font(Theme.font(14, weight: .regular))
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(4)
                 .fixedSize(horizontal: false, vertical: true)
-            Button {
-                isBioExpanded = true
-            } label: {
-                Text("Read more")
-                    .font(Theme.font(12, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Read full biography for \(artistName)")
-            .accessibilityHint("Opens the complete biography in a popover")
-            .popover(isPresented: $isBioExpanded, arrowEdge: .top) {
-                bioPopover(overview: overview, artistName: artistName)
+                .background(alignment: .topLeading) {
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: ArtistBioClampedHeightKey.self,
+                            value: proxy.size.height)
+                    }
+                }
+                .background(alignment: .topLeading) {
+                    // Unclamped measuring copy. `.hidden()` + non-interactive
+                    // so it never paints or hit-tests; `fixedSize` vertical so
+                    // it reports its full multi-line height at the host's
+                    // proposed width.
+                    Text(overview)
+                        .font(Theme.font(14, weight: .regular))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .accessibilityHidden(true)
+                        .allowsHitTesting(false)
+                        .background {
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: ArtistBioFullHeightKey.self,
+                                    value: proxy.size.height)
+                            }
+                        }
+                }
+            if isBioTruncated {
+                Button {
+                    isBioExpanded = true
+                } label: {
+                    Text("Read more")
+                        .font(Theme.font(12, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Read full biography for \(artistName)")
+                .accessibilityHint("Opens the complete biography in a popover")
+                .popover(isPresented: $isBioExpanded, arrowEdge: .top) {
+                    bioPopover(overview: overview, artistName: artistName)
+                }
             }
         }
+        .onPreferenceChange(ArtistBioClampedHeightKey.self) { clampedBioHeight = $0 }
+        .onPreferenceChange(ArtistBioFullHeightKey.self) { fullBioHeight = $0 }
+        .onChange(of: clampedBioHeight) { _, _ in recomputeBioTruncation() }
+        .onChange(of: fullBioHeight) { _, _ in recomputeBioTruncation() }
+    }
+
+    /// Re-derive the bio truncation flag from the latest clamped / full heights.
+    /// Called whenever either measurement changes so "Read more" appears only
+    /// once the bio is confirmed to overflow its 4-line clamp (#1012).
+    private func recomputeBioTruncation() {
+        isBioTruncated = AboutOverviewTruncation.isTruncated(
+            clamped: clampedBioHeight,
+            full: fullBioHeight)
     }
 
     /// Full-biography popover. Scrolls when the text is long so the popover
@@ -1032,6 +1098,25 @@ struct ArtistDetailView: View {
                 .padding(.horizontal, 32)
                 .padding(.vertical, 32)
         }
+    }
+}
+
+// MARK: - Bio truncation measurement keys
+
+/// Rendered height of the visible, 4-line-clamped artist bio text (#1012).
+private struct ArtistBioClampedHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// Rendered height of the off-screen, unclamped copy of the artist bio text,
+/// used to detect truncation against the clamped height (#1012).
+private struct ArtistBioFullHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 

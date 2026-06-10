@@ -109,4 +109,55 @@ final class ArtistDetailTransportTests: XCTestCase {
             XCTAssertEqual(first[key] ?? nil, second[key] ?? nil)
         }
     }
+
+    // MARK: - Artist bio "Read more" truncation (#1012)
+    //
+    // The bio "Read more" button must only appear when the text overflows the
+    // 4-line clamp. The truncation decision delegates to `AboutOverviewTruncation`
+    // (shared with AlbumDetailView) so we exercise that path here from the
+    // artist-detail perspective.
+
+    func testBioTruncatedWhenFullExceedsClamped() {
+        // A long bio that overflows 4 lines: full height clearly exceeds clamped.
+        XCTAssertTrue(
+            AboutOverviewTruncation.isTruncated(clamped: 80, full: 240),
+            "A multi-paragraph bio taller than 4 lines must show Read more")
+    }
+
+    func testBioNotTruncatedWhenHeightsMatch() {
+        // A short bio that fits in ≤4 lines: heights are equal.
+        XCTAssertFalse(
+            AboutOverviewTruncation.isTruncated(clamped: 40, full: 40),
+            "A short bio that fits must not show Read more")
+    }
+
+    func testBioNotTruncatedBeforeMeasurementSettles() {
+        // Heights are both 0 until the first layout pass; button must not flash.
+        XCTAssertFalse(
+            AboutOverviewTruncation.isTruncated(clamped: 0, full: 0),
+            "Read more must not appear before height measurement arrives")
+        XCTAssertFalse(
+            AboutOverviewTruncation.isTruncated(clamped: 0, full: 200),
+            "Read more must not appear when only full height is known")
+        XCTAssertFalse(
+            AboutOverviewTruncation.isTruncated(clamped: 80, full: 0),
+            "Read more must not appear when only clamped height is known")
+    }
+
+    func testBioEpsilonAbsorbsSubpointRounding() {
+        // A bio that exactly fills 4 lines — clamped and full differ by less
+        // than epsilon due to float rounding — must not show Read more.
+        let clamped: CGFloat = 80
+        let full = clamped + AboutOverviewTruncation.epsilon - 0.01
+        XCTAssertFalse(
+            AboutOverviewTruncation.isTruncated(clamped: clamped, full: full),
+            "Sub-epsilon difference must not register as truncation")
+    }
+
+    func testBioDifferenceAboveEpsilonIsTruncated() {
+        // A bio that overflows by more than one wrapped line shows Read more.
+        let clamped: CGFloat = 80
+        let full = clamped + AboutOverviewTruncation.epsilon + 18 // ~one line
+        XCTAssertTrue(AboutOverviewTruncation.isTruncated(clamped: clamped, full: full))
+    }
 }
