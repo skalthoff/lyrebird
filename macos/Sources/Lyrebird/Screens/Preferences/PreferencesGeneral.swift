@@ -2,9 +2,9 @@ import SwiftUI
 
 /// General preferences pane.
 ///
-/// Launch-at-login, menu-bar presence, and language.
+/// Launch-at-login, menu-bar presence, language, and update channel.
 ///
-/// - **Language**: in-app localization isn't wired yet (#345) — nothing reads
+/// - **Language**: in-app localization isn't wired yet — nothing reads
 ///   `general.language` back to re-render the UI, and `AppLanguage` only offers
 ///   System / English (both no-ops). The picker is therefore gated behind
 ///   `AppModel.supportsLanguageSelection` so it isn't presented as a working
@@ -17,7 +17,11 @@ import SwiftUI
 ///   `MenuBarExtra(isInserted:)` binding observes the same key, so flipping it
 ///   here inserts/removes the menu-bar extra reactively, and the persisted
 ///   value is re-applied on every launch by construction — no controller or
-///   launch-time re-apply needed (#984).
+///   launch-time re-apply needed.
+/// - **Receive beta updates**: stored at `BetaChannelPreference.betaOptInKey`.
+///   Read by `UpdaterDelegate.allowedChannels(for:)` on every Sparkle check.
+///   No relaunch required — Sparkle re-queries the delegate for each check.
+///   Defaults to `false` (stable-only). See `BetaChannelPreference`.
 ///
 /// Spec: `research/03-ux-patterns.md` Issue 66 top-level General bullet.
 struct PreferencesGeneral: View {
@@ -31,6 +35,7 @@ struct PreferencesGeneral: View {
     @AppStorage("general.language") private var languageRaw: String = AppLanguage.system.rawValue
     @AppStorage("general.autoStartOnLogin") private var autoStartOnLogin: Bool = false
     @AppStorage(PreferencesGeneral.showInMenuBarKey) private var showInMenuBar: Bool = false
+    @AppStorage(BetaChannelPreference.betaOptInKey) private var betaOptIn: Bool = false
 
     private var language: Binding<AppLanguage> {
         Binding(
@@ -119,6 +124,24 @@ struct PreferencesGeneral: View {
                 }
             }
 
+            PreferenceSection(
+                title: "Updates",
+                footnote: "Beta releases may be less stable than stable releases. The next scheduled check will use the new setting — no relaunch required."
+            ) {
+                PreferenceRow(
+                    label: "Receive beta updates",
+                    help: betaOptIn
+                        ? "On — beta and stable releases are offered; the newest version wins."
+                        : "Off — only stable releases are offered."
+                ) {
+                    Toggle("", isOn: $betaOptIn)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityLabel("Receive beta updates")
+                        .accessibilityHint("When on, pre-release versions appear alongside stable updates.")
+                }
+            }
+
             Spacer(minLength: 0)
         }
         .onAppear {
@@ -137,8 +160,8 @@ struct PreferencesGeneral: View {
                 .font(Theme.font(28, weight: .black, italic: true))
                 .foregroundStyle(Theme.ink)
             Text(model.supportsLanguageSelection
-                ? "Language, startup, and menu-bar presence."
-                : "Startup and menu-bar presence.")
+                ? "Language, startup, menu-bar presence, and updates."
+                : "Startup, menu-bar presence, and updates.")
                 .font(Theme.font(13, weight: .medium))
                 .foregroundStyle(Theme.ink3)
         }

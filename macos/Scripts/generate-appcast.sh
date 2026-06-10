@@ -19,6 +19,8 @@
 #     (DELTA_MAX, default 3). Delta files are placed in $DMG_DIR alongside
 #     the source DMGs and listed to stdout via DELTA_MANIFEST for the
 #     release workflow to upload.
+#   - Stamps beta items with <sparkle:channel>beta</sparkle:channel> when
+#     RELEASE_CHANNEL=beta, so stable-only clients never see them.
 #
 # Environment:
 #   SPARKLE_ED25519_PRIVATE   base64 private key (required unless --dry-run)
@@ -28,6 +30,8 @@
 #                             (optional, defaults to 2.6.4)
 #   DELTA_MAX                 number of previous releases to generate deltas against
 #                             (optional, defaults to 3)
+#   RELEASE_CHANNEL           set to "beta" to tag appcast items with the beta channel;
+#                             leave unset or empty for stable releases (optional)
 #
 # Usage:
 #   ./macos/Scripts/generate-appcast.sh
@@ -64,6 +68,11 @@ SPARKLE_DIR="$STAGING/sparkle"
 # clients pick the smallest available update path; 3 means a user on any of
 # the last 3 releases gets a delta rather than a full DMG download.
 : "${DELTA_MAX:=3}"
+# Release channel: set to "beta" to stamp newly generated appcast items with
+# <sparkle:channel>beta</sparkle:channel>. Leave empty for stable releases.
+# Stable clients (beta opt-in off) never see beta items; opted-in clients see
+# both and install whichever version is newer.
+: "${RELEASE_CHANNEL:=}"
 
 if [[ "$DRY_RUN" == "true" ]]; then
   echo "==> Dry-run mode: skipping network calls and key validation."
@@ -165,16 +174,28 @@ chmod 600 "$KEY_FILE"
 # the tag in the post-process pass below.
 DOWNLOAD_URL_PREFIX="https://github.com/${GITHUB_REPOSITORY}/releases/download"
 
-echo "==> Running generate_appcast (maximum-deltas=$DELTA_MAX)"
+echo "==> Running generate_appcast (maximum-deltas=$DELTA_MAX, channel=${RELEASE_CHANNEL:-stable})"
 # generate_appcast writes .delta files into $DMG_DIR alongside the source DMGs.
 # The release workflow uploads those deltas to the current GitHub release; the
 # post-process URL injection below then rewrites the delta enclosure URLs to
 # include the correct tag segment (same as for the full DMG).
+#
+# --channel beta stamps every newly generated <item> with
+# <sparkle:channel>beta</sparkle:channel>. Sparkle clients that have not opted
+# in to beta updates receive an empty allowed-channels set and skip those items
+# entirely. Clients with allowed channels ["beta"] see both stable items (no
+# channel tag) and beta items, installing whichever version is newer.
+CHANNEL_ARGS=()
+if [[ -n "$RELEASE_CHANNEL" ]]; then
+  CHANNEL_ARGS=(--channel "$RELEASE_CHANNEL")
+fi
+
 "$SPARKLE_BIN" \
   --ed-key-file "$KEY_FILE" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX/" \
   --link "https://skalthoff.github.io/lyrebird-desktop/" \
   --maximum-deltas "$DELTA_MAX" \
+  "${CHANNEL_ARGS[@]}" \
   -o "$DOCS/appcast.xml" \
   "$DMG_DIR"
 

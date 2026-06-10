@@ -15,6 +15,13 @@ import SwiftUI
 /// The controller starts the scheduled update timer automatically when
 /// `startingUpdater: true`; the SwiftUI `CheckForUpdatesView` below drives
 /// the manual "Check for Updates…" menu item wired up in `LyrebirdApp`.
+///
+/// Beta channel: when the user enables "Receive beta updates" in
+/// Preferences → General, ``UpdaterDelegate/allowedChannels(for:)`` returns
+/// `["beta"]` so Sparkle considers items tagged `<sparkle:channel>beta</sparkle:channel>`
+/// in the feed. Stable-only users receive an empty set, which means Sparkle
+/// only ever surfaces items with no channel tag (i.e. stable releases).
+/// See `BetaChannelPreference` for the key and the testable helper.
 @MainActor
 final class Updater: ObservableObject {
     /// `nil` in builds that ship without a real Sparkle public key — used
@@ -29,6 +36,7 @@ final class Updater: ObservableObject {
     @Published private(set) var canCheckForUpdates: Bool = false
 
     private var observer: NSKeyValueObservation?
+    private let delegate = UpdaterDelegate()
 
     init() {
         // Skip Sparkle entirely when the public key hasn't been swapped
@@ -44,7 +52,7 @@ final class Updater: ObservableObject {
         if hasRealKey {
             let controller = SPUStandardUpdaterController(
                 startingUpdater: true,
-                updaterDelegate: nil,
+                updaterDelegate: delegate,
                 userDriverDelegate: nil
             )
             self.controller = controller
@@ -73,6 +81,33 @@ final class Updater: ObservableObject {
     /// disabled (debug builds).
     func checkForUpdates() {
         controller?.checkForUpdates(nil)
+    }
+}
+
+// MARK: - Updater delegate
+
+/// Sparkle 2 delegate that gates which update channels the app accepts.
+///
+/// The delegate is instantiated once in ``Updater`` and held for the
+/// lifetime of the controller. It reads the beta opt-in preference
+/// directly from `UserDefaults` on each `allowedChannels(for:)` call so
+/// the channel set reflects the latest toggle state without requiring a
+/// relaunch — Sparkle queries the delegate on every scheduled check and
+/// on every manual "Check for Updates…" invocation.
+final class UpdaterDelegate: NSObject, SPUUpdaterDelegate {
+    /// Returns the set of extra channels Sparkle should include when
+    /// evaluating appcast items. An empty set means "stable only" —
+    /// Sparkle ignores any item that carries a `<sparkle:channel>` tag.
+    /// Returning `["beta"]` adds beta items to the candidate set; the
+    /// client still picks whichever version is newer across all allowed
+    /// channels, so beta users see both stable and beta releases and
+    /// auto-update to the newest one.
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        BetaChannelPreference.allowedChannels(
+            betaOptIn: UserDefaults.standard.bool(
+                forKey: BetaChannelPreference.betaOptInKey
+            )
+        )
     }
 }
 

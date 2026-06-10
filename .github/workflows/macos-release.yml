@@ -88,11 +88,25 @@ jobs:
           else
             is_prerelease=false
           fi
+          # Derive the Sparkle channel from the tag. Tags that include a
+          # pre-release segment (e.g. v0.3.0-beta.1, v1.0.0-rc.2) are
+          # treated as beta channel releases; pure semver tags (v1.0.0)
+          # are stable. The channel is passed to generate-appcast.sh via
+          # RELEASE_CHANNEL, which forwards it as --channel <value> to
+          # generate_appcast so each <item> carries the correct
+          # <sparkle:channel> tag. Stable clients never see beta items;
+          # opted-in clients see both and install whichever is newer.
+          if [[ "$tag" == *-beta* ]]; then
+            release_channel=beta
+          else
+            release_channel=
+          fi
           {
             echo "tag=$tag"
             echo "version=$version"
             echo "build=$build"
             echo "is_prerelease=$is_prerelease"
+            echo "release_channel=$release_channel"
           } >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------
@@ -260,6 +274,10 @@ jobs:
           # Path where generate-appcast.sh writes the list of generated delta
           # files. The next step reads this to upload deltas to the release.
           DELTA_MANIFEST: ${{ runner.temp }}/delta-manifest.txt
+          # Sparkle channel for this release. "beta" tags appcast items with
+          # <sparkle:channel>beta</sparkle:channel> so stable-only clients
+          # never see them. Empty for stable releases.
+          RELEASE_CHANNEL: ${{ steps.version.outputs.release_channel }}
         run: ./macos/Scripts/generate-appcast.sh
 
       - name: Upload Sparkle delta files to release
