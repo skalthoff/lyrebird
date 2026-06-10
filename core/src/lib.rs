@@ -129,7 +129,6 @@ pub struct CoreConfig {
 impl LyrebirdCore {
     #[uniffi::constructor]
     pub fn new(config: CoreConfig) -> std::result::Result<Arc<Self>, LyrebirdError> {
-        // Install the tracing subscriber and start the log forwarding thread.
         // Idempotent — safe to call on every construction (tests, CLI tools).
         crate::logging::init_logging();
 
