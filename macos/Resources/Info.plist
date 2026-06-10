@@ -35,7 +35,20 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
 
-    <!-- Version fields. These placeholders are overwritten by
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>es</string>
+        <string>fr</string>
+        <string>de</string>
+        <string>ja</string>
+        <string>pt-BR</string>
+        <string>it</string>
+        <string>ru</string>
+        <string>zh-Hans</string>
+    </array>
+
+        <!-- Version fields. These placeholders are overwritten by
          make-bundle.sh via `plutil -replace` at build time. -->
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
