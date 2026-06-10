@@ -70,6 +70,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// a DHCP / Wi-Fi link before we attempt TCP to the Jellyfin endpoint.
     private let wakeDebounceNanos: UInt64 = 2_000_000_000
 
+    /// Hard deadline for the async shutdown sequence. If `audio.stop()` /
+    /// `POST /Sessions/Playing/Stopped` has not completed within this window
+    /// we reply `.terminateNow` and let the OS finish the job. 2 s matches
+    /// the upper end of a server round-trip on a LAN while keeping the quit
+    /// snappy from the user's perspective.
+    private let shutdownTimeoutNanos: UInt64 = 2_000_000_000
+
+    /// `true` once `applicationShouldTerminate` has dispatched the async
+    /// shutdown work. Guards against a second call (which AppKit can make if
+    /// the app calls `NSApp.terminate` from a menu action while a prior quit
+    /// is already in flight).
+    private var shutdownInFlight: Bool = false
+
     // MARK: - NSApplicationDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -112,6 +125,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // shows only for a release build running from outside /Applications
         // that isn't translocated/on a DMG and hasn't been suppressed. See #193.
         MoveToApplications.promptIfNeeded()
+    }
+
+    /// Handle termination with a bounded shutdown sequence.
+    ///
+    /// The sequence (executed synchronously on the main actor, bounded by 2 s):
+    ///
+    ///   1. **Stop playback** — `model.stop()` drains the `AVQueuePlayer` /
+    ///      DSP pipeline, emits the final `POST /Sessions/Playing/Stopped`
+    ///      (dispatched as a `Task.detached` inside `reportStopped` so it
+    ///      runs concurrently with the remainder of the sequence), and stops
+    ///      the heartbeat so the Jellyfin session goes idle.
+    ///
+    ///   2. **Persist queue** — `persistQueueSnapshot()` writes the current
+    ///      track, playback position, user-added "Up Next" entries, auto-queue
+    ///      tail, and "Playing From" context to `UserDefaults` JSON so the next
+    ///      launch can offer "Resume where you left off?".
+    ///
+    ///   3. **Reply** — we wait up to `shutdownTimeoutNanos` for the detached
+    ///      network POST to drain, then reply to AppKit regardless. This
+    ///      prevents the app from hanging on ⌘Q if the server is unreachable.
+    ///
+    /// Core DB gap: `LyrebirdCore` does not yet expose a `shutdown()` FFI for
+    /// `PRAGMA optimize` + `wal_checkpoint(TRUNCATE)`. SQLite WAL mode is
+    /// crash-safe by design (recovery is transparent on next open), so the DB
+    /// is always consistent without an explicit checkpoint. The checkpoint is a
+    /// nice-to-have performance win (smaller WAL file on next open) and is
+    /// deferred until a core `shutdown()` FFI lands.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !shutdownInFlight else { return .terminateNow }
+        guard let model = appModel else { return .terminateNow }
+
+        let isActive = model.status.state == .playing || model.status.state == .paused
+        let hasQueue = AppModel.shouldPersistSnapshot(
+            currentTrack: model.status.currentTrack,
+            userAddedCount: model.upNextUserAdded.count,
+            autoQueueCount: model.upNextAutoQueue.count
+        )
+
+        // Nothing to do — AppKit can terminate immediately.
+        let steps = AppModel.shutdownSteps(isPlayingOrPaused: isActive, hasQueue: hasQueue)
+        guard !steps.isEmpty else { return .terminateNow }
+
+        shutdownInFlight = true
+
+        // Step 1 (synchronous, main actor): stop the player and dispatch
+        // the final `reportStopped` as a `Task.detached`.
+        if steps.contains(.stopPlayback) {
+            model.stop()
+        }
+
+        // Step 2 (synchronous, main actor): capture queue state to
+        // UserDefaults. Must run before the player is torn down further
+        // (the position is still readable at this point because `stop()`
+        // clears the player items but `status.positionSeconds` is a core
+        // mirror that `core.stop()` zeroes after our call).
+        if steps.contains(.persistQueue) {
+            model.persistQueueSnapshot()
+        }
+
+        // Step 3: give the detached network POST up to 2 s to land, then
+        // tell AppKit to proceed regardless. The Task replies on the main
+        // actor so there is no thread-safety issue with `NSApp.reply`.
+        let timeoutNanos = shutdownTimeoutNanos
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: timeoutNanos)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {

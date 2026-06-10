@@ -1060,6 +1060,16 @@ final class AppModel {
     /// a dead band. Moods are sourced from tags "if present" per the spec.
     var availableMoods: [Mood] = []
 
+    // MARK: - Graceful shutdown / resume
+
+    /// Non-nil when the app restored a `QueueSnapshot` from the previous
+    /// session and is waiting for the user to confirm or dismiss the
+    /// "Resume where you left off?" toast. Set by `applyQueueSnapshot(_:)`,
+    /// cleared by `resumeFromSnapshot()` / `dismissResumeSnapshot()`.
+    /// Stored here (not in the extension) because `@Observable` requires
+    /// stored properties on the `@Observable` class itself.
+    var pendingResumeSnapshot: QueueSnapshot?
+
 }
 
 // MARK: - Queue models (BATCH-07a)
