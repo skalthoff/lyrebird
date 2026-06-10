@@ -14,6 +14,11 @@ extension AppModel {
     func refreshLibrary() async {
         isLoadingLibrary = true
         defer { isLoadingLibrary = false }
+        // Cache-first launch (#431): paint whatever the local library cache
+        // holds before any network round-trip. No-op when the arrays are
+        // already populated or the cache is cold; the fetches below replace
+        // the provisional rows with authoritative server pages.
+        await loadCachedLibraryIfEmpty()
         // Fetch albums, artists, tracks, and playlists in parallel. Previously
         // the album/artist calls were sequential, doubling time-to-first-paint
         // on every fresh session; `async let` lets all round-trips overlap.
@@ -83,6 +88,12 @@ extension AppModel {
             serverReachability.noteSuccess()
         }
         _ = await playlistsResult
+        // Background revalidation (#431): reconcile the local library cache
+        // against the server (delta sync via MinDateLastSaved) and stream
+        // changed/removed rows back into the arrays above. Non-blocking; the
+        // core self-guards against overlapping syncs, so the retry paths
+        // that re-enter refreshLibrary are safe.
+        startLibraryRevalidation()
         // Secondary Home shelves (#49 / #51–#55). These are NOT needed to
         // render MainShell/Home — the library page fetched above is — so they
         // must not gate first paint. Previously they were `await`ed serially

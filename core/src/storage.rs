@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::path::{Path, PathBuf};
 
-const SCHEMA_VERSION: i32 = 2;
+const SCHEMA_VERSION: i32 = 3;
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -71,6 +71,18 @@ impl Database {
             tx.execute(
                 "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
                 params![2],
+            )?;
+        }
+
+        if current < 3 {
+            // Library-cache sort keys (#431). Additive: a `sort_key` column +
+            // index on each of the three (previously unused) cache tables so
+            // the cache-first launch path can serve "first N in display
+            // order" without parsing JSON per row.
+            tx.execute_batch(include_str!("migrations/003_library_cache_sort.sql"))?;
+            tx.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                params![3],
             )?;
         }
 
@@ -144,21 +156,19 @@ impl Database {
 
     /// Clear all user-scoped data after a logout or server switch.
     ///
-    /// Truncates `track_cache`, `album_cache`, and `artist_cache`, and removes
-    /// the session-identity settings (`last_server_url`, `last_username`,
-    /// `last_server_id`, `last_user_id`) that would cause `resume_session` to
-    /// succeed on next launch.
+    /// Truncates `track_cache`, `album_cache`, and `artist_cache` (plus their
+    /// `library_last_sync_*` / `library_cache_user_id` settings — see
+    /// [`Self::clear_library_cache`]), and removes the session-identity
+    /// settings (`last_server_url`, `last_username`, `last_server_id`,
+    /// `last_user_id`) that would cause `resume_session` to succeed on next
+    /// launch.
     ///
     /// Preserves: `device_id`, `device_name`, `shuffle_enabled`,
     /// `repeat_mode`, and `schema_version` rows so the login screen
     /// remembers the endpoint and playback preferences survive sign-out.
     pub fn clear_user_data(&self) -> Result<()> {
         let conn = self.conn.lock();
-        conn.execute_batch(
-            "DELETE FROM track_cache;
-             DELETE FROM album_cache;
-             DELETE FROM artist_cache;",
-        )?;
+        Self::clear_library_cache_locked(&conn)?;
         let session_keys = [
             "last_server_url",
             "last_username",
@@ -171,6 +181,136 @@ impl Database {
                 rusqlite::params![key],
             )?;
         }
+        Ok(())
+    }
+
+    /// Truncate the three library cache tables and drop the per-user
+    /// `library_last_sync_*` checkpoint settings (#431).
+    ///
+    /// Called from [`Self::clear_user_data`] on logout, and directly when a
+    /// *different* user signs in over a session that was merely
+    /// token-forgotten (`forget_token` keeps the cache so the common
+    /// re-auth-as-the-same-user path stays warm) — cached rows must never
+    /// leak across accounts.
+    pub fn clear_library_cache(&self) -> Result<()> {
+        Self::clear_library_cache_locked(&self.conn.lock())
+    }
+
+    fn clear_library_cache_locked(conn: &Connection) -> Result<()> {
+        conn.execute_batch(
+            "DELETE FROM track_cache;
+             DELETE FROM album_cache;
+             DELETE FROM artist_cache;
+             DELETE FROM settings WHERE key LIKE 'library_last_sync_%';
+             DELETE FROM settings WHERE key = 'library_cache_user_id';",
+        )?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------------
+    // Library cache (#431).
+    //
+    // Thin CRUD over the `album_cache` / `artist_cache` / `track_cache`
+    // tables, mirroring the downloads pattern: the connection lives here, the
+    // JSON (de)serialization and sync orchestration live in
+    // `crate::library_cache`. Rows are `(id, data, sort_key, updated_at)`
+    // where `data` is the serialized model JSON and `sort_key` is the
+    // precomputed display-order key (see `library_cache::sort_key`).
+    // ------------------------------------------------------------------------
+
+    /// Upsert a batch of cache rows in one transaction, returning the ids
+    /// whose stored JSON actually changed (i.e. new rows plus rows whose
+    /// `data` differs from what was stored). Rows whose JSON is identical to
+    /// the stored copy are left untouched — `updated_at` therefore reads as
+    /// "content last changed", and the returned ids are exactly the set the
+    /// sync layer should re-emit to the UI.
+    pub fn cache_upsert(
+        &self,
+        kind: CacheKind,
+        rows: &[CacheWrite],
+        updated_at: i64,
+    ) -> Result<Vec<String>> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        let mut changed = Vec::new();
+        {
+            let table = kind.table();
+            let mut select = tx.prepare(&format!("SELECT data FROM {table} WHERE id = ?1"))?;
+            let mut upsert = tx.prepare(&format!(
+                "INSERT INTO {table} (id, data, sort_key, updated_at) VALUES (?1, ?2, ?3, ?4) \
+                 ON CONFLICT(id) DO UPDATE SET data = excluded.data, \
+                     sort_key = excluded.sort_key, updated_at = excluded.updated_at"
+            ))?;
+            for row in rows {
+                let existing: Option<String> = match select.query_row(params![row.id], |r| r.get(0))
+                {
+                    Ok(v) => Some(v),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                    Err(e) => return Err(e.into()),
+                };
+                if existing.as_deref() == Some(row.data.as_str()) {
+                    continue;
+                }
+                upsert.execute(params![row.id, row.data, row.sort_key, updated_at])?;
+                changed.push(row.id.clone());
+            }
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
+    /// First `limit` cached JSON rows in display order (`sort_key` ascending,
+    /// id as tiebreaker for stability). This is the warm-launch read path —
+    /// the `sort_key` index makes it an index walk that touches only `limit`
+    /// rows, never a full-table JSON parse.
+    pub fn cache_list(&self, kind: CacheKind, limit: u32) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT data FROM {} ORDER BY sort_key ASC, id ASC LIMIT ?1",
+            kind.table()
+        ))?;
+        let rows = stmt
+            .query_map(params![limit], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Number of rows in the given cache table. Drives the removal check in
+    /// the delta-sync path: `cached != server total` ⇒ something was deleted
+    /// server-side and a full reconcile walk is needed.
+    pub fn cache_count(&self, kind: CacheKind) -> Result<u32> {
+        let conn = self.conn.lock();
+        let count: i64 =
+            conn.query_row(&format!("SELECT COUNT(*) FROM {}", kind.table()), [], |r| {
+                r.get(0)
+            })?;
+        Ok(count.max(0) as u32)
+    }
+
+    /// Every id currently in the given cache table. Used by the full
+    /// reconcile walk to compute the removed set (cached ids minus ids seen
+    /// on the server).
+    pub fn cache_ids(&self, kind: CacheKind) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(&format!("SELECT id FROM {}", kind.table()))?;
+        let rows = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Delete the given ids from the cache table in one transaction. No-op
+    /// for ids that are already gone.
+    pub fn cache_delete_ids(&self, kind: CacheKind, ids: &[String]) -> Result<()> {
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(&format!("DELETE FROM {} WHERE id = ?1", kind.table()))?;
+            for id in ids {
+                stmt.execute(params![id])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -340,6 +480,37 @@ impl Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
+}
+
+/// Which of the three library cache tables a cache operation targets (#431).
+/// The enum (rather than a raw table-name string) keeps the SQL `format!`
+/// calls in the cache CRUD closed over a fixed set of identifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CacheKind {
+    Album,
+    Artist,
+    Track,
+}
+
+impl CacheKind {
+    fn table(self) -> &'static str {
+        match self {
+            CacheKind::Album => "album_cache",
+            CacheKind::Artist => "artist_cache",
+            CacheKind::Track => "track_cache",
+        }
+    }
+}
+
+/// One library-cache row to write: the item id, its serialized model JSON,
+/// and the precomputed display-order key. Produced by
+/// `crate::library_cache`'s serializers and consumed by
+/// [`Database::cache_upsert`].
+#[derive(Clone, Debug)]
+pub struct CacheWrite {
+    pub id: String,
+    pub data: String,
+    pub sort_key: String,
 }
 
 /// A raw row of the `downloads` table, as read from SQLite. Lives in
