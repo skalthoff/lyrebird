@@ -117,6 +117,21 @@ final class DSPTrackStreamer: NSObject {
     private var taskSuspended = false
     private var cancelled = false
 
+    /// Owner transport hint (#1048). While the transport is paused nothing
+    /// drains the decode pacing, so an open response idles until CFNetwork's
+    /// request timeout kills the task — which is not a track failure. With
+    /// this set, a task failure parks (`pendingReconnect`) instead of firing
+    /// `onStreamError`, and unpausing re-issues a ranged request from the
+    /// first byte the dead response never delivered.
+    private var transportPaused = false
+    /// A transfer died while `transportPaused`; `setTransportPaused(false)`
+    /// reconnects.
+    private var pendingReconnect = false
+    /// The in-flight response is a byte-exact continuation of a previous
+    /// one (reconnect after a paused-idle timeout) — its first bytes are
+    /// contiguous with already-parsed data, unlike a seek's.
+    private var isContinuationResponse = false
+
     /// Scheduling stays gated until the owner has rewired the node graph
     /// for this stream's format (`beginScheduling`). Scheduling a buffer
     /// whose format mismatches the node's output connection raises an
@@ -179,11 +194,13 @@ final class DSPTrackStreamer: NSObject {
                 return
             }
 
-            // Tear down the in-flight transfer + backlog.
+            // Tear down the in-flight transfer + backlog. A parked reconnect
+            // is superseded — the seek's fresh ranged request replaces it.
             self.generation &+= 1
             self.dataTask?.cancel()
             self.dataTask = nil
             self.taskSuspended = false
+            self.pendingReconnect = false
             self.packetQueue.removeAll(keepingCapacity: true)
             self.converter?.reset()
             self.converterSawEndOfStream = false
@@ -230,6 +247,24 @@ final class DSPTrackStreamer: NSObject {
         }
     }
 
+    /// Owner transport hint (#1048): while paused, a dead transfer parks for
+    /// a ranged reconnect instead of failing the track; flipping back to
+    /// unpaused performs the parked reconnect. The parsed backlog and the
+    /// node's scheduled buffers stay valid across the reconnect — only the
+    /// network transfer restarts, from exactly the next undelivered byte.
+    func setTransportPaused(_ paused: Bool) {
+        decodeQueue.async { [weak self] in
+            guard let self, !self.cancelled else { return }
+            self.transportPaused = paused
+            guard !paused, self.pendingReconnect else { return }
+            self.pendingReconnect = false
+            self.startRequest(
+                fromByte: self.responseStartByteOffset + self.receivedByteCount,
+                continuation: true
+            )
+        }
+    }
+
     /// Stop the transfer and drop all backlog. Safe to call repeatedly.
     func cancel() {
         decodeQueue.async { [weak self] in
@@ -248,7 +283,7 @@ final class DSPTrackStreamer: NSObject {
 
     // MARK: - Network
 
-    private func startRequest(fromByte byteOffset: Int64) {
+    private func startRequest(fromByte byteOffset: Int64, continuation: Bool = false) {
         if session == nil {
             let config = URLSessionConfiguration.default
             config.networkServiceType = .avStreaming
@@ -263,6 +298,7 @@ final class DSPTrackStreamer: NSObject {
         if byteOffset > 0 {
             request.setValue("bytes=\(byteOffset)-", forHTTPHeaderField: "Range")
         }
+        isContinuationResponse = continuation
         responseStartByteOffset = byteOffset
         receivedByteCount = 0
         let task = session.dataTask(with: request)
@@ -556,6 +592,15 @@ extension DSPTrackStreamer: URLSessionDataDelegate {
                 failOnDecodeQueue("Stream request failed (HTTP \(http.statusCode))")
                 return
             }
+            // A reconnect continuation only works if the server honoured the
+            // Range header — a `200 OK` body restarts at byte zero, which
+            // cannot be stitched onto the already-parsed stream. Fail the
+            // track; the owner's ordinary skip/error path takes over.
+            if isContinuationResponse, responseStartByteOffset > 0, http.statusCode != 206 {
+                completionHandler(.cancel)
+                failOnDecodeQueue("Stream reconnect failed (server ignored Range)")
+                return
+            }
             // A ranged (seek) request that came back `200 OK` means the
             // server ignored the Range header — the body restarts at byte
             // zero. Land the seek at frame 0 so position stays honest.
@@ -580,10 +625,16 @@ extension DSPTrackStreamer: URLSessionDataDelegate {
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !cancelled, dataTask === self.dataTask, let parser else { return }
-        let isFirstBytesAfterSeek = receivedByteCount == 0 && responseStartByteOffset > 0
+        // A mid-stream response start is a parse discontinuity after a seek,
+        // but NOT after a reconnect continuation — those bytes are contiguous
+        // with already-parsed data, and flagging them would make the parser
+        // flush a partial frame the previous response half-delivered.
+        let discontinuity = receivedByteCount == 0
+            && responseStartByteOffset > 0
+            && !isContinuationResponse
         receivedByteCount += Int64(data.count)
         do {
-            try parser.parse(data, discontinuity: isFirstBytesAfterSeek)
+            try parser.parse(data, discontinuity: discontinuity)
         } catch {
             failOnDecodeQueue(error.localizedDescription)
         }
@@ -596,6 +647,17 @@ extension DSPTrackStreamer: URLSessionDataDelegate {
             let nsError = error as NSError
             // Explicit cancels (seek teardown) are not failures.
             guard !(nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled) else { return }
+            // While the transport is paused nothing drains the decode pacing,
+            // so an open response idles until CFNetwork's request timeout
+            // (default 60s) kills the task. That is not a track failure —
+            // park the stream and reconnect on resume (#1048). Everything
+            // already parsed/scheduled stays valid.
+            if transportPaused {
+                pendingReconnect = true
+                taskSuspended = false
+                streamerLog.notice("DSP stream interrupted while paused; reconnecting on resume: \(nsError.localizedDescription, privacy: .public)")
+                return
+            }
             failOnDecodeQueue(nsError.localizedDescription)
             return
         }

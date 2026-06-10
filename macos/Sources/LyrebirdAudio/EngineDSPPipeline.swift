@@ -264,6 +264,21 @@ public final class EngineDSPPipeline {
     private var pendingAdoptKey: String?
     private var handoffReceipt: HandoffReceipt?
 
+    // MARK: - Deferred stream events (#1048)
+
+    /// Active-deck stream failure that arrived while paused. Surfacing it
+    /// immediately would let the owner's skip-on-error start the next track
+    /// under a paused transport; instead it parks here and `resume()`
+    /// delivers it — the skip then happens in response to an explicit
+    /// transport action.
+    private var deferredActiveStreamError: String?
+
+    /// The active deck reported fully-played-out while paused (possible via
+    /// completion storms when a node stops under a paused engine). The
+    /// finish handling — zero-fade join or the owner's queue advance, both
+    /// of which start audio — runs on `resume()` instead.
+    private var deferredActiveFinish = false
+
     // MARK: - Gain ramps
 
     private enum RampDirection {
@@ -349,9 +364,13 @@ public final class EngineDSPPipeline {
         albumKey: String? = nil
     ) {
         // Any pending handoff is dead the moment the owner loads something
-        // explicitly — the receipt must not leak into the new track.
+        // explicitly — the receipt must not leak into the new track. Same
+        // for stream events parked while paused: they belonged to the
+        // outgoing track.
         pendingAdoptKey = nil
         handoffReceipt = nil
+        deferredActiveStreamError = nil
+        deferredActiveFinish = false
         settleFadeImmediately()
         disarmNextTrack()
 
@@ -393,6 +412,7 @@ public final class EngineDSPPipeline {
     /// moment the stream's format resolves in `handleFormatReady`.
     public func play() {
         state = .playing
+        for deck in decks { deck.streamer?.setTransportPaused(false) }
         startNodeIfReady()
         resumeRetiringNodeIfNeeded()
         resumeRampTimerIfNeeded()
@@ -410,6 +430,11 @@ public final class EngineDSPPipeline {
         state = .paused
         stopPositionTimer()
         suspendRampTimer()
+        // Park the transfers (#1048): a paused consumer can't drain the
+        // decode pacing, so an open response would idle into CFNetwork's
+        // request timeout and fail the track from under the user. Parked
+        // streamers defer the failure and reconnect on resume.
+        for deck in decks { deck.streamer?.setTransportPaused(true) }
         activeDeck.player.pause()
         if let retiring = retiringDeckIndex {
             decks[retiring].player.pause()
@@ -419,11 +444,27 @@ public final class EngineDSPPipeline {
 
     public func resume() {
         guard state != .playing else { return }
+        // A failure that arrived while paused was parked instead of skipping
+        // the track from under the user (#1048). Deliver it now — the owner's
+        // skip-on-error runs in response to an explicit transport action.
+        if let message = deferredActiveStreamError {
+            deferredActiveStreamError = nil
+            deferredActiveFinish = false
+            stopPositionTimer()
+            state = .idle
+            onStreamError?(message)
+            return
+        }
         state = .playing
+        for deck in decks { deck.streamer?.setTransportPaused(false) }
         startNodeIfReady()
         resumeRetiringNodeIfNeeded()
         resumeRampTimerIfNeeded()
         startPositionTimer()
+        if deferredActiveFinish {
+            deferredActiveFinish = false
+            finishActiveTrack()
+        }
     }
 
     /// Full teardown: cancel both decks' streams, drop scheduled audio, stop
@@ -433,6 +474,8 @@ public final class EngineDSPPipeline {
         disarmNextTrack()
         pendingAdoptKey = nil
         handoffReceipt = nil
+        deferredActiveStreamError = nil
+        deferredActiveFinish = false
         pendingLoudnessGains.removeAll()
         unload(deck: activeDeck)
         stopPositionTimer()
@@ -451,6 +494,11 @@ public final class EngineDSPPipeline {
     /// the UI already shows, and two clocks can't fight over the position.
     public func seek(toSeconds seconds: Double) {
         settleFadeImmediately()
+        // A parked end-of-playback is superseded — the seek re-streams the
+        // track, so it is no longer "finished". (A parked *failure* stays:
+        // its streamer is dead, so the seek below no-ops and resume still
+        // owes the owner the error.)
+        deferredActiveFinish = false
         let deck = activeDeck
         guard let streamer = deck.streamer else { return }
         // Before the stream header has parsed there is no packet table to
@@ -840,11 +888,23 @@ public final class EngineDSPPipeline {
         }
         guard deckIndex == activeDeckIndex else { return }
 
-        // Natural end of the active track. If an armed next track is fully
-        // buffered, take the zero-fade join (the gapless transition; with
-        // crossfade on it also covers the same-album rule, short tracks, and
-        // a fade window the position never crossed) instead of bouncing
-        // through the owner's rebuild path.
+        // While paused, end-of-playback handling parks (#1048): both the
+        // zero-fade join and the owner's queue advance start audio, which
+        // must never happen under a paused transport. `resume()` re-runs it.
+        guard state != .paused else {
+            deferredActiveFinish = true
+            return
+        }
+        finishActiveTrack()
+    }
+
+    /// Natural end of the active track. If an armed next track is fully
+    /// buffered, take the zero-fade join (the gapless transition; with
+    /// crossfade on it also covers the same-album rule, short tracks, and
+    /// a fade window the position never crossed) instead of bouncing
+    /// through the owner's rebuild path. Factored from the streamer-finished
+    /// handler so `resume()` can run a finish that parked while paused.
+    private func finishActiveTrack() {
         if let armed,
            transitionArmingEnabled,
            standbyReady,
@@ -873,6 +933,15 @@ public final class EngineDSPPipeline {
             // track over a preload failure.
             pipelineLog.error("DSP crossfade prep failed, falling back to rebuild: \(message, privacy: .public)")
             disarmNextTrack()
+            return
+        }
+        // Park an active-deck failure while paused (#1048): surfacing it now
+        // would let the owner's skip-on-error start the next track under a
+        // paused transport. Network deaths already defer inside the streamer
+        // (with a ranged reconnect on resume); this guard covers decode
+        // failures — and any future failure source — the same way.
+        guard state != .paused else {
+            deferredActiveStreamError = message
             return
         }
         stopPositionTimer()
@@ -1300,5 +1369,23 @@ public final class EngineDSPPipeline {
     /// Test seam: number of loudness resolves stashed for tracks not yet
     /// loaded on a deck.
     var pendingLoudnessGainsCountForTesting: Int { pendingLoudnessGains.count }
+
+    /// Test seam: drive the active deck's streamer-failure handler directly —
+    /// the paused-transport deferral (#1048) lives in the pipeline, not the
+    /// streamer, for decode-class failures.
+    func injectActiveStreamerErrorForTesting(_ message: String) {
+        handleStreamerError(message, deckIndex: activeDeckIndex)
+    }
+
+    /// Test seam: drive the active deck's end-of-playback handler directly.
+    func injectActiveStreamerFinishedForTesting() {
+        handleStreamerFinished(deckIndex: activeDeckIndex)
+    }
+
+    /// Test seam: whether a stream event parked while paused (#1048) is
+    /// awaiting `resume()`.
+    var hasDeferredStreamEventForTesting: Bool {
+        deferredActiveStreamError != nil || deferredActiveFinish
+    }
     #endif
 }
