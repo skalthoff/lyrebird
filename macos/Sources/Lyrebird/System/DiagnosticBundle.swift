@@ -111,6 +111,7 @@ enum DiagnosticBundle {
         "general.showInMenuBar",
         "hasCompletedOnboarding",
         "libraryViewMode",
+        "playback.crossfadeCurve",
         "playback.crossfadeSeconds",
         "playback.downloadQuality",
         "playback.gaplessEnabled",

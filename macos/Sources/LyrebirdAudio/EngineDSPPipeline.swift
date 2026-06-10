@@ -9,25 +9,39 @@ private let pipelineLog = Logger(subsystem: "org.lyrebird.desktop", category: "d
 /// AVAudioEngine-based playback pipeline (#39) — the DSP foundation for the
 /// EQ (#40) and crossfade (#41) features that `AVQueuePlayer` cannot host.
 ///
-/// Node graph:
+/// Node graph (#41 dual-deck layout):
 ///
-///     AVAudioPlayerNode → AVAudioUnitEQ (10-band, flat) → mainMixerNode
+///     deck A: AVAudioPlayerNode → AVAudioMixerNode ─┐
+///                                                   ├→ blend mixer → AVAudioUnitEQ (10-band) → mainMixerNode
+///     deck B: AVAudioPlayerNode → AVAudioMixerNode ─┘
+///
+/// Exactly one deck is *active* (the current track) at any time. The second
+/// deck exists for crossfade (#41): the upcoming track is armed + buffered on
+/// it, and at the fade window each deck's per-node `AVAudioMixerNode` ramps
+/// its `outputVolume` along the configured gain envelope — outgoing down,
+/// incoming up — through the shared blend → EQ → main-mixer stage, so the EQ
+/// applies to both sides of the overlap. With crossfade off (the default)
+/// the standby deck is never loaded and both fade mixers sit at unity gain,
+/// which is audibly (float-mix at 1.0) identical to the pre-#41 single-node
+/// graph.
 ///
 /// The EQ ships **flat and bypassed** (`globalGain == 0`, every band
 /// `bypass == true`) so the engine path makes no audible DSP alteration —
-/// #40 owns the preset/slider UI that will drive real band gains through
-/// the `eq` node this class already keeps live in the graph.
+/// #40 owns the preset/slider UI that drives real band gains through the
+/// `eq` node this class keeps live in the graph.
 ///
-/// Tracks are fed by a `DSPTrackStreamer` (URLSession → AudioToolbox parse →
-/// `AVAudioConverter` decode → scheduled `AVAudioPCMBuffer`s), one per track.
+/// Tracks are fed by a `DSPTrackStreamer` per deck (URLSession → AudioToolbox
+/// parse → `AVAudioConverter` decode → scheduled `AVAudioPCMBuffer`s).
 /// `AudioEngine` owns an instance of this class only while the
 /// `engine.useAVAudioEngine` feature flag is on; with the flag off (the
 /// default) this type is never constructed.
 ///
 /// Energy contract (CLAUDE.md gap #2): the position tick runs at 1 Hz and
-/// only while playing — `pause()` both pauses the node *and* pauses the
+/// only while playing — `pause()` both pauses the nodes *and* pauses the
 /// engine's render thread, and invalidates the timer, so an idle app does
-/// zero per-second work on this path too.
+/// zero per-second work on this path too. The gain-ramp timer only exists
+/// while a fade is actually in progress (≤ 12 s per transition) and is
+/// invalidated the moment the last ramp completes.
 @MainActor
 public final class EngineDSPPipeline {
     public enum TransportState {
@@ -36,51 +50,155 @@ public final class EngineDSPPipeline {
         case paused
     }
 
+    // MARK: - Crossfade value types (#41)
+
+    /// Owner-resolved parameters for the next track, armed ahead of time so
+    /// the pipeline can buffer + fade into it without a queue lookup of its
+    /// own. `key` / `albumKey` / `mediaSourceId` / `playSessionId` are opaque
+    /// to the pipeline — they exist so the owner can match the handoff back
+    /// to its queue item and mirror its server-reporting contract.
+    public struct ArmedNextTrack {
+        public let key: String
+        public let albumKey: String?
+        public let url: URL
+        public let authHeader: String?
+        public let containerHint: String?
+        public let durationHint: Double?
+        public let mediaSourceId: String?
+        public let playSessionId: String?
+
+        public init(
+            key: String,
+            albumKey: String?,
+            url: URL,
+            authHeader: String?,
+            containerHint: String?,
+            durationHint: Double?,
+            mediaSourceId: String?,
+            playSessionId: String?
+        ) {
+            self.key = key
+            self.albumKey = albumKey
+            self.url = url
+            self.authHeader = authHeader
+            self.containerHint = containerHint
+            self.durationHint = durationHint
+            self.mediaSourceId = mediaSourceId
+            self.playSessionId = playSessionId
+        }
+    }
+
+    /// What the owner needs to keep reporting parity across a crossfade
+    /// handoff: the outgoing track's position at the moment the incoming one
+    /// became audible (its `reportPlaybackStopped` mark), plus the reporting
+    /// context the armed track's stream was resolved with.
+    public struct HandoffReceipt {
+        public let outgoingPositionSeconds: Double
+        public let mediaSourceId: String?
+        public let playSessionId: String?
+    }
+
     // MARK: - Owner callbacks
 
     /// Fired when a fully-streamed track finishes playing back — the DSP
     /// path's end-of-item signal (`AVPlayerItemDidPlayToEndTime` parity).
+    /// Not fired for a transition the crossfade handoff already announced
+    /// via `onCrossfadeBegan`.
     public var onTrackFinished: (() -> Void)?
 
     /// 1 Hz position tick, fired only while playing (never when paused or
     /// stopped). Drives `core.markPosition` parity with the AVPlayer path's
-    /// periodic time observer.
+    /// periodic time observer. Always reports the *active* deck — during a
+    /// crossfade that is the incoming track.
     public var onPositionTick: ((Double) -> Void)?
 
     /// Fired when the current track's stream dies (network failure,
     /// unsupported container, decode error). Carries a diagnostic message;
-    /// the owner decides the user-facing copy.
+    /// the owner decides the user-facing copy. A *standby* (armed next
+    /// track) stream failure never fires this — the crossfade is quietly
+    /// abandoned and the transition falls back to the rebuild path.
     public var onStreamError: ((String) -> Void)?
+
+    /// Fired the moment an armed next track becomes audible — either at the
+    /// start of a gain-ramp crossfade or at a zero-fade join on track
+    /// completion. Carries the armed track's `key`. This is the DSP path's
+    /// gapless-auto-advance signal: the owner should advance its queue and
+    /// re-route `play(track:)` into `adoptHandedOffTrack(key:)` instead of
+    /// reloading. `onTrackFinished` does NOT also fire for this transition.
+    public var onCrossfadeBegan: ((String) -> Void)?
+
+    /// Veto hook consulted immediately before an armed track takes over
+    /// (both the ramped and the zero-fade paths). Returning `false` lets the
+    /// outgoing track run to its natural end instead — the owner uses this
+    /// for "stop after current track", which must halt at the *true* end of
+    /// the track rather than `crossfadeDuration` seconds early. Re-checked
+    /// every tick, so disarming the stop mid-window re-enables the fade.
+    public var onShouldBeginCrossfade: (() -> Bool)?
+
+    // MARK: - Deck
+
+    /// One playback lane: a player node feeding a dedicated gain mixer, plus
+    /// the per-track streaming/position state that used to live directly on
+    /// the pipeline before #41 doubled it.
+    private final class Deck {
+        let player = AVAudioPlayerNode()
+        let fadeMixer = AVAudioMixerNode()
+        var streamer: DSPTrackStreamer?
+        /// Engine processing format of the loaded track; nil until the
+        /// stream header parses (and again after unload).
+        var format: AVAudioFormat?
+        /// The format the player → fadeMixer → blend chain is physically
+        /// wired with. Sticky across unloads so an identical-format reload
+        /// skips graph surgery entirely.
+        var wiredFormat: AVAudioFormat?
+        var sampleRate: Double = 44_100
+        /// Stream frame corresponding to node sample time 0 — reset by
+        /// load (0) and seek (the landing frame).
+        var baseFrame: AVAudioFramePosition = 0
+        /// Last node sample time successfully read while rendering, so the
+        /// position survives pauses.
+        var lastKnownSampleTime: AVAudioFramePosition = 0
+        /// Duration hint (seconds) from track metadata; drives the crossfade
+        /// window math. nil ⇒ no auto-crossfade for this track.
+        var durationSeconds: Double?
+        /// Opaque owner identity of the loaded track (track id).
+        var trackKey: String?
+        /// Opaque album identity — same-album transitions zero-fade (#41).
+        var albumKey: String?
+        /// Bumped per load/unload so a stale streamer's late callbacks
+        /// (format-ready, finished, error, seek) can't cross tracks.
+        var generation: Int = 0
+    }
 
     // MARK: - Node graph
 
     private let engine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
+    private let decks = [Deck(), Deck()]
+    private var activeDeckIndex = 0
+    private var activeDeck: Deck { decks[activeDeckIndex] }
+    private var standbyDeckIndex: Int { 1 - activeDeckIndex }
+
+    /// Merge point for the two decks; its output feeds the EQ so the EQ
+    /// stage applies to both sides of a crossfade overlap.
+    private let blendMixer = AVAudioMixerNode()
 
     /// The EQ stage. Flat/bypassed by default; exposed so #40's preset UI
     /// can drive band gains on the live graph.
     public let eq = AVAudioUnitEQ(numberOfBands: 10)
 
-    private var streamer: DSPTrackStreamer?
-    private var processingFormat: AVAudioFormat?
+    /// Format the shared blend → EQ → main-mixer chain is wired with.
+    /// Rewired to the incoming track's format only while no other deck is
+    /// live (rewiring under a rendering deck would glitch it); the blend
+    /// mixer sample-rate-converts any mismatched deck in the meantime.
+    private var sharedChainFormat: AVAudioFormat?
+
     private var configurationChangeObserver: NSObjectProtocol?
 
     // MARK: - Transport / position state
 
     public private(set) var state: TransportState = .idle
 
-    /// Stream frame corresponding to node sample time 0 — reset by
-    /// `load` (0) and `seek` (the landing frame). Position is
-    /// `baseFrame + playerTime.sampleTime`.
-    private var baseFrame: AVAudioFramePosition = 0
-
-    /// Last node sample time successfully read while rendering, so the
-    /// position survives pauses (when `playerTime(forNodeTime:)` goes nil).
-    private var lastKnownSampleTime: AVAudioFramePosition = 0
-
-    private var sampleRate: Double = 44_100
-
-    /// Pending volume applied to the mixer once the graph exists.
+    /// Pending volume applied to the main mixer once the graph exists.
     private var volume: Float = 1.0
 
     /// Core Audio output device UID the engine output should pin to
@@ -89,19 +207,70 @@ public final class EngineDSPPipeline {
 
     private var positionTimer: Timer?
 
-    /// Bumped per `load` so a stale streamer's late callbacks (format-ready,
-    /// finished, error) can't cross tracks.
-    private var loadGeneration: Int = 0
+    // MARK: - Crossfade state (#41)
+
+    private var crossfade = CrossfadeSettings()
+
+    /// The owner-armed upcoming track, if any. Consumed at handoff.
+    private var armed: ArmedNextTrack?
+
+    /// Key of the armed track whose stream has been started on the standby
+    /// deck; nil until the prepare window opens.
+    private var prepStartedForKey: String?
+
+    /// Whether the standby deck's stream has resolved its format and begun
+    /// scheduling — the gate for actually starting the fade.
+    private var standbyReady = false
+
+    /// Deck currently fading out (auto-crossfade or quick-switch). nil when
+    /// no fade is in flight.
+    private var retiringDeckIndex: Int?
+
+    /// Fade-in applied to the active deck's next node start (quick-switch
+    /// path: the incoming track ramps up over 250 ms).
+    private var pendingFadeInDuration: Double?
+
+    /// Set at handoff, consumed by `adoptHandedOffTrack(key:)`.
+    private var pendingAdoptKey: String?
+    private var handoffReceipt: HandoffReceipt?
+
+    // MARK: - Gain ramps
+
+    private enum RampDirection {
+        case fadeIn
+        case fadeOut
+    }
+
+    private struct GainRamp {
+        let deckIndex: Int
+        let direction: RampDirection
+        let duration: Double
+        let curve: CrossfadeSettings.Curve
+        var elapsed: Double = 0
+        var onComplete: (() -> Void)?
+    }
+
+    private var ramps: [GainRamp] = []
+    private var rampTimer: Timer?
+    private let rampInterval: TimeInterval = 1.0 / 50.0
 
     public init() {
-        engine.attach(playerNode)
+        for deck in decks {
+            engine.attach(deck.player)
+            engine.attach(deck.fadeMixer)
+            deck.fadeMixer.outputVolume = 1
+        }
+        engine.attach(blendMixer)
         engine.attach(eq)
         configureFlatEQ()
         // Initial wiring with a placeholder format so the graph is valid
-        // before the first track's real format is known; `connectGraph`
-        // rewires with the source format per track.
+        // before the first track's real format is known; the per-deck and
+        // shared chains rewire with real source formats per track.
         if let placeholder = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2) {
-            connectGraph(format: placeholder)
+            for index in decks.indices {
+                wireDeckChain(index, format: placeholder)
+            }
+            wireSharedChain(format: placeholder)
         }
         // An output-device disappearance (unplugged interface) stops the
         // engine. Restart best-effort so playback continues on the new
@@ -122,6 +291,7 @@ public final class EngineDSPPipeline {
             NotificationCenter.default.removeObserver(observer)
         }
         positionTimer?.invalidate()
+        rampTimer?.invalidate()
     }
 
     // MARK: - Loading
@@ -132,47 +302,58 @@ public final class EngineDSPPipeline {
     ///
     /// `containerHint` is the Jellyfin container string ("flac", "mp3", …)
     /// used to bias AudioToolbox's container sniffing; `durationHint` (in
-    /// seconds) backs seek estimation on streams without packet tables.
+    /// seconds) backs seek estimation on streams without packet tables and
+    /// the crossfade window math; `trackKey` / `albumKey` are the opaque
+    /// track/album identities the crossfade scheduler matches against.
+    ///
+    /// With crossfade on and audio currently rendering, the outgoing track
+    /// quick-fades out over 250 ms on its own deck while the new one loads on
+    /// the other — the issue #41 manual-skip contract (no pop). With
+    /// crossfade off this is byte-for-byte the pre-#41 hard swap.
     public func load(
         url: URL,
         authHeader: String?,
         containerHint: String? = nil,
-        durationHint: Double? = nil
+        durationHint: Double? = nil,
+        trackKey: String? = nil,
+        albumKey: String? = nil
     ) {
-        unloadCurrentTrack()
+        // Any pending handoff is dead the moment the owner loads something
+        // explicitly — the receipt must not leak into the new track.
+        pendingAdoptKey = nil
+        handoffReceipt = nil
+        settleFadeImmediately()
+        disarmNextTrack()
 
-        loadGeneration &+= 1
-        let generation = loadGeneration
+        let quickSwitch = crossfade.isEnabled
+            && state == .playing
+            && engine.isRunning
+            && activeDeck.player.isPlaying
 
-        let streamer = DSPTrackStreamer(
+        if quickSwitch {
+            beginQuickRetire(of: activeDeckIndex)
+            activeDeckIndex = 1 - activeDeckIndex
+            pendingFadeInDuration = CrossfadeSettings.quickSwitchDuration
+        } else {
+            unload(deck: activeDeck)
+            stopPositionTimer()
+            // `stop()` on the engine mirrors the pre-#41 teardown — required
+            // so a paused track's tail can't leak into the next one. Never
+            // taken on the quick-switch path, where the outgoing tail must
+            // keep rendering through its fade.
+            engine.stop()
+        }
+
+        loadTrack(
+            onDeckAt: activeDeckIndex,
             url: url,
             authHeader: authHeader,
-            playerNode: playerNode,
-            fileTypeHint: EngineDSPPipeline.fileTypeHint(forContainer: containerHint),
-            durationHintSeconds: durationHint
+            containerHint: containerHint,
+            durationHint: durationHint,
+            trackKey: trackKey,
+            albumKey: albumKey,
+            initialGain: pendingFadeInDuration == nil ? 1 : 0
         )
-        streamer.onFormatReady = { [weak self] format in
-            guard let self, generation == self.loadGeneration else { return }
-            self.handleFormatReady(format)
-        }
-        streamer.onPlaybackFinished = { [weak self] in
-            guard let self, generation == self.loadGeneration else { return }
-            self.stopPositionTimer()
-            self.state = .idle
-            self.onTrackFinished?()
-        }
-        streamer.onStreamError = { [weak self] message in
-            guard let self, generation == self.loadGeneration else { return }
-            self.stopPositionTimer()
-            self.state = .idle
-            self.onStreamError?(message)
-        }
-        streamer.onSeekCommitted = { [weak self] landedFrame in
-            guard let self, generation == self.loadGeneration else { return }
-            self.baseFrame = landedFrame
-        }
-        self.streamer = streamer
-        streamer.start()
     }
 
     // MARK: - Transport
@@ -183,17 +364,26 @@ public final class EngineDSPPipeline {
     public func play() {
         state = .playing
         startNodeIfReady()
+        resumeRetiringNodeIfNeeded()
+        resumeRampTimerIfNeeded()
         startPositionTimer()
     }
 
     public func pause() {
         guard state == .playing else { return }
-        // Snapshot the position while the render clock is still readable —
-        // `playerTime(forNodeTime:)` returns nil once the node pauses.
-        refreshLastKnownSampleTime()
+        // Snapshot positions while the render clock is still readable —
+        // `playerTime(forNodeTime:)` returns nil once a node pauses.
+        refreshLastKnownSampleTime(of: activeDeck)
+        if let retiring = retiringDeckIndex {
+            refreshLastKnownSampleTime(of: decks[retiring])
+        }
         state = .paused
         stopPositionTimer()
-        playerNode.pause()
+        suspendRampTimer()
+        activeDeck.player.pause()
+        if let retiring = retiringDeckIndex {
+            decks[retiring].player.pause()
+        }
         engine.pause()
     }
 
@@ -201,13 +391,21 @@ public final class EngineDSPPipeline {
         guard state != .playing else { return }
         state = .playing
         startNodeIfReady()
+        resumeRetiringNodeIfNeeded()
+        resumeRampTimerIfNeeded()
         startPositionTimer()
     }
 
-    /// Full teardown: cancel the stream, drop scheduled audio, stop the
-    /// engine, reset position.
+    /// Full teardown: cancel both decks' streams, drop scheduled audio, stop
+    /// the engine, reset positions, clear any armed crossfade.
     public func stop() {
-        unloadCurrentTrack()
+        settleFadeImmediately()
+        disarmNextTrack()
+        pendingAdoptKey = nil
+        handoffReceipt = nil
+        unload(deck: activeDeck)
+        stopPositionTimer()
+        engine.stop()
         state = .idle
     }
 
@@ -216,22 +414,27 @@ public final class EngineDSPPipeline {
     /// resumes from there. Position reflects the target immediately; the
     /// streamer corrects it via `onSeekCommitted` if the landing differs
     /// (estimated VBR offsets, or a server that ignored the Range header).
+    ///
+    /// A fade in flight is settled first (outgoing deck silenced, incoming
+    /// snapped to full gain) — scrubbing during an overlap targets the track
+    /// the UI already shows, and two clocks can't fight over the position.
     public func seek(toSeconds seconds: Double) {
-        guard let streamer else { return }
+        settleFadeImmediately()
+        let deck = activeDeck
+        guard let streamer = deck.streamer else { return }
         // Before the stream header has parsed there is no packet table to
         // seek within (and `sampleRate` is still the placeholder) — drop the
-        // request instead of lying about the position. The streamer would
-        // ignore it anyway; this keeps `baseFrame` honest too.
-        guard processingFormat != nil else { return }
-        let targetFrame = AVAudioFramePosition(max(0, seconds) * sampleRate)
+        // request instead of lying about the position.
+        guard deck.format != nil else { return }
+        let targetFrame = AVAudioFramePosition(max(0, seconds) * deck.sampleRate)
 
         // Generation-bump the streamer *before* stopping the node so the
         // completions fired by `stop()` can't advance stale bookkeeping.
         streamer.seek(toFrame: targetFrame)
 
-        playerNode.stop()
-        baseFrame = targetFrame
-        lastKnownSampleTime = 0
+        deck.player.stop()
+        deck.baseFrame = targetFrame
+        deck.lastKnownSampleTime = 0
 
         // Playing: restart the node so re-streamed buffers render as they
         // arrive. Paused: leave everything parked — the streamer keeps
@@ -258,60 +461,221 @@ public final class EngineDSPPipeline {
 
     // MARK: - Position
 
-    /// Current playback position in stream seconds. Reads the node's render
-    /// clock while playing; falls back to the last known position while
-    /// paused/stopped.
+    /// Current playback position in stream seconds for the *active* track.
+    /// Reads the node's render clock while playing; falls back to the last
+    /// known position while paused/stopped.
     public var positionSeconds: Double {
-        refreshLastKnownSampleTime()
-        return Double(baseFrame + lastKnownSampleTime) / sampleRate
+        position(of: activeDeck)
     }
 
-    // MARK: - Internals
-
-    private func unloadCurrentTrack() {
-        // Invalidate callbacks from the outgoing streamer before touching
-        // the node so nothing it fires mid-teardown lands on fresh state.
-        loadGeneration &+= 1
-        streamer?.cancel()
-        streamer = nil
-        stopPositionTimer()
-        // `stop()` drops every scheduled buffer — required so a paused
-        // track's tail can't leak into the next one. Safe on an attached
-        // node regardless of whether the engine is currently rendering.
-        playerNode.stop()
-        engine.stop()
-        baseFrame = 0
-        lastKnownSampleTime = 0
+    /// Opaque key of the track currently loaded on the active deck — the
+    /// owner's stale-arm guard.
+    public var currentTrackKey: String? {
+        activeDeck.trackKey
     }
 
-    private func handleFormatReady(_ format: AVAudioFormat) {
-        processingFormat = format
-        sampleRate = format.sampleRate
-        connectGraph(format: format)
-        engine.prepare()
-        // Only now may the streamer schedule decoded buffers — scheduling
-        // against a graph wired for a different format raises inside
-        // AVFoundation.
-        streamer?.beginScheduling()
-        if state == .playing {
-            startNodeIfReady()
+    // MARK: - Crossfade (#41)
+
+    /// Drive the crossfade scheduler from user settings. Safe to call at any
+    /// time; turning crossfade off mid-track disarms any pending next track
+    /// (a fade already in progress completes — it is audibly underway).
+    public func applyCrossfade(_ settings: CrossfadeSettings) {
+        crossfade = settings
+        if !settings.isEnabled {
+            disarmNextTrack()
         }
     }
 
-    private func connectGraph(format: AVAudioFormat) {
-        engine.connect(playerNode, to: eq, format: format)
-        engine.connect(eq, to: engine.mainMixerNode, format: format)
-        engine.mainMixerNode.outputVolume = volume
+    /// Whether the applied settings enable crossfade — the owner's cheap
+    /// guard before resolving an arm.
+    public var crossfadeIsEnabled: Bool {
+        crossfade.isEnabled
     }
 
-    /// Start the engine + node when both the transport intent is "playing"
-    /// and the graph has a real format. Safe to call repeatedly.
+    /// Arm the upcoming track for a crossfaded transition. Replaces any
+    /// previously armed track; the streamer doesn't start until the prepare
+    /// window opens (`CrossfadeSettings.prepareLeadSeconds` before the fade),
+    /// so arming is cheap and re-arming after queue edits costs nothing.
+    public func armNextTrack(_ next: ArmedNextTrack) {
+        guard crossfade.isEnabled else { return }
+        if let inFlight = prepStartedForKey, inFlight != next.key {
+            // The armed target changed after its stream already started —
+            // drop the stale prep so the window math re-prepares the right
+            // track.
+            cancelPrep()
+        }
+        armed = next
+    }
+
+    /// Drop the armed next track and any standby prep for it. Never touches
+    /// a deck that is mid-retirement.
+    public func disarmNextTrack() {
+        armed = nil
+        cancelPrep()
+    }
+
+    /// Hand the owner the receipt for a transition `onCrossfadeBegan`
+    /// announced, if `key` matches the track that took over. The owner calls
+    /// this from its `play(track:)` path: a non-nil receipt means the track
+    /// is *already playing* on the active deck — adopt it (mirror the
+    /// reporting swap) instead of reloading. One-shot.
+    public func adoptHandedOffTrack(key: String) -> HandoffReceipt? {
+        guard pendingAdoptKey == key, let receipt = handoffReceipt else { return nil }
+        pendingAdoptKey = nil
+        handoffReceipt = nil
+        return receipt
+    }
+
+    // MARK: - Internals: loading
+
+    private func loadTrack(
+        onDeckAt deckIndex: Int,
+        url: URL,
+        authHeader: String?,
+        containerHint: String?,
+        durationHint: Double?,
+        trackKey: String?,
+        albumKey: String?,
+        initialGain: Float
+    ) {
+        let deck = decks[deckIndex]
+        deck.generation &+= 1
+        let generation = deck.generation
+        deck.format = nil
+        deck.baseFrame = 0
+        deck.lastKnownSampleTime = 0
+        deck.durationSeconds = durationHint
+        deck.trackKey = trackKey
+        deck.albumKey = albumKey
+        deck.fadeMixer.outputVolume = initialGain
+
+        let streamer = DSPTrackStreamer(
+            url: url,
+            authHeader: authHeader,
+            playerNode: deck.player,
+            fileTypeHint: EngineDSPPipeline.fileTypeHint(forContainer: containerHint),
+            durationHintSeconds: durationHint
+        )
+        streamer.onFormatReady = { [weak self] format in
+            guard let self, generation == self.decks[deckIndex].generation else { return }
+            self.handleFormatReady(format, deckIndex: deckIndex)
+        }
+        streamer.onPlaybackFinished = { [weak self] in
+            guard let self, generation == self.decks[deckIndex].generation else { return }
+            self.handleStreamerFinished(deckIndex: deckIndex)
+        }
+        streamer.onStreamError = { [weak self] message in
+            guard let self, generation == self.decks[deckIndex].generation else { return }
+            self.handleStreamerError(message, deckIndex: deckIndex)
+        }
+        streamer.onSeekCommitted = { [weak self] landedFrame in
+            guard let self, generation == self.decks[deckIndex].generation else { return }
+            self.decks[deckIndex].baseFrame = landedFrame
+        }
+        deck.streamer = streamer
+        streamer.start()
+    }
+
+    private func unload(deck: Deck) {
+        // Invalidate callbacks from the outgoing streamer before touching
+        // the node so nothing it fires mid-teardown lands on fresh state.
+        deck.generation &+= 1
+        deck.streamer?.cancel()
+        deck.streamer = nil
+        // `stop()` drops every scheduled buffer — required so a paused
+        // track's tail can't leak into the next one. Safe on an attached
+        // node regardless of whether the engine is currently rendering.
+        deck.player.stop()
+        deck.format = nil
+        deck.baseFrame = 0
+        deck.lastKnownSampleTime = 0
+        deck.durationSeconds = nil
+        deck.trackKey = nil
+        deck.albumKey = nil
+    }
+
+    private func handleFormatReady(_ format: AVAudioFormat, deckIndex: Int) {
+        let deck = decks[deckIndex]
+        deck.format = format
+        deck.sampleRate = format.sampleRate
+        wireDeckChain(deckIndex, format: format)
+        rewireSharedChainIfQuiet(format: format, loadingDeckIndex: deckIndex)
+        if !engine.isRunning {
+            engine.prepare()
+        }
+        // Only now may the streamer schedule decoded buffers — scheduling
+        // against a graph wired for a different format raises inside
+        // AVFoundation.
+        deck.streamer?.beginScheduling()
+
+        if deckIndex == activeDeckIndex {
+            if state == .playing {
+                startNodeIfReady()
+            }
+        } else if prepStartedForKey != nil, deckIndex == standbyDeckIndex {
+            // The armed track's stream is decoding — the fade may begin.
+            standbyReady = true
+        }
+    }
+
+    // MARK: - Internals: graph wiring
+
+    /// Wire (or rewire) one deck's player → fadeMixer → blendMixer chain for
+    /// `format`. Skips entirely when the deck is already wired for an equal
+    /// format, so a same-format reload never disturbs the running graph —
+    /// and a prep load on the standby deck only touches its own subgraph,
+    /// never the rendering deck's.
+    private func wireDeckChain(_ deckIndex: Int, format: AVAudioFormat) {
+        let deck = decks[deckIndex]
+        if let wired = deck.wiredFormat, wired == format { return }
+        engine.connect(deck.player, to: deck.fadeMixer, format: format)
+        engine.connect(deck.fadeMixer, to: blendMixer, fromBus: 0, toBus: deckIndex, format: format)
+        deck.wiredFormat = format
+    }
+
+    private func wireSharedChain(format: AVAudioFormat) {
+        engine.connect(blendMixer, to: eq, format: format)
+        engine.connect(eq, to: engine.mainMixerNode, format: format)
+        engine.mainMixerNode.outputVolume = volume
+        sharedChainFormat = format
+    }
+
+    /// Rewire the shared blend → EQ → main chain to `format`, but only while
+    /// no *other* deck is live (rendering or buffering) — changing the chain
+    /// under a playing deck glitches it. When the chain can't move, the
+    /// blend mixer converts the mismatched deck's rate/channels instead, so
+    /// playback is always correct; the chain re-aligns to the source format
+    /// on the next quiet load.
+    private func rewireSharedChainIfQuiet(format: AVAudioFormat, loadingDeckIndex: Int) {
+        if let current = sharedChainFormat, current == format { return }
+        let otherIndex = 1 - loadingDeckIndex
+        guard decks[otherIndex].streamer == nil, retiringDeckIndex == nil else { return }
+        wireSharedChain(format: format)
+    }
+
+    /// Start the engine + active node when both the transport intent is
+    /// "playing" and the active deck has a real format. Safe to call
+    /// repeatedly. Consumes a pending quick-switch fade-in on first start.
     private func startNodeIfReady() {
-        guard state == .playing, processingFormat != nil else { return }
+        guard state == .playing, activeDeck.format != nil else { return }
         ensureEngineRunning()
         guard engine.isRunning else { return }
-        if !playerNode.isPlaying {
-            playerNode.play()
+        if !activeDeck.player.isPlaying {
+            if let fadeIn = pendingFadeInDuration {
+                pendingFadeInDuration = nil
+                activeDeck.fadeMixer.outputVolume = 0
+                addRamp(deckIndex: activeDeckIndex, direction: .fadeIn, duration: fadeIn)
+            }
+            activeDeck.player.play()
+        }
+    }
+
+    /// Resume the outgoing deck's tail after a pause that interrupted a fade.
+    private func resumeRetiringNodeIfNeeded() {
+        guard let retiring = retiringDeckIndex, engine.isRunning else { return }
+        let deck = decks[retiring]
+        if !deck.player.isPlaying {
+            deck.player.play()
         }
     }
 
@@ -325,12 +689,17 @@ public final class EngineDSPPipeline {
         }
     }
 
-    private func refreshLastKnownSampleTime() {
-        guard let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime),
+    private func refreshLastKnownSampleTime(of deck: Deck) {
+        guard let nodeTime = deck.player.lastRenderTime,
+              let playerTime = deck.player.playerTime(forNodeTime: nodeTime),
               playerTime.isSampleTimeValid
         else { return }
-        lastKnownSampleTime = max(0, playerTime.sampleTime)
+        deck.lastKnownSampleTime = max(0, playerTime.sampleTime)
+    }
+
+    private func position(of deck: Deck) -> Double {
+        refreshLastKnownSampleTime(of: deck)
+        return Double(deck.baseFrame + deck.lastKnownSampleTime) / deck.sampleRate
     }
 
     private func handleConfigurationChange() {
@@ -339,9 +708,11 @@ public final class EngineDSPPipeline {
         // default). If we were playing, restart on the new configuration.
         guard state == .playing else { return }
         ensureEngineRunning()
-        if engine.isRunning, !playerNode.isPlaying {
-            playerNode.play()
+        guard engine.isRunning else { return }
+        if !activeDeck.player.isPlaying {
+            activeDeck.player.play()
         }
+        resumeRetiringNodeIfNeeded()
     }
 
     private func applyOutputDevice() {
@@ -363,6 +734,334 @@ public final class EngineDSPPipeline {
         }
     }
 
+    // MARK: - Internals: streamer events
+
+    private func handleStreamerFinished(deckIndex: Int) {
+        if deckIndex == retiringDeckIndex {
+            // The outgoing track drained mid-fade — its deck is silent now;
+            // finish the retirement early. The incoming ramp keeps running.
+            finishRetiringDeck()
+            return
+        }
+        guard deckIndex == activeDeckIndex else { return }
+
+        // Natural end of the active track. If an armed next track is fully
+        // buffered, take the zero-fade join (same-album rule, short tracks,
+        // or a fade window the position never crossed) instead of bouncing
+        // through the owner's rebuild path.
+        if let armed,
+           crossfade.isEnabled,
+           standbyReady,
+           prepStartedForKey == armed.key,
+           onShouldBeginCrossfade?() ?? true {
+            performZeroFadeHandoff(of: armed)
+            return
+        }
+
+        stopPositionTimer()
+        state = .idle
+        onTrackFinished?()
+    }
+
+    private func handleStreamerError(_ message: String, deckIndex: Int) {
+        if deckIndex == retiringDeckIndex {
+            // The outgoing tail died during its fade — it was ending anyway.
+            finishRetiringDeck()
+            return
+        }
+        if deckIndex != activeDeckIndex {
+            // The *armed* track's prep stream failed. Quietly abandon the
+            // crossfade — the transition falls back to the owner's rebuild
+            // path at track end, which surfaces its own error if the track
+            // is genuinely unreachable. Never skip the currently-playing
+            // track over a preload failure.
+            pipelineLog.error("DSP crossfade prep failed, falling back to rebuild: \(message, privacy: .public)")
+            disarmNextTrack()
+            return
+        }
+        stopPositionTimer()
+        state = .idle
+        onStreamError?(message)
+    }
+
+    // MARK: - Internals: crossfade scheduling
+
+    /// Driven by the 1 Hz position tick (playing only — the energy
+    /// contract's existing cadence; no new timers while idle).
+    private func evaluateCrossfadeWindow() {
+        guard state == .playing,
+              retiringDeckIndex == nil,
+              let armed,
+              crossfade.isEnabled,
+              let duration = activeDeck.durationSeconds, duration > 0
+        else { return }
+
+        let sameAlbum = armed.albumKey != nil && armed.albumKey == activeDeck.albumKey
+        let fadeDuration = CrossfadeSettings.effectiveFadeDuration(
+            configured: crossfade.durationSeconds,
+            trackDurationSeconds: duration,
+            sameAlbum: sameAlbum
+        )
+        let remaining = duration - position(of: activeDeck)
+
+        switch CrossfadeSettings.tickAction(
+            remainingSeconds: remaining,
+            fadeDuration: fadeDuration,
+            prepStarted: prepStartedForKey == armed.key,
+            standbyReady: standbyReady
+        ) {
+        case .none:
+            break
+        case .prepare:
+            beginPrep(of: armed)
+        case .beginFade:
+            guard onShouldBeginCrossfade?() ?? true else { return }
+            // Late starts (slow prep, seek into the window) shorten the
+            // fade to what's actually left so the ramp never outlives the
+            // outgoing audio by more than the scheduling slack.
+            let usable = min(fadeDuration, max(remaining, CrossfadeSettings.quickSwitchDuration))
+            beginAutoCrossfade(of: armed, fadeDuration: usable)
+        }
+    }
+
+    /// Start buffering the armed track on the standby deck. No audio yet —
+    /// the node stays stopped and the deck's fade mixer is parked at 0.
+    private func beginPrep(of armed: ArmedNextTrack) {
+        let deckIndex = standbyDeckIndex
+        unload(deck: decks[deckIndex])
+        prepStartedForKey = armed.key
+        standbyReady = false
+        loadTrack(
+            onDeckAt: deckIndex,
+            url: armed.url,
+            authHeader: armed.authHeader,
+            containerHint: armed.containerHint,
+            durationHint: armed.durationHint,
+            trackKey: armed.key,
+            albumKey: armed.albumKey,
+            initialGain: 0
+        )
+    }
+
+    private func cancelPrep() {
+        guard prepStartedForKey != nil else { return }
+        prepStartedForKey = nil
+        standbyReady = false
+        let deckIndex = standbyDeckIndex
+        guard deckIndex != retiringDeckIndex else { return }
+        unload(deck: decks[deckIndex])
+    }
+
+    /// The ramped overlap: swap the active deck to the armed track, start
+    /// its node at gain 0, and run both envelopes. `onCrossfadeBegan` fires
+    /// after audio starts so the owner's queue advance observes a track
+    /// that is genuinely audible.
+    private func beginAutoCrossfade(of armed: ArmedNextTrack, fadeDuration: Double) {
+        let outgoingIndex = activeDeckIndex
+        let incomingIndex = standbyDeckIndex
+        let incoming = decks[incomingIndex]
+        guard incoming.format != nil else { return }
+        ensureEngineRunning()
+        guard engine.isRunning else { return }
+
+        handoffReceipt = HandoffReceipt(
+            outgoingPositionSeconds: position(of: decks[outgoingIndex]),
+            mediaSourceId: armed.mediaSourceId,
+            playSessionId: armed.playSessionId
+        )
+        pendingAdoptKey = armed.key
+        let key = armed.key
+        self.armed = nil
+        prepStartedForKey = nil
+        standbyReady = false
+
+        retiringDeckIndex = outgoingIndex
+        activeDeckIndex = incomingIndex
+        incoming.fadeMixer.outputVolume = 0
+        incoming.player.play()
+        addRamp(deckIndex: incomingIndex, direction: .fadeIn, duration: fadeDuration)
+        addRamp(deckIndex: outgoingIndex, direction: .fadeOut, duration: fadeDuration) { [weak self] in
+            self?.finishRetiringDeck()
+        }
+        pipelineLog.info("crossfade began: \(fadeDuration, privacy: .public)s overlap")
+        onCrossfadeBegan?(key)
+    }
+
+    /// The zero-fade join: the outgoing track has fully played out, and the
+    /// armed one starts immediately at full gain — the issue's same-album /
+    /// short-track gapless contract.
+    private func performZeroFadeHandoff(of armed: ArmedNextTrack) {
+        let outgoingIndex = activeDeckIndex
+        let incomingIndex = standbyDeckIndex
+        let incoming = decks[incomingIndex]
+        ensureEngineRunning()
+        guard engine.isRunning, incoming.format != nil else {
+            // Can't take over — degrade to the plain finish so the owner
+            // rebuilds the next track the ordinary way.
+            disarmNextTrack()
+            stopPositionTimer()
+            state = .idle
+            onTrackFinished?()
+            return
+        }
+
+        handoffReceipt = HandoffReceipt(
+            outgoingPositionSeconds: position(of: decks[outgoingIndex]),
+            mediaSourceId: armed.mediaSourceId,
+            playSessionId: armed.playSessionId
+        )
+        pendingAdoptKey = armed.key
+        let key = armed.key
+        self.armed = nil
+        prepStartedForKey = nil
+        standbyReady = false
+
+        activeDeckIndex = incomingIndex
+        incoming.fadeMixer.outputVolume = 1
+        incoming.player.play()
+
+        let outgoing = decks[outgoingIndex]
+        unload(deck: outgoing)
+        outgoing.fadeMixer.outputVolume = 1
+        pipelineLog.info("zero-fade handoff")
+        onCrossfadeBegan?(key)
+    }
+
+    /// Quick-switch retirement (manual skip while crossfade is on): the
+    /// outgoing deck keeps rendering its already-scheduled audio through a
+    /// 250 ms fade-out, then stops. Its streamer is cancelled immediately —
+    /// the node holds several seconds of scheduled buffers, far more than
+    /// the fade needs.
+    private func beginQuickRetire(of deckIndex: Int) {
+        let deck = decks[deckIndex]
+        deck.generation &+= 1
+        deck.streamer?.cancel()
+        deck.streamer = nil
+        retiringDeckIndex = deckIndex
+        addRamp(
+            deckIndex: deckIndex,
+            direction: .fadeOut,
+            duration: CrossfadeSettings.quickSwitchDuration
+        ) { [weak self] in
+            self?.finishRetiringDeck()
+        }
+    }
+
+    /// Stop + reset the retiring deck once its fade-out (or its own stream
+    /// completion) finishes. Idempotent.
+    private func finishRetiringDeck() {
+        guard let retiring = retiringDeckIndex else { return }
+        retiringDeckIndex = nil
+        ramps.removeAll { $0.deckIndex == retiring }
+        let deck = decks[retiring]
+        unload(deck: deck)
+        deck.fadeMixer.outputVolume = 1
+        if ramps.isEmpty {
+            stopRampTimer()
+        }
+    }
+
+    /// Hard-finish any fade in flight: outgoing deck silenced + unloaded,
+    /// active deck snapped to full gain. Used by seek/stop/load, where a
+    /// half-faded state has no meaning.
+    private func settleFadeImmediately() {
+        if let retiring = retiringDeckIndex {
+            retiringDeckIndex = nil
+            let deck = decks[retiring]
+            unload(deck: deck)
+            deck.fadeMixer.outputVolume = 1
+        }
+        ramps.removeAll()
+        stopRampTimer()
+        pendingFadeInDuration = nil
+        activeDeck.fadeMixer.outputVolume = 1
+    }
+
+    // MARK: - Internals: gain ramps
+
+    /// Install a gain envelope on a deck's fade mixer. Replaces any ramp
+    /// already running on that deck. The 50 Hz ramp timer exists only while
+    /// at least one ramp is active.
+    private func addRamp(
+        deckIndex: Int,
+        direction: RampDirection,
+        duration: Double,
+        onComplete: (() -> Void)? = nil
+    ) {
+        ramps.removeAll { $0.deckIndex == deckIndex }
+        guard duration > 0 else {
+            decks[deckIndex].fadeMixer.outputVolume = direction == .fadeIn ? 1 : 0
+            onComplete?()
+            return
+        }
+        ramps.append(GainRamp(
+            deckIndex: deckIndex,
+            direction: direction,
+            duration: duration,
+            curve: crossfade.curve,
+            onComplete: onComplete
+        ))
+        startRampTimerIfNeeded()
+    }
+
+    private func startRampTimerIfNeeded() {
+        guard rampTimer == nil, !ramps.isEmpty else { return }
+        let timer = Timer(timeInterval: rampInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.rampTick()
+            }
+        }
+        timer.tolerance = rampInterval / 4
+        RunLoop.main.add(timer, forMode: .common)
+        rampTimer = timer
+    }
+
+    private func suspendRampTimer() {
+        rampTimer?.invalidate()
+        rampTimer = nil
+    }
+
+    private func resumeRampTimerIfNeeded() {
+        startRampTimerIfNeeded()
+    }
+
+    private func stopRampTimer() {
+        rampTimer?.invalidate()
+        rampTimer = nil
+    }
+
+    private func rampTick() {
+        guard state == .playing else { return }
+        guard !ramps.isEmpty else {
+            stopRampTimer()
+            return
+        }
+        var remaining: [GainRamp] = []
+        var completions: [() -> Void] = []
+        for var ramp in ramps {
+            ramp.elapsed += rampInterval
+            let progress = min(1, ramp.elapsed / ramp.duration)
+            let gain: Float = ramp.direction == .fadeIn
+                ? CrossfadeSettings.fadeInGain(progress: progress, curve: ramp.curve)
+                : CrossfadeSettings.fadeOutGain(progress: progress, curve: ramp.curve)
+            decks[ramp.deckIndex].fadeMixer.outputVolume = gain
+            if progress >= 1 {
+                if let onComplete = ramp.onComplete {
+                    completions.append(onComplete)
+                }
+            } else {
+                remaining.append(ramp)
+            }
+        }
+        ramps = remaining
+        if ramps.isEmpty {
+            stopRampTimer()
+        }
+        for completion in completions {
+            completion()
+        }
+    }
+
     // MARK: - Position timer (1 Hz, playing only)
 
     private func startPositionTimer() {
@@ -373,8 +1072,9 @@ public final class EngineDSPPipeline {
                 // Skip the tick when nothing is actually rendering yet
                 // (stream still buffering) — matches the AVPlayer observer's
                 // rate != 0 guard.
-                guard self.engine.isRunning, self.playerNode.isPlaying else { return }
+                guard self.engine.isRunning, self.activeDeck.player.isPlaying else { return }
                 self.onPositionTick?(self.positionSeconds)
+                self.evaluateCrossfadeWindow()
             }
         }
         timer.tolerance = 0.2
@@ -441,20 +1141,51 @@ public final class EngineDSPPipeline {
     }
 
     #if DEBUG
-    /// Test seam: whether the EQ node is attached to this pipeline's engine
-    /// and wired between the player node and the main mixer.
+    /// Test seam: whether the active deck's chain reaches the main mixer
+    /// through its fade mixer, the blend mixer, and the EQ — the #41 dual-
+    /// deck topology with the EQ stage shared by both decks.
     var isEQWiredForTesting: Bool {
-        guard eq.engine === engine, playerNode.engine === engine else { return false }
-        let playerFeedsEQ = engine.outputConnectionPoints(for: playerNode, outputBus: 0)
+        guard eq.engine === engine, activeDeck.player.engine === engine else { return false }
+        let playerFeedsFade = engine.outputConnectionPoints(for: activeDeck.player, outputBus: 0)
+            .contains { $0.node === activeDeck.fadeMixer }
+        let fadeFeedsBlend = engine.outputConnectionPoints(for: activeDeck.fadeMixer, outputBus: 0)
+            .contains { $0.node === blendMixer }
+        let blendFeedsEQ = engine.outputConnectionPoints(for: blendMixer, outputBus: 0)
             .contains { $0.node === eq }
         let eqFeedsMixer = engine.outputConnectionPoints(for: eq, outputBus: 0)
             .contains { $0.node === engine.mainMixerNode }
-        return playerFeedsEQ && eqFeedsMixer
+        return playerFeedsFade && fadeFeedsBlend && blendFeedsEQ && eqFeedsMixer
     }
 
     /// Test seam: the EQ must be audibly inert until #40 ships controls.
     var isEQFlatForTesting: Bool {
         eq.globalGain == 0 && eq.bands.allSatisfy { $0.bypass && $0.gain == 0 }
     }
+
+    /// Test seam: both decks must feed the blend mixer through their own
+    /// fade mixers (the #41 per-node gain stages), each parked at unity.
+    var areBothDecksWiredForTesting: Bool {
+        decks.allSatisfy { deck in
+            let playerFeedsFade = engine.outputConnectionPoints(for: deck.player, outputBus: 0)
+                .contains { $0.node === deck.fadeMixer }
+            let fadeFeedsBlend = engine.outputConnectionPoints(for: deck.fadeMixer, outputBus: 0)
+                .contains { $0.node === blendMixer }
+            return playerFeedsFade && fadeFeedsBlend
+        }
+    }
+
+    /// Test seam: per-deck fade-mixer gains, deck order (A, B).
+    var fadeMixerGainsForTesting: [Float] {
+        decks.map { $0.fadeMixer.outputVolume }
+    }
+
+    /// Test seam: index of the deck the transport currently drives.
+    var activeDeckIndexForTesting: Int { activeDeckIndex }
+
+    /// Test seam: the armed next track's key, if any.
+    var armedTrackKeyForTesting: String? { armed?.key }
+
+    /// Test seam: whether a fade (auto or quick-switch) is in flight.
+    var isFadeInFlightForTesting: Bool { retiringDeckIndex != nil }
     #endif
 }
