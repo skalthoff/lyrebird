@@ -1425,6 +1425,17 @@ extension AppModel: AudioEngineDelegate {
         errorMessage = Self.stallRetryingMessage
     }
 
+    /// Clear `errorMessage` only if it still shows `message`. The error
+    /// toast's auto-dismiss timer calls this with the message it was armed
+    /// for, so a timer that fires just as a *newer* error lands can't wipe
+    /// the replacement before its own display window — the unconditional
+    /// nil-write raced exactly that interleaving.
+    func dismissError(ifStillShowing message: String) {
+        if errorMessage == message {
+            errorMessage = nil
+        }
+    }
+
     func audioEngineDidFail(_ message: String) {
         errorMessage = message
     }

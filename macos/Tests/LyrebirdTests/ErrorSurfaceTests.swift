@@ -54,4 +54,20 @@ final class ErrorSurfaceTests: XCTestCase {
         model.audioEngineDidEncounterTransientError("Connection lost — skipping")
         XCTAssertEqual(model.errorMessage, "Connection lost — skipping")
     }
+
+    func testStaleAutoDismissCannotClearNewerError() throws {
+        let model = try AppModel()
+        model.errorMessage = "New error"
+        // A timer armed for the previous message fires late: it must not
+        // wipe the newer message's display window.
+        model.dismissError(ifStillShowing: "Old error")
+        XCTAssertEqual(model.errorMessage, "New error")
+    }
+
+    func testMatchingAutoDismissClearsError() throws {
+        let model = try AppModel()
+        model.errorMessage = "Same error"
+        model.dismissError(ifStillShowing: "Same error")
+        XCTAssertNil(model.errorMessage)
+    }
 }

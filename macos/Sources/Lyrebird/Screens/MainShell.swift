@@ -209,7 +209,10 @@ struct MainShell: View {
         // (see `ErrorToast`); the close button clears it immediately.
         .overlay(alignment: .topTrailing) {
             if let message = model.errorMessage {
-                ErrorToast(message: message) { model.errorMessage = nil }
+                // Identity-conditional dismissal: the toast hands back the
+                // message it was armed for, so an auto-dismiss firing right
+                // as a newer error replaces it can't clear the newcomer.
+                ErrorToast(message: message) { model.dismissError(ifStillShowing: message) }
                     .padding(.top, 12)
                     .padding(.trailing, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
