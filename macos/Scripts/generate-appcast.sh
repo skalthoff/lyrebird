@@ -195,7 +195,7 @@ fi
   --download-url-prefix "$DOWNLOAD_URL_PREFIX/" \
   --link "https://skalthoff.github.io/lyrebird-desktop/" \
   --maximum-deltas "$DELTA_MAX" \
-  "${CHANNEL_ARGS[@]}" \
+  ${CHANNEL_ARGS[@]+"${CHANNEL_ARGS[@]}"} \
   -o "$DOCS/appcast.xml" \
   "$DMG_DIR"
 
