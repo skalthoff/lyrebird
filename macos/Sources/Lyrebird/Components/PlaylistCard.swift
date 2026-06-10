@@ -45,6 +45,21 @@ struct PlaylistCard: View {
                     .offset(y: reduceMotion ? 0 : (isHovering ? 0 : 8))
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHovering)
                     .accessibilityLabel("Play \(playlist.name)")
+
+                    // Private lock — top-leading corner badge, matches the
+                    // sidebar row treatment. Hidden while the play button is
+                    // visible so the two overlays don't compete for space.
+                    if !playlist.isPublic {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(5)
+                            .background(Circle().fill(.black.opacity(0.45)))
+                            .padding(6)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .opacity(isHovering ? 0 : 1)
+                            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -76,7 +91,9 @@ struct PlaylistCard: View {
         .focusable(true)
         .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(playlist.name), \(subtitle)")
+        .accessibilityLabel(playlist.isPublic
+            ? "\(playlist.name), \(subtitle)"
+            : "\(playlist.name), \(subtitle), Private")
         .accessibilityHint("Opens playlist detail")
         .accessibilityAddTraits(.isButton)
     }

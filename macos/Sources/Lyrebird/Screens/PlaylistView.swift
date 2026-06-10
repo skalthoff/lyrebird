@@ -253,6 +253,9 @@ struct PlaylistView: View {
 
                     editableDescription(playlist: playlist)
 
+                    visibilityBadge(playlist: playlist)
+                        .padding(.top, 4)
+
                     HStack(spacing: 28) {
                         stat(value: "\(playlist.trackCount)", label: "Tracks")
                         stat(value: formatMinutes(playlist.runtimeTicks), label: "Minutes")
@@ -342,6 +345,43 @@ struct PlaylistView: View {
                 .lineLimit(4)
                 .accessibilityLabel(description)
         }
+    }
+
+    // MARK: - Visibility badge
+
+    /// Globe (public) or lock (private) pill shown below the playlist title/
+    /// description in the hero. Tapping the pill cycles visibility the same
+    /// way the context-menu items do, so the hero is self-contained for the
+    /// common "I just created a private playlist and want to verify its
+    /// status" workflow.
+    @ViewBuilder
+    private func visibilityBadge(playlist: Playlist) -> some View {
+        Button {
+            model.setPlaylistVisibility(
+                playlist: playlist,
+                isPublic: !playlist.isPublic
+            )
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: playlist.isPublic ? "globe" : "lock.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(playlist.isPublic ? "Public" : "Private")
+                    .font(Theme.font(11, weight: .semibold))
+            }
+            .foregroundStyle(Theme.ink3)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule().fill(Theme.ink.opacity(0.07))
+            )
+        }
+        .buttonStyle(.plain)
+        .help(playlist.isPublic
+            ? "Public — visible to all server users. Click to make private."
+            : "Private — only visible to you. Click to make public.")
+        .accessibilityLabel(playlist.isPublic
+            ? "Public playlist. Activate to make private."
+            : "Private playlist. Activate to make public.")
     }
 
     // MARK: - Stat cell

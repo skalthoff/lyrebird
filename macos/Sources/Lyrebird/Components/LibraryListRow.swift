@@ -79,6 +79,14 @@ struct LibraryListRow: View {
                         .monospacedDigit()
                 }
 
+                // Private lock badge — only for playlist rows whose visibility
+                // is restricted. Mirrors the sidebar row treatment.
+                if case .playlist(let p) = payload, !p.isPublic {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Theme.ink3)
+                }
+
                 Text(countMeta)
                     .font(Theme.font(12, weight: .medium))
                     .foregroundStyle(Theme.ink3)
@@ -116,7 +124,13 @@ struct LibraryListRow: View {
 
     private var accessibilityLabel: String {
         let subtitle = secondaryText.isEmpty ? "" : ", \(secondaryText)"
-        return "\(primaryText)\(subtitle)"
+        let privacySuffix: String
+        if case .playlist(let p) = payload, !p.isPublic {
+            privacySuffix = ", Private"
+        } else {
+            privacySuffix = ""
+        }
+        return "\(primaryText)\(subtitle)\(privacySuffix)"
     }
 
     private var accessibilityHint: String {
