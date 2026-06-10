@@ -50,6 +50,11 @@ struct LyrebirdApp: App {
 
     init() {
         FontRegistration.register()
+        // Opt-in crash reporting (#442). Reads UserDefaults for the opt-in
+        // toggle and the DSN from Info.plist / a dev override; no-ops if
+        // either is absent. Called before model construction so any panic
+        // during core init is captured.
+        CrashReporter.start()
         // Load runtime feature flags from flags.json before constructing the
         // model so flag values are readable immediately.
         Task { @MainActor in FeatureFlags.shared.loadFromDisk() }

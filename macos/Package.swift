@@ -22,6 +22,10 @@ let package = Package(
         // Feed URL + public key live in Info.plist; the release workflow
         // substitutes the public key at build time. See #183/#184/#188.
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        // Sentry crash reporter. Opt-in only; initialized at startup behind a
+        // UserDefaults gate + DSN presence check. DSN is never committed —
+        // inject via Info.plist key `LyrebirdSentryDSN` at build time. See #442.
+        .package(url: "https://github.com/getsentry/sentry-cocoa", from: "8.40.0"),
     ],
     targets: [
         .binaryTarget(
@@ -46,6 +50,7 @@ let package = Package(
                 .product(name: "Nuke", package: "Nuke"),
                 .product(name: "NukeUI", package: "Nuke"),
                 .product(name: "Sparkle", package: "Sparkle"),
+                .product(name: "Sentry", package: "sentry-cocoa"),
             ],
             path: "Sources/Lyrebird",
             // Resources are NOT processed by SwiftPM. SwiftPM's generated
@@ -90,7 +95,11 @@ let package = Package(
         // SwiftUI scene graph. See `Tests/LyrebirdTests`.
         .testTarget(
             name: "LyrebirdTests",
-            dependencies: ["Lyrebird", "LyrebirdAudio"],
+            dependencies: [
+                "Lyrebird",
+                "LyrebirdAudio",
+                .product(name: "Sentry", package: "sentry-cocoa"),
+            ],
             path: "Tests/LyrebirdTests"
         ),
     ],

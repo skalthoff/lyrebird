@@ -112,5 +112,18 @@
     <true/>
     <key>SUScheduledCheckInterval</key>
     <integer>86400</integer>
+
+    <!--
+        Sentry crash reporting DSN (#442). This key is intentionally EMPTY
+        in the repository — it must never contain a real DSN. The release
+        workflow substitutes the real value at build time via:
+            plutil -replace LyrebirdSentryDSN -string "$SENTRY_DSN" Info.plist
+        When absent or empty, CrashReporter.isAvailable returns false and
+        Sentry is a guaranteed no-op even if the user toggles the preference.
+        Developers can set a local override via:
+            defaults write org.lyrebird.desktop sentry.dsnOverride "https://…@…"
+    -->
+    <key>LyrebirdSentryDSN</key>
+    <string></string>
 </dict>
 </plist>
