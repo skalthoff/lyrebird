@@ -177,15 +177,75 @@ final class EngineDSPPipelineTests: XCTestCase {
 
     // MARK: - Node graph
 
-    /// The EQ node must be live in the graph (player → EQ → main mixer) and
+    /// The EQ node must be live in the graph (deck players → fade mixers →
+    /// blend mixer → EQ → main mixer, the #41 dual-deck layout) and
     /// flat/bypassed — #39 ships the mounting point, #40 ships the controls.
     func testPipelineGraphKeepsFlatEQBetweenPlayerAndMixer() {
         let pipeline = EngineDSPPipeline()
-        XCTAssertTrue(pipeline.isEQWiredForTesting, "AVAudioUnitEQ must sit between the player node and the mixer")
+        XCTAssertTrue(pipeline.isEQWiredForTesting, "AVAudioUnitEQ must sit between the active deck and the mixer")
         XCTAssertTrue(pipeline.isEQFlatForTesting, "EQ must ship flat/bypassed until #40 lands controls")
         XCTAssertEqual(pipeline.eq.bands.count, 10)
         XCTAssertEqual(pipeline.state, .idle)
         XCTAssertEqual(pipeline.positionSeconds, 0, accuracy: 0.0001)
+    }
+
+    /// #41 graph contract: both decks reach the blend mixer through their
+    /// own per-node gain mixers, and with crossfade off both gain stages sit
+    /// at unity (a 1.0 float mix is audibly identical to the pre-#41 single-
+    /// node graph).
+    func testDualDeckGraphShipsAtUnityGain() {
+        let pipeline = EngineDSPPipeline()
+        XCTAssertTrue(pipeline.areBothDecksWiredForTesting, "both decks must feed the blend mixer via their fade mixers")
+        XCTAssertEqual(pipeline.fadeMixerGainsForTesting, [1, 1], "fade mixers must ship at unity gain")
+        XCTAssertEqual(pipeline.activeDeckIndexForTesting, 0)
+        XCTAssertFalse(pipeline.isFadeInFlightForTesting)
+        XCTAssertNil(pipeline.armedTrackKeyForTesting)
+    }
+
+    /// Crossfade off (the default) must ignore arming entirely — the standby
+    /// deck stays cold and the scheduler never sees a next track, preserving
+    /// the pre-#41 transition behaviour byte-for-byte.
+    func testArmIsIgnoredWhileCrossfadeDisabled() {
+        let pipeline = EngineDSPPipeline()
+        XCTAssertFalse(pipeline.crossfadeIsEnabled, "crossfade ships off")
+        pipeline.armNextTrack(EngineDSPPipeline.ArmedNextTrack(
+            key: "next",
+            albumKey: nil,
+            url: URL(fileURLWithPath: "/dev/null"),
+            authHeader: nil,
+            containerHint: nil,
+            durationHint: 180,
+            mediaSourceId: nil,
+            playSessionId: nil
+        ))
+        XCTAssertNil(pipeline.armedTrackKeyForTesting, "arming must be a no-op while crossfade is off")
+        XCTAssertNil(pipeline.adoptHandedOffTrack(key: "next"), "no handoff may ever be pending while off")
+    }
+
+    /// With crossfade on, arming records the next track; turning the setting
+    /// off again disarms it (a pending overlap must not fire after the user
+    /// disabled the feature); and the adopt receipt stays nil until a real
+    /// handoff happens.
+    func testArmAndDisarmFollowSettings() {
+        let pipeline = EngineDSPPipeline()
+        pipeline.applyCrossfade(CrossfadeSettings(durationSeconds: 4, curve: .equalPower))
+        XCTAssertTrue(pipeline.crossfadeIsEnabled)
+
+        pipeline.armNextTrack(EngineDSPPipeline.ArmedNextTrack(
+            key: "next",
+            albumKey: "album",
+            url: URL(fileURLWithPath: "/dev/null"),
+            authHeader: nil,
+            containerHint: nil,
+            durationHint: 180,
+            mediaSourceId: "ms",
+            playSessionId: "ps"
+        ))
+        XCTAssertEqual(pipeline.armedTrackKeyForTesting, "next")
+        XCTAssertNil(pipeline.adoptHandedOffTrack(key: "next"), "no receipt before a handoff")
+
+        pipeline.applyCrossfade(CrossfadeSettings(durationSeconds: 0))
+        XCTAssertNil(pipeline.armedTrackKeyForTesting, "disabling crossfade must disarm the pending track")
     }
 
     /// Jellyfin container strings map onto AudioToolbox sniffing hints;

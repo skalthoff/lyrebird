@@ -1,3 +1,4 @@
+import LyrebirdAudio
 import SwiftUI
 
 /// Playback preferences pane.
@@ -9,15 +10,17 @@ import SwiftUI
 /// which is their canonical home; the duplicates were removed here so each
 /// setting has exactly one editing surface.
 ///
-/// What's live vs. coming soon:
+/// What's live:
 /// - **Gapless** and **Stop after current track** are wired into the engine /
 ///   queue (`AppModel.armNextTrackPreload` reads `gaplessEnabled`;
 ///   `handleTrackEnded` consumes `stopAfterCurrent`).
 /// - **Normalization** and **Pre-gain** route through `AppModel.setNormalization`
 ///   onto the live ReplayGain path (#42).
-/// - **Crossfade** has no engine support yet (no overlapping-playback path in
-///   `AudioEngine`), so its slider is gated behind `supportsCrossfade` and
-///   shown disabled rather than persisting a value nothing honours.
+/// - **Crossfade** (#41) rides the AVAudioEngine DSP pipeline's dual decks,
+///   so its slider + curve picker gate on `supportsCrossfade` — live only
+///   while the DSP engine (#39, opted into via the Equalizer pane) is
+///   routing playback this session. The value persists either way and is
+///   honoured as soon as the engine path is active.
 ///
 /// Design: matches the native Preferences aesthetic inside the Lyrebird shell.
 /// Sections sit on `Theme.surface` with `Theme.border` outlines; labels use
@@ -27,26 +30,63 @@ import SwiftUI
 ///
 /// Preference keys (user-facing `@AppStorage`):
 /// - `playback.crossfadeSeconds`     — `Double` (0 = off, 1…12)
+/// - `playback.crossfadeCurve`       — `CrossfadeSettings.Curve` raw value
 /// - `playback.gaplessEnabled`       — `Bool` (default true)
 /// - `playback.normalization`        — `NormalizationMode`
 /// - `playback.preGainDb`            — `Double` (±12)
 /// - `playback.stopAfterCurrent`     — `Bool`
 ///
-/// Spec: `research/03-ux-patterns.md` Issue 68 and GitHub issues #260 / #116.
+/// Spec: `research/03-ux-patterns.md` Issue 68 and GitHub issues #260 / #116 / #41.
 struct PreferencesPlayback: View {
     @Environment(AppModel.self) private var model
 
-    // #116 gap-fill knobs. Gapless / stop-after-current / normalization /
-    // pre-gain are wired; crossfade is gated behind `model.supportsCrossfade`
-    // until the engine grows an overlapping-playback path. Raw types are
-    // chosen so the key names survive any later enum/struct refactor — a
-    // Double for the slider is portable and the Bool toggles are the obvious
-    // shape.
+    // #116 gap-fill knobs. Raw types are chosen so the key names survive any
+    // later enum/struct refactor — a Double for the slider is portable and
+    // the Bool toggles are the obvious shape. The crossfade key literals
+    // match `CrossfadeSettings.DefaultsKey` (#41), which is how the engine
+    // reads them back.
     @AppStorage("playback.crossfadeSeconds") private var crossfadeSeconds: Double = 0
+    @AppStorage("playback.crossfadeCurve") private var crossfadeCurveRaw: String = CrossfadeSettings.Curve.equalPower.rawValue
     @AppStorage("playback.gaplessEnabled") private var gaplessEnabled: Bool = true
     @AppStorage("playback.normalization") private var normalizationRaw: String = NormalizationMode.off.rawValue
     @AppStorage("playback.preGainDb") private var preGainDb: Double = 0
     @AppStorage("playback.stopAfterCurrent") private var stopAfterCurrent: Bool = false
+
+    /// Crossfade duration binding. Reads `@AppStorage` for instant UI, and
+    /// routes the change through `AppModel.setCrossfade` so the live DSP
+    /// pipeline picks it up for the very next transition (#41) — the same
+    /// eager-apply shape as the normalization picker below.
+    private var crossfadeDuration: Binding<Double> {
+        Binding(
+            get: { crossfadeSeconds },
+            set: { newValue in
+                crossfadeSeconds = newValue
+                model.setCrossfade(currentCrossfadeSettings(duration: newValue))
+            }
+        )
+    }
+
+    /// Crossfade curve binding — equal-power holds perceived loudness
+    /// through the overlap; linear can dip at the midpoint (#41 offers both).
+    private var crossfadeCurve: Binding<CrossfadeSettings.Curve> {
+        Binding(
+            get: { CrossfadeSettings.Curve(rawValue: crossfadeCurveRaw) ?? .equalPower },
+            set: { newCurve in
+                crossfadeCurveRaw = newCurve.rawValue
+                model.setCrossfade(currentCrossfadeSettings(curve: newCurve))
+            }
+        )
+    }
+
+    private func currentCrossfadeSettings(
+        duration: Double? = nil,
+        curve: CrossfadeSettings.Curve? = nil
+    ) -> CrossfadeSettings {
+        CrossfadeSettings(
+            durationSeconds: duration ?? crossfadeSeconds,
+            curve: curve ?? CrossfadeSettings.Curve(rawValue: crossfadeCurveRaw) ?? .equalPower
+        )
+    }
 
     /// Normalization picker binding. Reads `@AppStorage` for instant UI, and
     /// routes the change through `AppModel` so the live player re-reads the
@@ -103,15 +143,32 @@ struct PreferencesPlayback: View {
 
                 PreferenceRow(
                     label: "Crossfade",
-                    help: model.supportsCrossfade ? crossfadeHelp : "Coming soon."
+                    help: model.supportsCrossfade
+                        ? crossfadeHelp
+                        : "Requires the DSP audio engine — turn it on in the Equalizer pane."
                 ) {
-                    CrossfadeSlider(seconds: $crossfadeSeconds)
+                    CrossfadeSlider(seconds: crossfadeDuration)
                         .disabled(!model.supportsCrossfade)
                 }
-                // Dim the whole row when crossfade isn't available so it reads
-                // as not-yet-functional rather than broken — matching the
-                // disabled Last.fm row in `PreferencesScrobbling`.
+                // Dim the whole row while the DSP engine isn't routing
+                // playback this session so it reads as inactive rather than
+                // broken — the same gated-feature idiom as the EQ pane (#40).
                 .opacity(model.supportsCrossfade ? 1 : 0.55)
+
+                Divider()
+                    .background(Theme.border)
+                    .padding(.vertical, 10)
+
+                PreferenceRow(
+                    label: "Crossfade curve",
+                    help: crossfadeCurve.wrappedValue == .equalPower
+                        ? "Holds perceived loudness steady through the overlap."
+                        : "Straight-line gains — can dip slightly mid-overlap."
+                ) {
+                    CrossfadeCurvePicker(selection: crossfadeCurve)
+                        .disabled(!model.supportsCrossfade || crossfadeSeconds < CrossfadeSettings.minimumActiveDuration)
+                }
+                .opacity(model.supportsCrossfade && crossfadeSeconds >= CrossfadeSettings.minimumActiveDuration ? 1 : 0.55)
             }
 
             PreferenceSection(
@@ -171,14 +228,15 @@ struct PreferencesPlayback: View {
     }
 
     /// Footnote under the Transitions section. Describes gapless always, and
-    /// crossfade only when the engine actually supports it — otherwise the
-    /// section would promise a working crossfade feature that doesn't exist.
+    /// crossfade per its availability — the overlap rides the DSP engine's
+    /// dual decks (#41), so without that engine the footnote points at the
+    /// opt-in instead of promising an inactive feature.
     private var transitionsFootnote: String {
         let gapless = "Gapless joins tracks with no silence when the source supports it."
         if model.supportsCrossfade {
-            return gapless + " Crossfade overlaps the last and next track by the selected number of seconds."
+            return gapless + " Crossfade overlaps the last and next track by the selected number of seconds; tracks from the same album stay gapless, and skipping mid-track uses a short fade instead."
         }
-        return gapless + " Crossfade is planned and isn't available in this build yet."
+        return gapless + " Crossfade runs on Lyrebird's DSP engine — enable it in the Equalizer pane (takes effect after relaunch). Your setting is saved either way."
     }
 
     /// Subtitle under the crossfade row. Reads "Off" when the slider is at
@@ -335,6 +393,24 @@ enum PreferredAudioCodec: String, CaseIterable, Identifiable {
 // Note: the streaming/download `QualityPicker` and the `CodecPicker` that used
 // to live here moved to the Audio pane (#117) — the single home for quality and
 // codec selection now that the duplicate sections were removed from this pane.
+
+/// Segmented picker for the crossfade gain envelope (#41). Two mutually-
+/// exclusive options — the same control shape as `NormalizationPicker`.
+private struct CrossfadeCurvePicker: View {
+    @Binding var selection: CrossfadeSettings.Curve
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(CrossfadeSettings.Curve.allCases) { option in
+                Text(option.label).tag(option)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .frame(width: 240)
+        .accessibilityLabel("Crossfade curve")
+    }
+}
 
 /// Segmented picker for the three-option normalization mode. Off / Track /
 /// Album — a segmented control reads best for a mutually-exclusive short

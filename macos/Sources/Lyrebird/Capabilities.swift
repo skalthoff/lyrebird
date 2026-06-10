@@ -68,14 +68,16 @@ extension AppModel {
     /// until that lands, rather than persisting a preference nothing reads.
     var supportsStreamQualitySelection: Bool { false }
 
-    /// Crossfade between tracks (#116). Gates the crossfade slider in the
-    /// Playback pane. Overlapping the tail of one track with the head of
-    /// the next needs a second player / mixer in `AudioEngine`; the
-    /// engine has no crossfade path today, so the slider would persist a
-    /// value nothing honours. Disabled until the engine supports
-    /// overlapping playback. Gapless (no-overlap joins) is a separate,
-    /// already-wired feature — see `armNextTrackPreload`.
-    var supportsCrossfade: Bool { false }
+    /// Crossfade between tracks (#41 / #116). Gates the crossfade slider +
+    /// curve picker in the Playback pane. Overlapping playback lives on the
+    /// AVAudioEngine DSP pipeline's dual decks (#41), so the controls are
+    /// only live while that path is routing playback *this session* — the
+    /// same session gate as the equalizer (#40). With the DSP engine off
+    /// (the default) the row shows disabled with a pointer at the engine
+    /// opt-in; the persisted value is honoured the moment the engine path
+    /// is active. Gapless (no-overlap joins) is a separate, already-wired
+    /// feature — see `armNextTrackPreload`.
+    var supportsCrossfade: Bool { engineDSPActiveThisSession }
     /// Playlist search results. The current `core.search` endpoint does
     /// not return playlists, so `bucketSearchResults` leaves that bucket
     /// empty. Gating the Playlists scope chip + section behind this flag
