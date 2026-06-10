@@ -846,6 +846,7 @@ private struct SearchPageTrackRow: View {
 /// pin / radio / shuffle work from here.
 private struct GenreResultRow: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.layoutDirection) private var layoutDirection
     let name: String
     @State private var isHovering = false
 
@@ -861,7 +862,7 @@ private struct GenreResultRow: View {
                         .font(Theme.font(13, weight: .semibold))
                         .foregroundStyle(Theme.ink)
                     Spacer()
-                    Image(systemName: "chevron.right")
+                    Image(systemName: layoutDirection == .rightToLeft ? "chevron.left" : "chevron.right")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Theme.ink3)
                         .opacity(isHovering ? 1 : 0.4)

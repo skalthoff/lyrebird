@@ -35,6 +35,7 @@ struct MiniPlayerView: View {
     // Contrast-adaptive accent for the favorite heart. Lifts to `accentHot`
     // under Increase Contrast so the accent-tinted glyph clears 4.5:1 (#888).
     @Environment(\.accessibleTheme) private var a11yTheme
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// Whether the controls overlay is currently revealed. Driven by hover plus
     /// the 2-second idle timeout below — `true` while the pointer is moving over
@@ -357,7 +358,9 @@ struct MiniPlayerView: View {
     private var restingProgress: some View {
         GeometryReader { geo in
             let fraction = min(max(0, model.status.positionSeconds / sliderMax), 1)
-            ZStack(alignment: .leading) {
+            // Fill from the leading edge in the current layout direction.
+            // In LTR the filled bar grows from left; in RTL from right.
+            ZStack(alignment: layoutDirection == .rightToLeft ? .trailing : .leading) {
                 Capsule()
                     .fill(Theme.ink.opacity(0.15))
                 Capsule()
@@ -385,7 +388,10 @@ struct MiniPlayerView: View {
     @ViewBuilder
     private var transportRow: some View {
         HStack(spacing: 14) {
-            iconBtn("backward.fill", label: "mini_player.previous", size: 13) {
+            // backward/forward glyphs represent temporal direction; flip them
+            // in RTL so "previous" always points toward the reading start.
+            iconBtn(layoutDirection == .rightToLeft ? "forward.fill" : "backward.fill",
+                    label: "mini_player.previous", size: 13) {
                 Haptics.transport()
                 model.skipPrevious()
             }
@@ -401,7 +407,8 @@ struct MiniPlayerView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(Text(isPlaying ? "mini_player.pause" : "mini_player.play"))
-            iconBtn("forward.fill", label: "mini_player.next", size: 13) {
+            iconBtn(layoutDirection == .rightToLeft ? "backward.fill" : "forward.fill",
+                    label: "mini_player.next", size: 13) {
                 Haptics.transport()
                 model.skipNext()
             }

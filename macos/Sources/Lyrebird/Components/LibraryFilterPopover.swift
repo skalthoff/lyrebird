@@ -417,6 +417,8 @@ struct RangeSlider: View {
 	@Binding var high: Double
 	let bounds: ClosedRange<Double>
 
+	@Environment(\.layoutDirection) private var layoutDirection
+
 	private let thumbSize: CGFloat = 16
 	private let trackHeight: CGFloat = 4
 
@@ -446,7 +448,7 @@ struct RangeSlider: View {
 
 				thumb
 					.offset(x: lowX)
-					.gesture(drag(usable: usable, isLow: true))
+					.gesture(drag(usable: usable, totalWidth: geo.size.width, isLow: true))
 					.accessibilityLabel("Minimum year")
 					.accessibilityValue("\(Int(low))")
 					.accessibilityAdjustableAction { direction in
@@ -455,7 +457,7 @@ struct RangeSlider: View {
 
 				thumb
 					.offset(x: highX)
-					.gesture(drag(usable: usable, isLow: false))
+					.gesture(drag(usable: usable, totalWidth: geo.size.width, isLow: false))
 					.accessibilityLabel("Maximum year")
 					.accessibilityValue("\(Int(high))")
 					.accessibilityAdjustableAction { direction in
@@ -465,6 +467,11 @@ struct RangeSlider: View {
 			.frame(height: thumbSize)
 			.frame(maxHeight: .infinity)
 			.coordinateSpace(name: coordinateSpace)
+			// Mirror the entire pixel-geometry track in RTL so "low" sits on the
+			// right (reading start) and "high" on the left (reading end).
+			// GeometryReader always uses screen coordinates (left = 0), so we
+			// flip the rendered layer and compensate cursor x in `drag`.
+			.scaleEffect(x: layoutDirection == .rightToLeft ? -1 : 1, y: 1)
 		}
 		.frame(height: 24)
 	}
@@ -476,14 +483,19 @@ struct RangeSlider: View {
 			.shadow(color: .black.opacity(0.3), radius: 2, y: 1)
 	}
 
-	private func drag(usable: CGFloat, isLow: Bool) -> some Gesture {
+	private func drag(usable: CGFloat, totalWidth: CGFloat, isLow: Bool) -> some Gesture {
 		// Measured in the ZStack's coordinate space (see `coordinateSpace`), so
 		// `value.location.x` is the cursor's position along the track, not an
 		// offset relative to the dragged thumb.
+		// In RTL the layer is mirrored via scaleEffect(x: -1), so the drag
+		// coordinate space is also mirrored: reflect the x back to match the
+		// logical (value-space) orientation.
 		DragGesture(coordinateSpace: .named(coordinateSpace))
 			.onChanged { value in
+				let rawX = value.location.x
+				let cursorX = layoutDirection == .rightToLeft ? (totalWidth - rawX) : rawX
 				let clamped = Self.value(
-					forCursorX: value.location.x,
+					forCursorX: cursorX,
 					usable: usable,
 					thumbSize: thumbSize,
 					bounds: bounds)

@@ -15,6 +15,8 @@ struct Breadcrumbs: View {
     /// Called when a non-final segment at the given zero-based index is tapped.
     var onTap: (Int) -> Void = { _ in }
 
+    @Environment(\.layoutDirection) private var layoutDirection
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(segments.indices, id: \.self) { idx in
@@ -37,7 +39,9 @@ struct Breadcrumbs: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Navigate to \(segment)")
 
-                    Image(systemName: "chevron.right")
+                    // Separator chevron points in the reading direction so
+                    // the trail flows logically in both LTR and RTL.
+                    Image(systemName: layoutDirection == .rightToLeft ? "chevron.left" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(Theme.ink2)
                         .accessibilityHidden(true)
@@ -59,4 +63,17 @@ struct Breadcrumbs: View {
     .padding(24)
     .background(Theme.bg)
     .preferredColorScheme(.dark)
+}
+
+#Preview("Breadcrumbs RTL") {
+    VStack(alignment: .leading, spacing: 20) {
+        Breadcrumbs(segments: ["Lyrebird"])
+        Breadcrumbs(segments: ["Lyrebird", "Library"])
+        Breadcrumbs(segments: ["Lyrebird", "Library", "Albums"])
+        Breadcrumbs(segments: ["Lyrebird", "Library", "Albums", "The Deep End"])
+    }
+    .padding(24)
+    .background(Theme.bg)
+    .preferredColorScheme(.dark)
+    .environment(\.layoutDirection, .rightToLeft)
 }

@@ -15,6 +15,7 @@ import SwiftUI
 /// zero coordination from the rest of the view.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// Locally-persisted list of pinned stations (#253). JSON-encoded into
     /// `@AppStorage` via `PinnedStationsStore` — placeholder until the real
@@ -919,7 +920,7 @@ struct HomeView: View {
                         HStack(spacing: 4) {
                             Text("See All")
                                 .font(Theme.font(12, weight: .semibold))
-                            Image(systemName: "chevron.right")
+                            Image(systemName: layoutDirection == .rightToLeft ? "chevron.left" : "chevron.right")
                                 .font(.system(size: 10, weight: .bold))
                         }
                         .foregroundStyle(Theme.ink2)

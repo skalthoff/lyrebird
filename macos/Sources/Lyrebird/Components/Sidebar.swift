@@ -57,6 +57,7 @@ struct Sidebar: View {
     // Disclosure-chevron rotation + row reveal honour Reduce Motion, matching
     // the rest of the component library (e.g. AmbientWash, ArtistCard).
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
 
     var body: some View {
         @Bindable var model = model
@@ -227,10 +228,14 @@ struct Sidebar: View {
                     }
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: "chevron.right")
+                        // Disclosure chevron points toward the hidden content
+                        // in reading direction. In RTL the glyph starts as
+                        // chevron.left (collapsed) and rotates -90° (expanded →
+                        // points down), matching the LTR pattern.
+                        Image(systemName: layoutDirection == .rightToLeft ? "chevron.left" : "chevron.right")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(Theme.ink3)
-                            .rotationEffect(.degrees(playlistsCollapsed ? 0 : 90))
+                            .rotationEffect(.degrees(playlistsCollapsed ? 0 : (layoutDirection == .rightToLeft ? -90 : 90)))
                             .frame(width: 10)
                         Text("PLAYLISTS")
                             .font(Theme.font(10, weight: .bold))

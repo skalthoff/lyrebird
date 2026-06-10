@@ -450,6 +450,7 @@ enum FirstSyncGate {
 
 private struct FirstSyncStep: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.layoutDirection) private var layoutDirection
     let onContinue: () -> Void
 
     /// Nominal 0…1 progress used purely to animate the bar so it doesn't sit
@@ -545,15 +546,17 @@ private struct FirstSyncStep: View {
             // Animated progress bar.
             VStack(alignment: .leading, spacing: 10) {
                 GeometryReader { geo in
-                    ZStack(alignment: .leading) {
+                    // Anchor fill to the reading-start edge so it grows in
+                    // the correct direction in RTL locales.
+                    ZStack(alignment: layoutDirection == .rightToLeft ? .trailing : .leading) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Theme.surface)
                             .frame(height: 6)
                         RoundedRectangle(cornerRadius: 4)
                             .fill(LinearGradient(
                                 colors: [Theme.accent, Theme.primary],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                                startPoint: layoutDirection == .rightToLeft ? .trailing : .leading,
+                                endPoint: layoutDirection == .rightToLeft ? .leading : .trailing
                             ))
                             .frame(width: geo.size.width * displayProgress, height: 6)
                     }
@@ -727,10 +730,12 @@ private struct ProgressDots: View {
 
 private struct BackButton: View {
     let action: () -> Void
+    @Environment(\.layoutDirection) private var layoutDirection
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Image(systemName: "chevron.left")
+                // Back chevron points toward the reading start; in RTL that is the right.
+                Image(systemName: layoutDirection == .rightToLeft ? "chevron.right" : "chevron.left")
                     .font(.system(size: 12, weight: .bold))
                 Text("onboarding.back")
                     .font(Theme.font(12, weight: .semibold))

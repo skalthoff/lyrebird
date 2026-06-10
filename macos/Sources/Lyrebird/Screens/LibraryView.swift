@@ -1741,6 +1741,8 @@ private struct LibraryLoadingBanner: View {
     let loaded: Int
     let total: Int
 
+    @Environment(\.layoutDirection) private var layoutDirection
+
     /// 0…1 fraction consumed so the bar grows left-to-right.
     private var fraction: Double {
         guard total > 0 else { return 0 }
@@ -1766,7 +1768,7 @@ private struct LibraryLoadingBanner: View {
             // measures the banner's full width; the fill animates as `loaded`
             // increments with each paged response.
             GeometryReader { geo in
-                ZStack(alignment: .leading) {
+                ZStack(alignment: layoutDirection == .rightToLeft ? .trailing : .leading) {
                     Rectangle()
                         .fill(Theme.surface2)
                     Rectangle()

@@ -15,6 +15,8 @@ struct PlayerBar: View {
     // `DynamicTypeReflow.decide` helper so the threshold is unit-tested without
     // a live scene; this view only reads the size and branches on the result.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    // Layout direction for RTL-aware transport icon mirroring.
+    @Environment(\.layoutDirection) private var layoutDirection
 
     /// Local scrubber position used while the user is actively dragging the
     /// Slider. We don't bind the Slider straight to `status.positionSeconds`
@@ -183,7 +185,11 @@ struct PlayerBar: View {
                     model.mediaSessionSetShuffle(!model.status.shuffle)
                 }
                     .help("Shuffle")
-                iconBtn("backward.fill", label: "Previous track", size: 16) {
+                // backward/forward glyphs indicate temporal direction (prev/next
+                // track), not spatial direction — they must flip in RTL so
+                // "previous" always points toward the reading start.
+                iconBtn(layoutDirection == .rightToLeft ? "forward.fill" : "backward.fill",
+                        label: "Previous track", size: 16) {
                     Haptics.transport()
                     model.skipPrevious()
                 }
@@ -204,7 +210,8 @@ struct PlayerBar: View {
                 // about to take. See #331.
                 .accessibilityLabel(Text(isPlaying ? "Pause" : "Play"))
                 .help(isPlaying ? "Pause · Space" : "Play · Space")
-                iconBtn("forward.fill", label: "Next track", size: 16) {
+                iconBtn(layoutDirection == .rightToLeft ? "backward.fill" : "forward.fill",
+                        label: "Next track", size: 16) {
                     Haptics.transport()
                     model.skipNext()
                 }

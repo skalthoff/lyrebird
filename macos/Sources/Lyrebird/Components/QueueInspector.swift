@@ -24,6 +24,7 @@ import UniformTypeIdentifiers
 /// and toggled with Cmd+Opt+Q.
 struct QueueInspector: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.layoutDirection) private var layoutDirection
     @FocusState private var focusedQueueId: UUID?
 
     /// Local presentation state for the three queue actions (#284). These
@@ -387,7 +388,9 @@ struct QueueInspector: View {
             GeometryReader { geom in
                 let total = max(1.0, model.status.durationSeconds)
                 let pct = min(1.0, max(0.0, model.status.positionSeconds / total))
-                ZStack(alignment: .leading) {
+                // Fill anchors to the reading-start edge so the bar grows in
+                // the correct direction in both LTR and RTL.
+                ZStack(alignment: layoutDirection == .rightToLeft ? .trailing : .leading) {
                     Capsule().fill(Theme.surface2)
                     Capsule().fill(Theme.ink2).frame(width: geom.size.width * CGFloat(pct))
                 }
