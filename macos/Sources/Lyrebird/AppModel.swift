@@ -771,6 +771,23 @@ final class AppModel {
     /// environment round-trip. See #113 and `FeatureTour` / `FeatureTourOverlay`.
     var isFeatureTourPresented: Bool = false
 
+    // MARK: - Debug Panel (⌘⇧D, #448)
+
+    /// Whether the debug panel window is currently open. Toggled by the ⌘⇧D
+    /// menu command. `RootView` bridges this flag to the matching
+    /// `openWindow(id: AppModel.debugPanelWindowID)` call, mirroring the same
+    /// pattern as `isMiniPlayerVisible`. `AppModel+DebugPanel.swift` owns the
+    /// toggle method, snapshot refresh, and snapshot type.
+    var isDebugPanelOpen: Bool = false
+
+    /// Structured read-only snapshot of app state for the debug panel. Replaced
+    /// atomically on each `refreshDebugSnapshot()` call; never mutated per-frame.
+    var debugSnapshot: DebugSnapshot = DebugSnapshot()
+
+    /// `true` while a `refreshDebugSnapshot()` detached task is in flight.
+    /// Used to show a progress indicator and prevent overlapping refreshes.
+    var isRefreshingDebugSnapshot: Bool = false
+
     // MARK: - Command Palette recents + pinned (#308)
     //
     // The empty-query palette shows Pinned actions first, then the most

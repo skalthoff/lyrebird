@@ -169,6 +169,21 @@ struct LyrebirdApp: App {
         .defaultSize(width: 480, height: 560)
         .windowResizability(.contentSize)
 
+        // Debug panel (#448). A single-instance `Window` opened via ⌘⇧D so
+        // it toggles rather than spawning duplicates. Requires a live `AppModel`
+        // to snapshot state; guards on `model` so the window stays inert on the
+        // core-init failure path. `RootView` bridges `model.isDebugPanelOpen` to
+        // the actual `openWindow` / `dismissWindow` call site.
+        Window("Debug Panel", id: AppModel.debugPanelWindowID) {
+            if let model {
+                DebugPanelView()
+                    .environment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        }
+        .defaultSize(width: 720, height: 600)
+        .windowResizability(.contentSize)
+
         // Dedicated About window (#25). `AboutView` reads version / credits from
         // `AboutInfo` and the connected-server host from the live `AppModel`, so
         // it needs the model in its environment.
@@ -701,6 +716,16 @@ struct LyrebirdCommands: Commands {
             Button("menu.help.export_diagnostics") {
                 exportDiagnosticBundle()
             }
+
+            // Debug Panel (#448). Hidden affordance — not localised, not in
+            // the main menu flow — so ordinary users don't stumble on it.
+            // Power users and contributors discover it via ⌘⇧D. Disabled when
+            // signed out (the panel only makes sense with a live model/session).
+            Button("Debug Panel") {
+                openWindow(id: AppModel.debugPanelWindowID)
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(model.session == nil)
         }
 
         // Note: ⌘, (Preferences), ⌘Q (Quit), Hide / Hide Others / Services,
@@ -907,12 +932,25 @@ struct RootView: View {
         // still thinks it's visible, so a model-initiated `dismissWindow`
         // (which already cleared the flag) doesn't recurse.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { note in
-            guard
-                model.isMiniPlayerVisible,
-                let window = note.object as? NSWindow,
-                window.identifier?.rawValue == MiniPlayerScene.id
-            else { return }
-            model.isMiniPlayerVisible = false
+            guard let window = note.object as? NSWindow else { return }
+            let id = window.identifier?.rawValue
+            if model.isMiniPlayerVisible, id == MiniPlayerScene.id {
+                model.isMiniPlayerVisible = false
+            }
+            // Sync the debug panel flag when its window closes on its own.
+            if model.isDebugPanelOpen, id == AppModel.debugPanelWindowID {
+                model.isDebugPanelOpen = false
+            }
+        }
+        // Bridge the debug panel flag to the actual scene, matching the
+        // mini player bridge above. Opening triggers a snapshot refresh via
+        // `DebugPanelView.onAppear`.
+        .onChange(of: model.isDebugPanelOpen) { _, open in
+            if open {
+                openWindow(id: AppModel.debugPanelWindowID)
+            } else {
+                dismissWindow(id: AppModel.debugPanelWindowID)
+            }
         }
     }
 }
