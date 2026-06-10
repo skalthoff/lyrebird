@@ -176,6 +176,11 @@ enum CrashReporter {
             event.tags = tags
         }
 
+        // Remove the context dictionary entirely — it can carry arbitrary
+        // key/value pairs populated by SDK integrations or future event
+        // enrichment, and no app-defined context is expected in this build.
+        event.context = nil
+
         return event
     }
 

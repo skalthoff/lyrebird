@@ -201,6 +201,15 @@ final class CrashReporterDecisionTests: XCTestCase {
         XCTAssertTrue(remaining.contains("appVersion"), "appVersion is not PII — must be kept")
     }
 
+    /// The scrubber must clear the context dictionary — it can carry arbitrary
+    /// key/value dicts populated by SDK integrations or future enrichment.
+    func testScrubDoesNotLeakContextDict() {
+        let event = Event()
+        event.context = ["server": ["url": "https://music.example.com", "token": "secret"]]
+        let scrubbed = CrashReporter.scrub(event: event)
+        XCTAssertNil(scrubbed.context?["server"], "scrub must clear event.context entirely")
+    }
+
     // MARK: - Breadcrumb filtering
 
     func testHTTPBreadcrumbIsDropped() {
