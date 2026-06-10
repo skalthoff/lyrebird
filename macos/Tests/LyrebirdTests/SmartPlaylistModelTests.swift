@@ -22,6 +22,7 @@ final class SmartPlaylistModelTests: XCTestCase {
         XCTAssertEqual(SmartPlaylistField.playCount.valueKind, .number)
         XCTAssertEqual(SmartPlaylistField.isFavorite.valueKind, .boolean)
         XCTAssertEqual(SmartPlaylistField.dateAdded.valueKind, .date)
+        XCTAssertEqual(SmartPlaylistField.duration.valueKind, .number)
     }
 
     /// The operator sets are scoped to the value kind: text gets equality +
@@ -195,6 +196,7 @@ final class SmartPlaylistModelTests: XCTestCase {
         XCTAssertEqual(SmartPlaylistField.playCount.rawValue, "playCount")
         XCTAssertEqual(SmartPlaylistField.isFavorite.rawValue, "isFavorite")
         XCTAssertEqual(SmartPlaylistField.dateAdded.rawValue, "dateAdded")
+        XCTAssertEqual(SmartPlaylistField.duration.rawValue, "duration")
         XCTAssertEqual(SmartPlaylistOperator.greaterThan.rawValue, "greaterThan")
         XCTAssertEqual(SmartPlaylistOperator.inLast.rawValue, "inLast")
         XCTAssertEqual(SmartPlaylistMatchMode.all.rawValue, "all")

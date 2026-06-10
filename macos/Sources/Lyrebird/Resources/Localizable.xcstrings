@@ -2125,6 +2125,18 @@
         }
       }
     },
+    "smart_playlist.field.duration" : {
+      "comment" : "Smart playlist rule field: Duration (track length in seconds). The rule value is a plain integer number of seconds; e.g. 300 = 5 minutes.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duration (sec)"
+          }
+        }
+      }
+    },
     "smart_playlist.field.last_played" : {
       "comment" : "Smart playlist rule field: Last Played. Sourced from Jellyfin's per-track lastPlayedAt (the server projection exposes last-played, not date-added), so the label reflects last-played semantics.",
       "extractionState" : "manual",

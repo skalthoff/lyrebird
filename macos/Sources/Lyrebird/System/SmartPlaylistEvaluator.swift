@@ -35,6 +35,12 @@ struct TrackFacts: Hashable, Sendable {
     /// `dateAdded` — a stable persisted storage key that predates the
     /// honest label and must not be renamed (see `SmartPlaylistField`).
     var dateAdded: Date?
+    /// Track length in **whole seconds** derived from `runtimeTicks`. Zero
+    /// when the server omits the duration (practically never, but tolerated).
+    /// The `.duration` rule compares against this value using numeric
+    /// operators (`is`, `isNot`, `greaterThan`, `lessThan`); the rule value
+    /// is also in seconds ("300" = 5 minutes).
+    var durationSeconds: Double
 
     init(
         id: String,
@@ -45,7 +51,8 @@ struct TrackFacts: Hashable, Sendable {
         year: Int? = nil,
         playCount: Int = 0,
         isFavorite: Bool = false,
-        dateAdded: Date? = nil
+        dateAdded: Date? = nil,
+        durationSeconds: Double = 0
     ) {
         self.id = id
         self.title = title
@@ -56,6 +63,7 @@ struct TrackFacts: Hashable, Sendable {
         self.playCount = playCount
         self.isFavorite = isFavorite
         self.dateAdded = dateAdded
+        self.durationSeconds = durationSeconds
     }
 }
 
@@ -84,6 +92,9 @@ extension TrackFacts {
         // `SmartPlaylistField.dateAdded`-style case rather than overloading
         // this one (the label would otherwise lie again).
         self.dateAdded = track.userData?.lastPlayedAt.flatMap(SmartPlaylistEvaluator.parseDate)
+        // Duration in whole seconds, rounded down. Zero when runtimeTicks is 0
+        // (a server-side gap, not a zero-length track in practice).
+        self.durationSeconds = Double(track.runtimeTicks) / 10_000_000.0
     }
 }
 
@@ -210,15 +221,41 @@ enum SmartPlaylistEvaluator {
     static func matches(_ facts: TrackFacts, rule: SmartPlaylistRule, now: Date = Date()) -> Bool {
         switch rule.field {
         case .genre:
-            // Genre is multi-valued: the rule holds if *any* of the track's
-            // genres satisfies it. Some Jellyfin libraries store a track's
-            // genres as a single semicolon-joined element
-            // ("Pop;Folk Pop;Rock") rather than a split array, so split on
-            // `;` first — otherwise a `genre is "Pop"` rule would miss those
-            // items (only `contains` would catch them). See the real-server
+            // Genre is multi-valued: some Jellyfin libraries store a track's
+            // genres as a single semicolon-joined element ("Pop;Folk Pop;Rock")
+            // rather than a split array, so split on `;` first — otherwise a
+            // `genre is "Pop"` rule would miss those items. See the real-server
             // probe in the #77 work.
             let atomicGenres = facts.genres.flatMap { $0.split(separator: ";").map(String.init) }
-            return atomicGenres.contains { textMatch($0, rule: rule) }
+
+            // Operator semantics for multi-valued genre (#1013):
+            //
+            // `.is` / `.contains`:  passes if ANY genre satisfies the test.
+            //
+            // `.isNot`:  passes if NO genre is (exactly) the specified value.
+            //   This is a global-exclusion test — a track that has Classical
+            //   among its genres must not pass "genre is not Classical", even if
+            //   it also has Rock. Using `contains { textMatch(.isNot) }` was
+            //   wrong: it returned `true` when any OTHER genre was not-X, so a
+            //   "Classical;Rock" track passed "genre is not Classical" because
+            //   Rock != Classical. The correct form is `!anyGenreMatchesIs`.
+            //
+            //   Ungenred-track special case: `atomicGenres.isEmpty` → a track
+            //   with no genre is by definition not any specific genre, so it
+            //   passes `.isNot` (and fails every other operator, since there is
+            //   nothing to match).
+            switch rule.op {
+            case .isNot:
+                // Empty genres → no genre to exclude against → passes.
+                // Non-empty → passes only if the exclusion genre is absent.
+                guard !atomicGenres.isEmpty else { return true }
+                let target = fold(rule.value)
+                return !atomicGenres.contains { fold($0) == target }
+            default:
+                // `.is`, `.contains`: need at least one genre to match against.
+                guard !atomicGenres.isEmpty else { return false }
+                return atomicGenres.contains { textMatch($0, rule: rule) }
+            }
         case .artist:
             return textMatch(facts.artist, rule: rule)
         case .album:
@@ -232,6 +269,8 @@ enum SmartPlaylistEvaluator {
             return booleanMatch(facts.isFavorite, rule: rule)
         case .dateAdded:
             return dateMatch(facts.dateAdded, rule: rule, now: now)
+        case .duration:
+            return numberMatch(facts.durationSeconds, rule: rule)
         }
     }
 

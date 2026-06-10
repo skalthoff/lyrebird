@@ -170,6 +170,7 @@ final class SmartPlaylistLocalizationTests: XCTestCase {
             "smart_playlist.field.play_count",
             "smart_playlist.field.favorite",
             "smart_playlist.field.last_played",
+            "smart_playlist.field.duration",
             // Operator labels
             "smart_playlist.op.is",
             "smart_playlist.op.is_not",

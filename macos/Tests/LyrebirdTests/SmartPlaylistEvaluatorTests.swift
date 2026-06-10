@@ -23,12 +23,14 @@ final class SmartPlaylistEvaluatorTests: XCTestCase {
         year: Int? = nil,
         playCount: Int = 0,
         isFavorite: Bool = false,
-        dateAdded: Date? = nil
+        dateAdded: Date? = nil,
+        durationSeconds: Double = 0
     ) -> TrackFacts {
         TrackFacts(
             id: id, title: title, artist: artist, album: album,
             genres: genres, year: year, playCount: playCount,
-            isFavorite: isFavorite, dateAdded: dateAdded
+            isFavorite: isFavorite, dateAdded: dateAdded,
+            durationSeconds: durationSeconds
         )
     }
 
@@ -497,5 +499,112 @@ final class SmartPlaylistEvaluatorTests: XCTestCase {
         let index = SmartPlaylistEvaluator.albumGenreIndex(albums)
         XCTAssertEqual(index["a"], ["Rock", "Indie"])
         XCTAssertNil(index["b"])
+    }
+
+    // MARK: - Duration field (#238)
+
+    func testDurationGreaterThan() {
+        // 4 minutes = 240s; rule: duration > 180 (3 minutes).
+        XCTAssertTrue(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 240), rule: rule(.duration, .greaterThan, "180")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 120), rule: rule(.duration, .greaterThan, "180")))
+    }
+
+    func testDurationLessThan() {
+        XCTAssertTrue(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 100), rule: rule(.duration, .lessThan, "180")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 200), rule: rule(.duration, .lessThan, "180")))
+    }
+
+    func testDurationIs() {
+        XCTAssertTrue(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 300), rule: rule(.duration, .is, "300")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 299), rule: rule(.duration, .is, "300")))
+    }
+
+    func testDurationIsNot() {
+        XCTAssertTrue(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 200), rule: rule(.duration, .isNot, "300")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(
+            facts(durationSeconds: 300), rule: rule(.duration, .isNot, "300")))
+    }
+
+    /// `TrackFacts(track:)` converts `runtimeTicks` to duration seconds; the
+    /// conversion (÷ 10_000_000) is tested here via the FFI adapter.
+    func testTrackAdapterConvertsDurationSeconds() {
+        // 3 minutes = 180 seconds = 1_800_000_000 ticks
+        let track = makeTrack(id: "dur", runtimeTicks: 1_800_000_000)
+        let f = TrackFacts(track: track)
+        XCTAssertEqual(f.durationSeconds, 180.0, accuracy: 0.001)
+    }
+
+    // MARK: - Genre is-not nil-genre fix (#1013)
+
+    /// A track with NO genres passes a "genre is not X" rule — a track with
+    /// no genre is by definition not any specific genre.
+    /// Regression for #1013: previously `atomicGenres.contains { textMatch }` on
+    /// an empty array short-circuited to `false`, incorrectly excluding the track.
+    func testGenreIsNotPassesForUngenredTrack() {
+        let ungenred = facts(genres: [])
+        let r = rule(.genre, .isNot, "Classical")
+        XCTAssertTrue(
+            SmartPlaylistEvaluator.matches(ungenred, rule: r),
+            "a track with no genres has no genre to exclude — it should pass is-not"
+        )
+    }
+
+    /// An ungenred track still fails "genre is X" (no genre to match).
+    func testGenreIsFailsForUngenredTrack() {
+        let ungenred = facts(genres: [])
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(ungenred, rule: rule(.genre, .is, "Rock")))
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(ungenred, rule: rule(.genre, .contains, "rock")))
+    }
+
+    /// A track whose genre IS X fails "genre is not X".
+    func testGenreIsNotFailsForMatchingGenre() {
+        let classical = facts(genres: ["Classical"])
+        XCTAssertFalse(SmartPlaylistEvaluator.matches(classical, rule: rule(.genre, .isNot, "Classical")))
+    }
+
+    /// A track with genres that do NOT include X passes "genre is not X".
+    func testGenreIsNotPassesWhenNoGenreMatches() {
+        let rock = facts(genres: ["Rock", "Indie"])
+        XCTAssertTrue(SmartPlaylistEvaluator.matches(rock, rule: rule(.genre, .isNot, "Classical")))
+    }
+
+    /// "Genre is not X" + match-all against a mix of ungenred, matching, and
+    /// non-matching tracks. Confirms the fix holds end-to-end over a set
+    /// evaluation (not just the single-rule path).
+    func testGenreIsNotOverMixedSet() {
+        let tracks = [
+            facts(id: "ungenred",   genres: []),                     // should match: no genre ≠ Classical
+            facts(id: "classical",  genres: ["Classical"]),           // should NOT match: is Classical
+            facts(id: "rock",       genres: ["Rock"]),                // should match: Rock ≠ Classical
+            facts(id: "semi",       genres: ["Classical;Rock"]),      // should NOT match: contains Classical
+        ]
+        let p = SmartPlaylist(name: "Not Classical", matchMode: .all,
+                              rules: [rule(.genre, .isNot, "Classical")])
+        let result = SmartPlaylistEvaluator.evaluate(p, over: tracks)
+        XCTAssertEqual(result.map(\.id), ["ungenred", "rock"])
+    }
+}
+
+// MARK: - makeTrack runtimeTicks overload
+
+private extension SmartPlaylistEvaluatorTests {
+    func makeTrack(
+        id: String,
+        runtimeTicks: UInt64
+    ) -> Track {
+        Track(
+            id: id, name: "Track", albumId: nil, albumName: nil,
+            artistName: "Artist", artistId: nil, indexNumber: nil,
+            discNumber: nil, year: nil, runtimeTicks: runtimeTicks,
+            isFavorite: false, playCount: 0, container: nil,
+            bitrate: nil, imageTag: nil, playlistItemId: nil, userData: nil
+        )
     }
 }

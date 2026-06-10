@@ -40,6 +40,10 @@ import Foundation
 /// |               | reflects what the data actually means. The seam is |
 /// |               | the single `dateAdded` assignment in               |
 /// |               | `TrackFacts.init`.                                 |
+/// | `.duration`   | `runtimeTicks / 10_000_000` (seconds). Value unit   |
+/// |               | is **whole seconds** so rules like "Duration > 300" |
+/// |               | mean "longer than 5 minutes". Operators: `is`,     |
+/// |               | `isNot`, `greaterThan`, `lessThan`.                |
 
 // MARK: - Field
 
@@ -54,13 +58,17 @@ enum SmartPlaylistField: String, Codable, CaseIterable, Hashable, Sendable {
     case playCount
     case isFavorite
     case dateAdded
+    /// Track length in **whole seconds** (sourced from `Track.runtimeTicks /
+    /// 10_000_000`). The user enters a plain integer ("300" = 5 minutes). Raw
+    /// value is stable; operators: `is`, `isNot`, `greaterThan`, `lessThan`.
+    case duration
 
     /// The natural value kind this field compares against. Drives which
     /// operators are offered and how the value editor renders.
     var valueKind: SmartPlaylistValueKind {
         switch self {
         case .genre, .artist, .album: return .text
-        case .year, .playCount: return .number
+        case .year, .playCount, .duration: return .number
         case .isFavorite: return .boolean
         case .dateAdded: return .date
         }
@@ -85,6 +93,7 @@ enum SmartPlaylistField: String, Codable, CaseIterable, Hashable, Sendable {
         case .playCount: return String(localized: "smart_playlist.field.play_count", bundle: .main)
         case .isFavorite: return String(localized: "smart_playlist.field.favorite", bundle: .main)
         case .dateAdded: return String(localized: "smart_playlist.field.last_played", bundle: .main)
+        case .duration: return String(localized: "smart_playlist.field.duration", bundle: .main)
         }
     }
 }
