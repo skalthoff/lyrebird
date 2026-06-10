@@ -937,13 +937,6 @@ final class AppModel {
     /// Per-session cache for `artistDetail`. Cleared on `logout()` / `forgetToken()`.
     var artistDetailCache: [String: ArtistDetail] = [:]
 
-    /// Album/artist id → display name, seeded by `resolveAlbum` / `resolveArtist`
-    /// when they resolve an id past the loaded library page. The breadcrumb
-    /// builder reads this so a drill destination reached from outside
-    /// `albums` / `artists` (recently played, discography, genre detail) shows
-    /// its name instead of "…". Cleared on `logout()` / `forgetToken()`.
-    var resolvedNameCache: [String: String] = [:]
-
     /// Per-session cache for `loadArtistAlbums`. Cleared on `logout()`.
     var artistAlbumsCache: [String: [Album]] = [:]
 

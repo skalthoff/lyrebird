@@ -9,7 +9,7 @@ import Foundation
 /// hero needs, and backs the Favorites screen plus the artist-detail
 /// shelves (discography, top tracks, similar artists, featuring playlists).
 /// Per-session caches that hang off `AppModel` (`artistDetailCache`,
-/// `artistAlbumsCache`, `resolvedNameCache`, …) live in `AppModel.swift`
+/// `artistAlbumsCache`, …) live in `AppModel.swift`
 /// so they can be cleared on logout.
 extension AppModel {
     // MARK: - Favorites surface (#760)
@@ -143,11 +143,9 @@ extension AppModel {
     /// rather than lying.
     func resolveArtist(id: String) async -> Artist? {
         if let cached = artists.first(where: { $0.id == id }) {
-            resolvedNameCache[id] = cached.name
             return cached
         }
         guard let detail = await artistDetail(artistId: id) else { return nil }
-        resolvedNameCache[id] = detail.name
         return Artist(
             id: detail.id,
             name: detail.name,
@@ -182,18 +180,6 @@ extension AppModel {
         }
     }
 
-    /// Breadcrumb display name for an album id: the loaded `albums` page first,
-    /// then `resolvedNameCache` (seeded by `resolveAlbum` on drill-in), then nil
-    /// when neither knows the name so the caller can render an ellipsis.
-    func breadcrumbAlbumName(id: String) -> String? {
-        albums.first(where: { $0.id == id })?.name ?? resolvedNameCache[id]
-    }
-
-    /// Breadcrumb display name for an artist id, mirroring `breadcrumbAlbumName`.
-    func breadcrumbArtistName(id: String) -> String? {
-        artists.first(where: { $0.id == id })?.name ?? resolvedNameCache[id]
-    }
-
     /// Resolve an `Album` record by id — cache-first, falling back to
     /// `core.fetchItem` for libraries larger than the loaded `albums`
     /// page. Returns nil on error or missing id.
@@ -205,7 +191,6 @@ extension AppModel {
     /// in that case.
     func resolveAlbum(id: String) async -> Album? {
         if let cached = albums.first(where: { $0.id == id }) {
-            resolvedNameCache[id] = cached.name
             return cached
         }
         do {
@@ -215,9 +200,7 @@ extension AppModel {
                     fields: ["PrimaryImageAspectRatio", "Genres", "ProductionYear", "ChildCount", "RunTimeTicks"]
                 )
             }.value
-            let album = Self.parseAlbum(from: json)
-            if let album { resolvedNameCache[id] = album.name }
-            return album
+            return Self.parseAlbum(from: json)
         } catch {
             _ = handleAuthError(error)
             return nil

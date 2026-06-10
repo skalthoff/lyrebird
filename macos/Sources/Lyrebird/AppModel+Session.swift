@@ -205,7 +205,6 @@ extension AppModel {
         artistAlbumsCache = [:]
         artistAppearsOnCache = [:]
         artistDetailCache = [:]
-        resolvedNameCache = [:]
         ambientPaletteCache.removeAll()
         ambientPaletteTasks.values.forEach { $0.cancel() }
         ambientPaletteTasks.removeAll()
@@ -286,7 +285,6 @@ extension AppModel {
         artistAlbumsCache = [:]
         artistAppearsOnCache = [:]
         artistDetailCache = [:]
-        resolvedNameCache = [:]
         ambientPaletteCache.removeAll()
         ambientPaletteTasks.values.forEach { $0.cancel() }
         ambientPaletteTasks.removeAll()

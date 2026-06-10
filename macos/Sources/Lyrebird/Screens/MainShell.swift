@@ -59,26 +59,6 @@ struct MainShell: View {
     /// post-connect *teaching* overlay.
     @AppStorage(FeatureTourSeenStore.seenKey) private var hasSeenFeatureTour: Bool = false
 
-    /// Which top-level region currently owns keyboard focus for the Tab /
-    /// Shift+Tab region cycle. One `@FocusState` for the whole shell:
-    /// each region container binds `.focused($focusedRegion, equals: .x)` so
-    /// SwiftUI keeps exactly one region focused and the region focus ring
-    /// reads off the same source of truth. `nil` until the first Tab press (or
-    /// when focus is inside an inner control rather than parked on a region
-    /// container). Cycling between regions is driven by `cycleRegion(_:)`,
-    /// invoked from the `.onKeyPress(.tab)` handler so the hop works with or
-    /// without macOS Full Keyboard Access enabled — FKA only traverses *within*
-    /// a focusable subtree, never between these named regions.
-    @FocusState private var focusedRegion: FocusRegion?
-
-    /// Mirrors region focus onto the toolbar Search field. The Search "region"
-    /// in the region cycle is that text field; binding its own `@FocusState`
-    /// lets the region cycle land the cursor in it (and lets the field report
-    /// back so Shift+Tab out of Search is observable). Kept distinct from
-    /// `model.isSearchFieldFocused` (the global ⌘⇧F path, which targets the
-    /// full Search *page*, not this toolbar field).
-    @FocusState private var searchFieldFocused: Bool
-
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
@@ -112,14 +92,6 @@ struct MainShell: View {
                     // floor (brand mark + nav rows stay legible) and a 360pt
                     // ceiling (so the rail can't swallow the detail column).
                     .navigationSplitViewColumnWidth(min: 200, ideal: 252, max: 360)
-                    // Tab region cycle: the sidebar is the first region.
-                    // `.focusable` makes the whole rail a Tab stop the shell can
-                    // park focus on; `.focused` binds it to the shared region
-                    // state; the region ring is the visible focus indicator on
-                    // each transition.
-                    .focusable()
-                    .focused($focusedRegion, equals: .sidebar)
-                    .regionFocusRing(isActive: focusedRegion == .sidebar)
             } detail: {
                 HStack(spacing: 0) {
                     NavigationStack(path: $model.navPath) {
@@ -133,22 +105,13 @@ struct MainShell: View {
                                 routeDestination(for: route)
                             }
                             // Native unified toolbar (#3 / #343). NavigationStack
-                            // owns built-in back navigation (swipe, ⌘[ and ⌘←),
-                            // so we surface a sidebar toggle and a global search
-                            // field rather than re-implementing the back button.
-                            // Every item carries `.accessibilityLabel` so
-                            // VoiceOver / Voice Control can target them.
+                            // owns built-in back navigation (swipe, ⌘[ and ⌘←)
+                            // and `NavigationSplitView` already provides the
+                            // standard sidebar-toggle item, so the only custom
+                            // item is the global search field. Every item
+                            // carries `.accessibilityLabel` so VoiceOver /
+                            // Voice Control can target them.
                             .toolbar {
-                                ToolbarItem(placement: .navigation) {
-                                    Button {
-                                        toggleSidebarManually()
-                                    } label: {
-                                        Image(systemName: "sidebar.left")
-                                    }
-                                    .help("Toggle Sidebar")
-                                    .accessibilityLabel("Toggle Sidebar")
-                                }
-
                                 ToolbarItem(placement: .principal) {
                                     HStack(spacing: 6) {
                                         Image(systemName: "magnifyingglass")
@@ -158,13 +121,6 @@ struct MainShell: View {
                                             .font(Theme.font(13, weight: .medium))
                                             .foregroundStyle(Theme.ink)
                                             .frame(maxWidth: 280)
-                                            // Tab region cycle: this
-                                            // toolbar field is the Search
-                                            // region. Binding its own focus
-                                            // state lets `cycleRegion(_:)` land
-                                            // the cursor here and lets a
-                                            // Shift+Tab out of it be observed.
-                                            .focused($searchFieldFocused)
                                             .onSubmit {
                                                 // Hand off to the Search page so
                                                 // `runFullSearch` and the existing
@@ -198,12 +154,6 @@ struct MainShell: View {
                     // container so it lands on the container, keeping the
                     // #334 tab order (content second, after the sidebar).
                     .accessibilitySortPriority(90)
-                    // Tab region cycle: the content pane is the second
-                    // region. Same focusable + focused + ring trio as the
-                    // sidebar so Tab can park focus on the whole pane.
-                    .focusable()
-                    .focused($focusedRegion, equals: .content)
-                    .regionFocusRing(isActive: focusedRegion == .content)
 
                     // Right-side Queue Inspector (#79). Hidden by default;
                     // toggled by Cmd+Opt+Q or a future PlayerBar button
@@ -212,23 +162,22 @@ struct MainShell: View {
                     // readable track titles. Mounted inside the detail
                     // column rather than promoted to a 3-column
                     // NavigationSplitView so the diff stays minimal.
-                    if model.isQueueInspectorOpen {
+                    //
+                    // Suppressed (without clearing the user's persisted
+                    // choice) while the Now Playing or Play Queue drill
+                    // page is on top: both already surface the queue, so
+                    // keeping the panel mounted beside them duplicated the
+                    // same list/artwork two or three times across the
+                    // window. Popping back restores the panel automatically.
+                    if isInspectorVisible {
                         Divider().background(Theme.border)
                         QueueInspector()
                             .frame(width: 320)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                             .accessibilitySortPriority(70)
-                            // Tab region cycle: the Up Next inspector is
-                            // the third region — but only while it's mounted.
-                            // `FocusRegionCycle` skips `.upNext` when the
-                            // inspector is closed, so Tab never strands focus on
-                            // a region that isn't on screen.
-                            .focusable()
-                            .focused($focusedRegion, equals: .upNext)
-                            .regionFocusRing(isActive: focusedRegion == .upNext)
                     }
                 }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.isQueueInspectorOpen)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: isInspectorVisible)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -248,39 +197,8 @@ struct MainShell: View {
                 // sort priority is the only thing the shell needs to set,
                 // pinning the player bar last in the #334 tab order.
                 .accessibilitySortPriority(50)
-                // Tab region cycle: the player bar is the fourth region
-                // (Search, the toolbar field, is the fifth and wraps back to
-                // the sidebar). Same focusable + focused + ring trio.
-                .focusable()
-                .focused($focusedRegion, equals: .playerBar)
-                .regionFocusRing(isActive: focusedRegion == .playerBar)
         }
         .background(Theme.bg)
-        // ⌃Tab / ⌃⇧Tab region cycle. Region hopping now REQUIRES the Control
-        // modifier: a *plain* Tab returns `.ignored` and propagates normally,
-        // so Tab no longer hijacks every keystroke to jump between regions.
-        // The unconditional hop (one `onKeyPress(.tab)` that always consumed
-        // the press) was disruptive for mouse-first users and fought normal
-        // field/control focus — this is the #107 follow-up. ⌃Tab works whether
-        // or not macOS Full Keyboard Access is enabled (FKA only moves focus
-        // *within* a focusable subtree, never between these named regions); the
-        // `.shift` modifier picks direction (⌃Tab forward, ⌃⇧Tab backward).
-        // This ancestor modifier only sees the event when no focused descendant
-        // claimed it first.
-        .onKeyPress(keys: [.tab], phases: .down) { press in
-            guard press.modifiers.contains(.control) else { return .ignored }
-            return handleTabKey(shift: press.modifiers.contains(.shift))
-        }
-        // Keep region state and the Search field's own focus in sync. When the
-        // user clicks straight into the toolbar Search field (bypassing the Tab
-        // cycle), clear the parked region so a subsequent Shift+Tab steps
-        // backward from Search (computed via `currentRegion`) rather than from a
-        // stale region container.
-        .onChange(of: searchFieldFocused) { _, isFocused in
-            if isFocused {
-                focusedRegion = nil
-            }
-        }
         // Width-driven sidebar auto-hide (#318). A zero-cost GeometryReader in
         // the background reports the shell's width; `onChange` runs the pure
         // `SidebarAutoHide` reducer to collapse the rail on narrow windows and
@@ -432,52 +350,22 @@ struct MainShell: View {
         !hasSeenFeatureTour || model.isFeatureTourPresented
     }
 
-    // MARK: - Tab region cycle
-
-    /// The region keyboard focus is effectively on right now. The toolbar
-    /// Search field tracks its own `@FocusState` (`searchFieldFocused`) rather
-    /// than the shared region state, so when it's focused the effective region
-    /// is `.search`; otherwise it's whatever container is parked in
-    /// `focusedRegion` (possibly `nil` before the first Tab).
-    private var currentRegion: FocusRegion? {
-        searchFieldFocused ? .search : focusedRegion
-    }
-
-    /// Handles a Tab (`shift == false`) or Shift+Tab (`shift == true`) press by
-    /// advancing the region focus one step through `FocusRegionCycle` and
-    /// returning `.handled` so the press is consumed (preventing the OS from
-    /// *also* stepping focus inside the current region on the same keystroke).
-    ///
-    /// The cycle's order — Sidebar → Content → Up Next → Player Bar → Search →
-    /// (wrap) — and its skip-the-inspector-when-closed rule live in the pure,
-    /// unit-tested `FocusRegionCycle`; this method only applies the result.
-    private func handleTabKey(shift: Bool) -> KeyPress.Result {
-        cycleRegion(shift ? .backward : .forward)
-        return .handled
-    }
-
-    /// Moves region focus one step in `direction`, mapping the chosen
-    /// `FocusRegion` onto the two backing focus states. Search is special: it's
-    /// the toolbar text field, so landing on `.search` drives
-    /// `searchFieldFocused` (and clears the parked region) to put the cursor in
-    /// the field; every other region drives `focusedRegion` (and clears the
-    /// search field) so exactly one region container shows the focus ring.
-    private func cycleRegion(_ direction: FocusRegionCycle.Direction) {
-        let target = FocusRegionCycle.next(
-            from: currentRegion,
-            direction: direction,
-            inspectorPresent: model.isQueueInspectorOpen
-        )
-        if target == .search {
-            focusedRegion = nil
-            searchFieldFocused = true
-        } else {
-            searchFieldFocused = false
-            focusedRegion = target
+    /// Whether the Queue Inspector panel should be on screen right now.
+    /// The user's toggle (`isQueueInspectorOpen`, persisted per-window) is
+    /// the source of truth, but the panel yields while the Now Playing or
+    /// Play Queue drill page is on top of the stack — both render the queue
+    /// themselves, so showing the panel beside them only duplicates it.
+    private var isInspectorVisible: Bool {
+        guard model.isQueueInspectorOpen else { return false }
+        switch model.navPath.last {
+        case .nowPlaying?, .fullQueue?:
+            return false
+        default:
+            return true
         }
     }
 
-    /// Toolbar `Toggle Sidebar` handler (#318). Flips `columnVisibility` and
+    /// View ▸ "Show Sidebar" handler (#318). Flips `columnVisibility` and
     /// records that the user has taken explicit control, so width-driven
     /// auto-hide stops overriding their choice. The override is persisted via
     /// `@AppStorage` so the rail stays where they put it across relaunches.
@@ -615,14 +503,6 @@ struct MainShell: View {
     @ViewBuilder
     private var contentColumn: some View {
         VStack(spacing: 0) {
-            // Logical tab order inside the content column (#334):
-            // mainContent receives focus before the breadcrumb/top bar.
-            // Without the explicit sort priority, SwiftUI would walk the
-            // view tree top-to-bottom and hit the breadcrumbs first, which
-            // pushes the user through non-primary chrome before the page
-            // body.
-            topBar
-                .accessibilitySortPriority(70)
             if !model.network.isOnline {
                 OfflineBanner(onRetry: { model.retryNetwork() })
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -670,117 +550,4 @@ struct MainShell: View {
         }
     }
 
-    @ViewBuilder
-    private var topBar: some View {
-        HStack {
-            Breadcrumbs(segments: breadcrumbSegments) { idx in
-                navigate(toBreadcrumbDepth: idx)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 32)
-        .padding(.vertical, 12)
-        .background(Theme.bgAlt.opacity(0.4))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Theme.border).frame(height: 1)
-        }
-    }
-
-    /// Builds the breadcrumb trail for the current screen. The root segment is
-    /// always "Lyrebird"; subsequent segments describe where in the app the
-    /// user has navigated. Drill destinations live on `navPath`; root tabs
-    /// live on `model.screen`.
-    private var breadcrumbSegments: [String] {
-        var segments: [String] = ["Lyrebird"]
-        // Root tab segment. Settings is exposed via the dedicated scene and
-        // not breadcrumbed.
-        switch model.screen {
-        case .home: segments.append("Home")
-        case .discover: segments.append("Discover")
-        case .radio: segments.append("Radio")
-        case .library: segments.append("Library")
-        case .favorites: segments.append("Favorites")
-        case .search: segments.append("Search")
-        case .settings: segments.append("Settings")
-        }
-
-        // Drill segments. The current top of `navPath` is what's actually
-        // rendered; we anchor the trail at "Library > <section>" because
-        // every drill destination today is reachable from the Library
-        // hierarchy regardless of which root tab launched it.
-        switch model.navPath.last {
-        case .album(let id)?:
-            if model.screen != .library { segments.append("Library") }
-            segments.append("Albums")
-            if let name = model.breadcrumbAlbumName(id: id) {
-                segments.append(name)
-            } else {
-                // Ellipsis is more informative than a section-name-matching
-                // literal fallback ("Albums > Album") that reads like a bug.
-                segments.append("…")
-            }
-        case .artist(let id)?:
-            if model.screen != .library { segments.append("Library") }
-            segments.append("Artists")
-            if let name = model.breadcrumbArtistName(id: id) {
-                segments.append(name)
-            } else {
-                segments.append("…")
-            }
-        case .playlist(let id)?:
-            if model.screen != .library { segments.append("Library") }
-            segments.append("Playlists")
-            if let playlist = model.playlist(id: id) {
-                segments.append(playlist.name)
-            } else {
-                segments.append("…")
-            }
-        case .smartPlaylist(let id)?:
-            segments.append("Smart Playlists")
-            if let playlist = model.smartPlaylists.playlist(id: id) {
-                segments.append(playlist.name)
-            } else {
-                segments.append("…")
-            }
-        case .genre(let g)?:
-            if model.screen != .library { segments.append("Library") }
-            segments.append("Genres")
-            segments.append(g.name)
-        case .nowPlaying?:
-            segments.append("Now Playing")
-        case .fullQueue?:
-            segments.append("Play Queue")
-        case .home?, .discover?, .radio?, .library?, .favorites?, .search?, .settings?, nil:
-            break
-        }
-        return segments
-    }
-
-    /// Handles a tap on a breadcrumb segment at `idx`. Navigation is driven
-    /// by the current screen and `navPath`, so the component stays agnostic
-    /// of label strings (no brittle title matching). Index 0 is the root
-    /// ("Lyrebird") and clears the drill stack while staying on the current
-    /// tab. For nested screens, intermediate indices pop back to the current
-    /// tab root; the final index is the current location and is a no-op.
-    private func navigate(toBreadcrumbDepth idx: Int) {
-        // Index 0 is the root ("Lyrebird") — clear the drill stack and stay
-        // on whichever tab the user is already on.
-        guard idx > 0 else {
-            model.navPath = []
-            model.selectTab(model.screen)
-            return
-        }
-
-        // No drill on the stack: the trail is ["Lyrebird", <tab>] and the
-        // only navigable index (0) was handled above. Higher indices are
-        // the current location.
-        guard !model.navPath.isEmpty else { return }
-
-        // Drill on the stack: trail is ["Lyrebird", "<tab>", "<section>",
-        // <name>]. idx 1 = tab root and idx 2 = the section both pop the
-        // drill; idx 3 is the current location.
-        if idx < 3 {
-            model.selectTab(model.screen)
-        }
-    }
 }

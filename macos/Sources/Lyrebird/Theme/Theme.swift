@@ -45,12 +45,6 @@ enum Theme {
     static let border = adaptive(standard: borderStandard, increased: borderHighContrastRGBA)
     static let borderStrong = adaptive(standard: borderStrongStandard, increased: borderStrongHighContrastRGBA)
 
-    // Focus ring — issue #335. Uses `primary` (brand purple) at reduced
-    // opacity for the normal ring; full `accentHot` for high-contrast mode.
-    // `accentHot` (#FF066F) achieves ≈7.8:1 against `bgAlt` (#140B30).
-    static var focusRing: Color { primary.opacity(0.75) }
-    static var focusRingHighContrast: Color { accentHighContrast }
-
     // MARK: - High-contrast variants
     //
     // Resolved when System Settings ▸ Accessibility ▸ Display ▸ Increase
