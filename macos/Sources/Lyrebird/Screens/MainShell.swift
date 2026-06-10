@@ -199,6 +199,26 @@ struct MainShell: View {
                 .accessibilitySortPriority(50)
         }
         .background(Theme.bg)
+        // Global error surface. `AppModel.errorMessage` is written by every
+        // failure path past login (library loads, playlist mutations, the
+        // AudioEngine stall / terminal-failure hooks, drop-parse errors, …)
+        // but until this overlay nothing in the signed-in shell rendered it,
+        // so those errors vanished silently. Top-trailing keeps it clear of
+        // the bottom strip, where the player bar and the per-screen
+        // selection / undo banners already stack. The toast auto-dismisses
+        // (see `ErrorToast`); the close button clears it immediately.
+        .overlay(alignment: .topTrailing) {
+            if let message = model.errorMessage {
+                // Identity-conditional dismissal: the toast hands back the
+                // message it was armed for, so an auto-dismiss firing right
+                // as a newer error replaces it can't clear the newcomer.
+                ErrorToast(message: message) { model.dismissError(ifStillShowing: message) }
+                    .padding(.top, 12)
+                    .padding(.trailing, 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: model.errorMessage)
         // Width-driven sidebar auto-hide (#318). A zero-cost GeometryReader in
         // the background reports the shell's width; `onChange` runs the pure
         // `SidebarAutoHide` reducer to collapse the rail on narrow windows and
