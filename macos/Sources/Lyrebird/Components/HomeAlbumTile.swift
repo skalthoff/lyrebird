@@ -40,7 +40,9 @@ struct HomeAlbumTile<Badge: View>: View {
             metadata
         }
         .frame(width: 180)
-        .contentShape(Rectangle())
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 8))
+        .scaleEffect(reduceMotion ? 1.0 : (isHovering ? 1.02 : 1.0))
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
             model.navPath.append(AppModel.Route.album(album.id))
@@ -56,6 +58,7 @@ struct HomeAlbumTile<Badge: View>: View {
         // `.focusable` allows the VoiceOver rotor to Tab into the tile from
         // a horizontal carousel. See #331 / #588.
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(album.name) by \(album.artistName)")
         .accessibilityHint(hint)

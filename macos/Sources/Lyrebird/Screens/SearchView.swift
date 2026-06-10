@@ -733,7 +733,7 @@ private struct SuggestedArtistRow: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isHovering ? Theme.rowHover : .clear)
+                .fill(isHovering ? Theme.nativeHover : .clear)
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -796,7 +796,7 @@ private struct RecentSearchRow: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isHovering ? Theme.rowHover : .clear)
+                .fill(isHovering ? Theme.nativeHover : .clear)
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
@@ -870,7 +870,7 @@ private struct GenreResultRow: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(isHovering ? Theme.rowHover : .clear)
+                        .fill(isHovering ? Theme.nativeHover : .clear)
                 )
                 .contentShape(Rectangle())
             }

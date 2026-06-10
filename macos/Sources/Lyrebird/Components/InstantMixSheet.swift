@@ -280,7 +280,7 @@ private struct SeedRow: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Theme.surface2 : (isHovering ? Theme.rowHover : Color.clear))
+                .fill(isSelected ? Theme.surface2 : (isHovering ? Theme.nativeHover : Color.clear))
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }

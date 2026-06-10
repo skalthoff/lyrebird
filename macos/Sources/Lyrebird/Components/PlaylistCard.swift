@@ -61,16 +61,20 @@ struct PlaylistCard: View {
             .padding(10)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isHovering ? Theme.surface : .clear)
+                    .fill(isHovering ? Theme.nativeHover : .clear)
             )
+            .scaleEffect(reduceMotion ? 1.0 : (isHovering ? 1.02 : 1.0))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 12))
         .contextMenu { PlaylistContextMenu(playlist: playlist) }
         // `.focusable` lets the VoiceOver rotor Tab into this card; `.combine`
         // collapses the artwork, title, and play-button children so the card
         // reads as a single "Opens playlist detail" button. See #588.
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(playlist.name), \(subtitle)")
         .accessibilityHint("Opens playlist detail")

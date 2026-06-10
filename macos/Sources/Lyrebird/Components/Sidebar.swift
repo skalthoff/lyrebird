@@ -465,7 +465,7 @@ struct Sidebar: View {
                 .fill(
                     isActiveScreen
                         ? Theme.surface2
-                        : (isHovering ? Theme.rowHover : .clear)
+                        : (isHovering ? Theme.nativeHover : .clear)
                 )
         )
         .contentShape(Rectangle())

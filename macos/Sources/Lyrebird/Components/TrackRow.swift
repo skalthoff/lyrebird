@@ -170,15 +170,7 @@ struct TrackRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(rowBackground)
         )
-        // Native macOS focus ring. `.focusEffect()` (macOS 14+) lets the
-        // system draw the ring rather than us approximating it with a
-        // stroked overlay; combined with the inner .fill for `isActive` it
-        // keeps the row legible both via pointer and keyboard nav.
-        .focusEffectDisabled(false)
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isFocused ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1)
-        )
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
         .overlay(alignment: .leading) {
             // Selection rail — 2pt accent bar on the leading edge so a
             // multi-selected row reads at a glance even when it's also
@@ -190,7 +182,6 @@ struct TrackRow: View {
                     .padding(.vertical, 2)
             }
         }
-        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         // When a selection host is wired up, route clicks (with modifier
         // flags) to it through the shared gesture stack; otherwise keep the
@@ -218,6 +209,7 @@ struct TrackRow: View {
         .accessibilityAddTraits(accessibilityTraits)
         // MARK: Keyboard navigation (#105)
         .focusable()
+        .focusEffectDisabled(false)
         .focused($isFocused)
         .onChange(of: isFocused) { _, nowFocused in
             if nowFocused {
@@ -260,8 +252,8 @@ struct TrackRow: View {
     private var rowBackground: Color {
         if isSelected { return Theme.accent.opacity(0.18) }
         if isActive { return Theme.surface2 }
-        if isFocused { return Theme.rowHover }
-        if isHovering { return Theme.rowHover }
+        if isFocused { return Theme.nativeHover }
+        if isHovering { return Theme.nativeHover }
         return .clear
     }
 

@@ -12,6 +12,17 @@ enum Theme {
     static let surface2 = Color(rgba: (126, 114, 175, 0.14))
     static let rowHover = Color(rgba: (126, 114, 175, 0.10))
 
+    /// macOS-native row hover / keyboard-focus background.
+    ///
+    /// `NSColor.unemphasizedSelectedContentBackgroundColor` is the system's
+    /// own token for the unfocused selection tint in list views — it adapts
+    /// to dark/light mode and high-contrast automatically, matches
+    /// `NSTableView`'s hover semantics, and respects the user's accent color.
+    /// Used instead of the bespoke `rowHover` RGBA swatch for list rows,
+    /// sidebar rows, and queue items so their hover and keyboard-focus states
+    /// read as native macOS affordances rather than brand tints.
+    static let nativeHover = Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+
     // Text
     static let ink = Color.white
     static let ink2 = adaptive(standard: ink2Standard, increased: ink2HighContrastRGBA)

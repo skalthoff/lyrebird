@@ -54,9 +54,9 @@ struct RecentlyPlayedTrackRow: View {
             .frame(width: 320)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovering ? Theme.rowHover : .clear)
+                    .fill(isHovering ? Theme.nativeHover : .clear)
             )
-            .contentShape(Rectangle())
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
@@ -65,6 +65,7 @@ struct RecentlyPlayedTrackRow: View {
         // Recently Played list; `.combine` presents thumbnail + title +
         // duration as a single playable element. See #588.
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(track.name) by \(track.artistName)")
         .accessibilityHint("Plays this track")

@@ -105,9 +105,9 @@ struct TopTrackRow: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Theme.surface2 : (isHovering ? Theme.rowHover : .clear))
+                    .fill(isActive ? Theme.surface2 : (isHovering ? Theme.nativeHover : .clear))
             )
-            .contentShape(Rectangle())
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -122,6 +122,7 @@ struct TopTrackRow: View {
         // list; `.combine` collapses rank/artwork/text so the element reads
         // as a single playable row. See #588.
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(track.name), \(playCountLabel), rank \(rank)")
         .accessibilityHint("Plays this track")

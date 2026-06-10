@@ -432,9 +432,9 @@ private struct FullQueueTrackRow: View {
             .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Theme.surface2 : (isHovering ? Theme.rowHover : .clear))
+                    .fill(isActive ? Theme.surface2 : (isHovering ? Theme.nativeHover : .clear))
             )
-            .contentShape(Rectangle())
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -446,6 +446,7 @@ private struct FullQueueTrackRow: View {
         }
         .contextMenu { TrackContextMenu(selection: [track]) }
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(track.name) by \(track.artistName)")
         .accessibilityHint("Plays this track")

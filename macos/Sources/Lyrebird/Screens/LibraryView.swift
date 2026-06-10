@@ -1536,8 +1536,10 @@ struct AlbumCard: View {
             .padding(10)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isHovering ? Theme.surface : .clear)
+                    .fill(isHovering ? Theme.nativeHover : .clear)
             )
+            .scaleEffect(reduceMotion ? 1.0 : (isHovering ? 1.02 : 1.0))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: isHovering)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -1551,6 +1553,7 @@ struct AlbumCard: View {
                 localHovering = hovering
             }
         }
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 12))
         .contextMenu { AlbumContextMenu(album: album) }
         // Outer "navigate to album" tap target. Reads as
         // "<album> by <artist>. Opens album detail." Because the hover play

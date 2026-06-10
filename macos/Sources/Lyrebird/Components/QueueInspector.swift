@@ -673,15 +673,16 @@ private struct QueueInspectorRow: View {
         .padding(.horizontal, 4)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isHovering ? Theme.rowHover : .clear)
+                .fill(isHovering ? Theme.nativeHover : .clear)
         )
-        .contentShape(Rectangle())
+        .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
         // `.focusable` on reorderable rows so the rotor can Tab through Up
         // Next; auto-queue rows are read-only and remain non-focusable.
         // `.combine` collapses artwork + text + remove button into one element
         // so VoiceOver reads "Track by Artist" as a single queue entry.
         // See #588.
         .focusable(removable)
+        .focusEffectDisabled(!removable)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(entry.track.name) by \(entry.track.artistName)")
         // Expose Remove as a VoiceOver / Full Keyboard Access rotor action so

@@ -88,9 +88,9 @@ struct LibraryListRow: View {
             .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovering ? Theme.rowHover : .clear)
+                    .fill(isHovering ? Theme.nativeHover : .clear)
             )
-            .contentShape(Rectangle())
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -107,6 +107,7 @@ struct LibraryListRow: View {
         // `.focusable` lets the rotor Tab through the list; `.combine`
         // collapses artwork + text into one element. See #588.
         .focusable(true)
+        .focusEffectDisabled(false)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint(accessibilityHint)

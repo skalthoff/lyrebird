@@ -120,14 +120,8 @@ struct TrackListRow: View {
                         .padding(.vertical, 2)
                 }
             }
-            .overlay(
-                // Subtle outline so focus-via-keyboard is visible even when
-                // the row is also hovered or active. See #105.
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isFocused ? Theme.accent.opacity(0.6) : .clear, lineWidth: 1)
-            )
             .clipShape(RoundedRectangle(cornerRadius: 6))
-            .contentShape(Rectangle())
+            .contentShape(.interaction, RoundedRectangle(cornerRadius: 6))
             .onHover { hovering in
                 if reduceMotion {
                     isHovering = hovering
@@ -156,6 +150,7 @@ struct TrackListRow: View {
             .accessibilityAddTraits(accessibilityTraits)
             // MARK: Keyboard navigation (#105)
             .focusable()
+            .focusEffectDisabled(false)
             .focused($isFocused)
             .onChange(of: isFocused) { _, nowFocused in
                 if nowFocused {
@@ -335,8 +330,8 @@ struct TrackListRow: View {
     private var rowBackground: Color {
         if isSelected { return Theme.accent.opacity(0.18) }
         if isActive { return Theme.surface2 }
-        if isFocused { return Theme.rowHover }
-        if isHovering { return Theme.rowHover }
+        if isFocused { return Theme.nativeHover }
+        if isHovering { return Theme.nativeHover }
         return .clear
     }
 

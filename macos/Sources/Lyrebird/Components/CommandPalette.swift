@@ -667,7 +667,7 @@ struct PaletteRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(isSelected ? Theme.rowHover : Color.clear)
+        .background(isSelected ? Theme.nativeHover : Color.clear)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
