@@ -84,7 +84,10 @@ struct PreferencesEqualizer: View {
                         .accessibilityLabel("Equalizer preset")
 
                         Button("Reset") { reset() }
-                            .disabled(settings.presetID == EqualizerPreset.flat.id && settings.isActiveCurveFlat)
+                            .disabled(
+                                settings.presetID == EqualizerPreset.flat.id
+                                    && settings.customGains.allSatisfy { $0 == 0 }
+                            )
                             .help("Return to the Flat preset and zero the custom curve.")
                             .accessibilityLabel("Reset equalizer")
                     }
