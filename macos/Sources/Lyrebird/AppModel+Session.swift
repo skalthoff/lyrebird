@@ -163,6 +163,15 @@ extension AppModel {
             self.serverURL = session.server.url
             self.username = session.user.name
             self.errorMessage = nil
+            // Drop the launch splash as soon as the session is decided —
+            // the shell renders its own loading skeletons (and paints from
+            // the local library cache) while the fetches below run. Holding
+            // the flag through `refreshLibrary()` kept a blank brand splash
+            // up for the whole first library round-trip, which on a large
+            // library reads as a hang. The `defer` above still clears the
+            // flag on every other exit path; re-assigning `false` is
+            // idempotent.
+            isRestoringSession = false
             startStatusEventStream()
             await refreshLibrary()
             await refreshDownloads()
