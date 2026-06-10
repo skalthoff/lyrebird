@@ -303,4 +303,4 @@ private struct AudioQualityPicker: View {
 // reads `@Environment(AppModel.self)` to route output-device changes). The
 // Settings scene injects it at runtime; a bare `#Preview` would crash on the
 // missing environment value, so it's intentionally omitted here — matching
-// `PreferencesServer` / `PreferencesAccount`.
+// `PreferencesServer`.
