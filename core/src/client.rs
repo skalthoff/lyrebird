@@ -768,10 +768,13 @@ impl JellyfinClient {
         })
     }
 
-    pub async fn albums(&self, paging: Paging) -> Result<PaginatedAlbums> {
-        // Thin wrapper over the typed `ItemsQuery` builder — kept for
-        // backwards compatibility with existing call sites. New code should
-        // prefer `client.query().item_types(...).fetch_albums(...)` directly.
+    /// The canonical query for the user's album library: full recursive
+    /// MusicAlbum set, `SortName` ascending, with the field projection every
+    /// album surface renders from. Shared by [`Self::albums`] and the library
+    /// cache's revalidation sweep (`crate::library_cache`) — the cache diffs
+    /// rows by JSON equality, which only works when both writers fetch the
+    /// *same* projection, so keep this the single source of truth (#431).
+    pub(crate) fn albums_query(paging: Paging) -> ItemsQuery {
         ItemsQuery::new()
             .recursive()
             .item_types(vec![ItemKind::MusicAlbum])
@@ -785,8 +788,13 @@ impl JellyfinClient {
                 ItemField::PrimaryImageAspectRatio,
             ])
             .enable_user_data()
-            .fetch_albums(self)
-            .await
+    }
+
+    pub async fn albums(&self, paging: Paging) -> Result<PaginatedAlbums> {
+        // Thin wrapper over the typed `ItemsQuery` builder — kept for
+        // backwards compatibility with existing call sites. New code should
+        // prefer `client.query().item_types(...).fetch_albums(...)` directly.
+        Self::albums_query(paging).fetch_albums(self).await
     }
 
     /// Every album where the given artist is the primary (album) artist,
@@ -979,6 +987,16 @@ impl JellyfinClient {
         music_library_id: Option<&str>,
         paging: Paging,
     ) -> Result<PaginatedTracks> {
+        Self::tracks_query(music_library_id, paging)
+            .fetch_tracks(self)
+            .await
+    }
+
+    /// The canonical query for the user's track library — the builder behind
+    /// [`Self::list_tracks`]. Shared with the library cache's revalidation
+    /// sweep (`crate::library_cache`) so cached rows and sync rows carry the
+    /// same field projection and diff cleanly by JSON equality (#431).
+    pub(crate) fn tracks_query(music_library_id: Option<&str>, paging: Paging) -> ItemsQuery {
         let mut q = ItemsQuery::new()
             .recursive()
             .item_types(vec![ItemKind::Audio])
@@ -997,7 +1015,7 @@ impl JellyfinClient {
         if let Some(parent) = music_library_id {
             q = q.parent(parent);
         }
-        q.fetch_tracks(self).await
+        q
     }
 
     /// Recently played audio tracks for the current user, sorted by

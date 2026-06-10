@@ -332,3 +332,45 @@ fn playback_start_stop_reporting_round_trips() {
     })
     .expect("report_playback_stopped");
 }
+
+/// Library cache (#431) against the live server: a fetched album page
+/// write-throughs to the SQLite cache, and the cached read path serves it
+/// back instantly without touching the network. The warm-read budget in the
+/// issue is < 50 ms; the assertion allows CI-machine slack while still
+/// catching an accidental network dependency (any round-trip would blow it).
+#[test]
+fn library_cache_persist_on_fetch_round_trips() {
+    let Some(url) = e2e_url() else {
+        eprintln!("{SKIP_HINT}");
+        return;
+    };
+    let core = make_core();
+    let _ = core
+        .login(url, e2e_user(), e2e_pass())
+        .expect("login should succeed with the test account");
+
+    // Fresh data dir ⇒ cold cache.
+    assert!(
+        core.list_cached_albums(50)
+            .expect("cached read (cold)")
+            .is_empty(),
+        "cold cache must be empty"
+    );
+
+    let page = core.list_albums(0, 50).expect("list_albums");
+    assert!(!page.items.is_empty(), "live test library is populated");
+
+    let started = std::time::Instant::now();
+    let cached = core.list_cached_albums(50).expect("cached read (warm)");
+    let elapsed = started.elapsed();
+    assert_eq!(
+        cached.len(),
+        page.items.len(),
+        "every fetched row must be served back from the cache"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "cached read should be a local SQLite hit, took {elapsed:?}"
+    );
+    eprintln!("cached read of {} albums in {elapsed:?}", cached.len());
+}

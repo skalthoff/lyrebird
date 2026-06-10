@@ -14,6 +14,7 @@ pub mod client;
 pub mod downloads;
 pub mod enums;
 pub mod error;
+pub mod library_cache;
 pub mod models;
 pub mod player;
 pub mod query;
@@ -22,6 +23,7 @@ pub mod storage;
 
 pub use enums::{ImageType, ItemField, ItemKind, ItemSortBy, SortOrder};
 pub use error::{LyrebirdError, Result};
+pub use library_cache::{LibrarySyncObserver, LibrarySyncSummary};
 pub use models::*;
 pub use player::{PlaybackState, Player, PlayerStatus, RepeatMode};
 pub use query::ItemsQuery;
@@ -84,6 +86,11 @@ pub struct LyrebirdCore {
     /// and collectively overshoot. Held only around the cheap plan/commit
     /// critical sections, never across the byte stream. See `downloads::fetch`.
     download_budget_lock: Arc<tokio::sync::Mutex<()>>,
+    /// `true` while a background library revalidation (#431) is running.
+    /// Guards [`Self::revalidate_library`] against overlapping syncs; shared
+    /// (not behind `Inner`) so the spawned task can clear it without taking
+    /// the FFI mutex.
+    library_sync_in_flight: Arc<std::sync::atomic::AtomicBool>,
 }
 
 struct Inner {
@@ -169,6 +176,7 @@ impl LyrebirdCore {
             heartbeat: Mutex::new(None),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(DOWNLOAD_PARALLELISM)),
             download_budget_lock: Arc::new(tokio::sync::Mutex::new(())),
+            library_sync_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }))
     }
 
@@ -454,7 +462,14 @@ impl LyrebirdCore {
         offset: u32,
         limit: u32,
     ) -> std::result::Result<PaginatedAlbums, LyrebirdError> {
-        self.with_client(|c| self.runtime.block_on(c.albums(Paging::new(offset, limit))))
+        let page =
+            self.with_client(|c| self.runtime.block_on(c.albums(Paging::new(offset, limit))))?;
+        // Write-through to the library cache (#431). Best-effort: a cache
+        // write failure must never fail the fetch that produced the data.
+        if let Err(e) = library_cache::persist_albums(&self.db_handle(), &page.items) {
+            tracing::warn!("album cache write-through failed: {e}");
+        }
+        Ok(page)
     }
 
     /// Artists in the user's library, paginated. See [`Self::list_albums`].
@@ -463,7 +478,12 @@ impl LyrebirdCore {
         offset: u32,
         limit: u32,
     ) -> std::result::Result<PaginatedArtists, LyrebirdError> {
-        self.with_client(|c| self.runtime.block_on(c.artists(Paging::new(offset, limit))))
+        let page =
+            self.with_client(|c| self.runtime.block_on(c.artists(Paging::new(offset, limit))))?;
+        if let Err(e) = library_cache::persist_artists(&self.db_handle(), &page.items) {
+            tracing::warn!("artist cache write-through failed: {e}");
+        }
+        Ok(page)
     }
 
     /// Album artists most recently added to the library, sorted by
@@ -475,10 +495,16 @@ impl LyrebirdCore {
         offset: u32,
         limit: u32,
     ) -> std::result::Result<PaginatedArtists, LyrebirdError> {
-        self.with_client(|c| {
+        let page = self.with_client(|c| {
             self.runtime
                 .block_on(c.recently_added_artists(Paging::new(offset, limit)))
-        })
+        })?;
+        // Same endpoint + projection as `list_artists` (only the sort
+        // differs), so rows are cache-compatible and safe to write through.
+        if let Err(e) = library_cache::persist_artists(&self.db_handle(), &page.items) {
+            tracing::warn!("artist cache write-through failed: {e}");
+        }
+        Ok(page)
     }
 
     /// Every album where the given artist is the primary (album) artist,
@@ -704,10 +730,91 @@ impl LyrebirdCore {
         offset: u32,
         limit: u32,
     ) -> std::result::Result<PaginatedTracks, LyrebirdError> {
-        self.with_client(|c| {
+        let page = self.with_client(|c| {
             self.runtime
                 .block_on(c.list_tracks(music_library_id.as_deref(), Paging::new(offset, limit)))
-        })
+        })?;
+        // Write-through to the library cache (#431); best-effort, see
+        // `list_albums`.
+        if let Err(e) = library_cache::persist_tracks(&self.db_handle(), &page.items) {
+            tracing::warn!("track cache write-through failed: {e}");
+        }
+        Ok(page)
+    }
+
+    // ---------- Library cache (#431) ----------
+
+    /// First `limit` cached albums in display order, served straight from
+    /// the local DB — never touches the network, never requires a session.
+    /// The warm-launch read path: emit these immediately, then let
+    /// [`Self::revalidate_library`] reconcile against the server.
+    pub fn list_cached_albums(&self, limit: u32) -> std::result::Result<Vec<Album>, LyrebirdError> {
+        library_cache::list_cached_albums(&self.db_handle(), limit)
+    }
+
+    /// Artist twin of [`Self::list_cached_albums`].
+    pub fn list_cached_artists(
+        &self,
+        limit: u32,
+    ) -> std::result::Result<Vec<Artist>, LyrebirdError> {
+        library_cache::list_cached_artists(&self.db_handle(), limit)
+    }
+
+    /// Track twin of [`Self::list_cached_albums`].
+    pub fn list_cached_tracks(&self, limit: u32) -> std::result::Result<Vec<Track>, LyrebirdError> {
+        library_cache::list_cached_tracks(&self.db_handle(), limit)
+    }
+
+    /// Kick a background library revalidation (#431): delta-fetch what
+    /// changed since the last successful sync, reconcile the cache, and
+    /// stream changed/removed rows to `observer` (see
+    /// [`LibrarySyncObserver`] for the callback contract). Returns
+    /// immediately; the sync runs on the core's runtime and never holds the
+    /// FFI mutex across network or DB I/O.
+    ///
+    /// Returns `false` (without invoking `observer` at all) when there is no
+    /// active session or another revalidation is already in flight.
+    pub fn revalidate_library(&self, observer: Box<dyn LibrarySyncObserver>) -> bool {
+        use std::sync::atomic::Ordering;
+
+        let (client, db) = {
+            let inner = self.inner.lock();
+            match &inner.client {
+                Some(c) => (Arc::clone(c), Arc::clone(&inner.db)),
+                None => return false,
+            }
+        };
+        let Some(user_id) = client.user_id().map(ToOwned::to_owned) else {
+            return false;
+        };
+        if self
+            .library_sync_in_flight
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return false;
+        }
+
+        /// Clears the in-flight flag even if the sync task panics, so a
+        /// one-off failure can't permanently wedge revalidation.
+        struct InFlightGuard(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for InFlightGuard {
+            fn drop(&mut self) {
+                self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
+        let guard = InFlightGuard(Arc::clone(&self.library_sync_in_flight));
+        self.runtime.spawn(async move {
+            let _guard = guard;
+            let ctx = library_cache::SyncContext {
+                client,
+                db,
+                user_id,
+            };
+            library_cache::run_sync(&ctx, observer.as_ref()).await;
+        });
+        true
     }
 
     /// Recently played tracks for the current user, sorted by server-side
@@ -1687,6 +1794,13 @@ impl LyrebirdCore {
         self.inner.lock().client.clone()
     }
 
+    /// Clone the database handle so DB I/O (cache reads/writes) runs outside
+    /// the `Inner` mutex — the `Database` serializes on its own connection
+    /// lock.
+    fn db_handle(&self) -> Arc<Database> {
+        Arc::clone(&self.inner.lock().db)
+    }
+
     /// Wire the HTTP client's 401 interceptor so it can silently pull a
     /// fresh token out of the OS credential store without round-tripping
     /// through the UI.
@@ -1721,6 +1835,23 @@ impl LyrebirdCore {
         }
         {
             let inner = self.inner.lock();
+            // A *different* user signing in must not inherit the previous
+            // user's library cache (#431). `logout` wipes unconditionally,
+            // but `forget_token` keeps the cache (and deletes
+            // `last_user_id`), so ownership is tracked under a dedicated
+            // `library_cache_user_id` key that survives token-forgetting and
+            // is only cleared together with the cache itself.
+            match inner.db.get_setting("library_cache_user_id") {
+                Ok(Some(prev)) if prev != session.user.id => {
+                    if let Err(e) = inner.db.clear_library_cache() {
+                        tracing::warn!("library cache wipe on user switch failed: {e}");
+                    }
+                }
+                _ => {}
+            }
+            inner
+                .db
+                .set_setting("library_cache_user_id", &session.user.id)?;
             inner
                 .db
                 .set_setting("last_server_url", &session.server.url)?;

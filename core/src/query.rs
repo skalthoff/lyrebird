@@ -55,6 +55,7 @@ pub struct ItemsQuery {
     pub(crate) enable_user_data: bool,
     pub(crate) ids: Vec<String>,
     pub(crate) exclude_types: Vec<ItemKind>,
+    pub(crate) min_date_last_saved: Option<String>,
 }
 
 impl ItemsQuery {
@@ -264,6 +265,17 @@ impl ItemsQuery {
         self
     }
 
+    /// Set `MinDateLastSaved=<iso8601>` — restricts the result set to items
+    /// the server (re)saved at or after the given UTC instant. This is
+    /// Jellyfin's delta-sync filter; the library cache's background
+    /// revalidation uses it to fetch only what changed since the last
+    /// successful sync (#431). Note that per-user `UserData` mutations
+    /// (favorites, play counts) do NOT bump an item's `DateLastSaved`.
+    pub fn min_date_last_saved<S: Into<String>>(mut self, ts: S) -> Self {
+        self.min_date_last_saved = Some(ts.into());
+        self
+    }
+
     /// Apply every set parameter onto the given URL. Shared between
     /// [`Self::execute`] and the callers (in `client.rs`) that need to
     /// embed the query onto an existing URL.
@@ -331,6 +343,9 @@ impl ItemsQuery {
         }
         if !self.ids.is_empty() {
             q.append_pair("Ids", &self.ids.join(","));
+        }
+        if let Some(ts) = &self.min_date_last_saved {
+            q.append_pair("MinDateLastSaved", ts);
         }
         // Image flags: every UI-facing call site wants primary-image metadata,
         // and every pre-refactor endpoint set these explicitly. Emitted by the
