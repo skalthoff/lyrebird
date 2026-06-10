@@ -219,6 +219,18 @@ struct PreferencesPlayback: View {
                 // broken — the same gated-feature idiom as the EQ pane (#40).
                 .opacity(model.supportsCrossfade ? 1 : 0.55)
 
+                // Envelope preview — shown only while the DSP engine is active
+                // and the slider is above the minimum so there's a real fade to
+                // illustrate. Animates on every duration/curve change so the
+                // shape responds immediately as the slider drags.
+                if model.supportsCrossfade && crossfadeSeconds >= CrossfadeSettings.minimumActiveDuration {
+                    CrossfadeEnvelopeView(
+                        durationSeconds: crossfadeSeconds,
+                        curve: CrossfadeSettings.Curve(rawValue: crossfadeCurveRaw) ?? .equalPower
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+                }
+
                 Divider()
                     .background(Theme.border)
                     .padding(.vertical, 10)
@@ -365,6 +377,148 @@ struct PreferencesPlayback: View {
             return "−18 dB LUFS — the ReplayGain reference."
         }
         return "−\(abs(rounded)) dB LUFS. Higher is louder."
+    }
+}
+
+// MARK: - Crossfade envelope preview
+
+/// Compact gain-envelope visualisation shown in the Transitions section while
+/// crossfade is active and the DSP engine is routing playback this session.
+///
+/// Two overlapping `Path`s trace the outgoing track's fade-out and the
+/// incoming track's fade-in using the same `CrossfadeSettings.fadeInGain` /
+/// `fadeOutGain` math the live pipeline runs — so the shape the user sees is
+/// the shape they hear. Equal-power produces a rounded midpoint; linear is a
+/// flat X-cross.
+///
+/// The view animates its `animationPhase` via a repeating spring so the
+/// curves appear to "play through" the transition, giving the user an
+/// immediate sense of timing. The animation is driven entirely through a
+/// SwiftUI `phaseAnimator` so there are no manual timer callbacks.
+///
+/// Inert contract: this view is only instantiated when
+/// `model.supportsCrossfade && crossfadeSeconds >= minimumActiveDuration`
+/// (see the call site in `PreferencesPlayback.body`), so it never appears
+/// on the AVQueuePlayer path — the disabled-row idiom is the DSP-off state.
+private struct CrossfadeEnvelopeView: View {
+    let durationSeconds: Double
+    let curve: CrossfadeSettings.Curve
+
+    /// Number of path sample points. 64 is more than enough resolution for
+    /// a 264-point-wide preview at this scale while staying well below any
+    /// rendering cost.
+    private static let sampleCount = 64
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Canvas draws both gain curves from the real engine math.
+            // `animationPhase` in [0, 1] shifts the colours so the curves
+            // appear to pulse through the overlap — purely cosmetic, the
+            // path itself doesn't move.
+            PhaseAnimator(
+                [0.0, 0.5, 1.0, 0.5, 0.0],
+                trigger: envelopeKey
+            ) { phase in
+                envelopeCanvas(phase: phase)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .accessibilityLabel(accessibilityLabel)
+                    .accessibilityHidden(false)
+            } animation: { _ in
+                .easeInOut(duration: 1.2)
+            }
+
+            // Legend: two dots + labels identifying the two curves.
+            HStack(spacing: 16) {
+                legendItem(color: outgoingColor(phase: 1), label: "Outgoing")
+                legendItem(color: incomingColor(phase: 1), label: "Incoming")
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    // MARK: - Canvas
+
+    private func envelopeCanvas(phase: Double) -> some View {
+        Canvas { context, size in
+            let samples = CrossfadeSettings.envelopeSamples(
+                count: Self.sampleCount,
+                curve: curve
+            )
+            // Outgoing: starts at full gain, fades to zero.
+            let outPath = gainPath(gains: samples.fadeOut, size: size)
+            context.stroke(
+                outPath,
+                with: .color(outgoingColor(phase: phase)),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+            )
+            // Incoming: starts at zero, rises to full gain.
+            let inPath  = gainPath(gains: samples.fadeIn, size: size)
+            context.stroke(
+                inPath,
+                with: .color(incomingColor(phase: phase)),
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+            )
+        }
+    }
+
+    /// Convert a gain sample array into a `Path` mapped into `size`.
+    /// Gain = 1 maps to the top edge (y = 0); gain = 0 maps to the bottom
+    /// (y = height). The x-axis spans the full width.
+    private func gainPath(gains: [Float], size: CGSize) -> Path {
+        guard !gains.isEmpty else { return Path() }
+        return Path { path in
+            for (index, gain) in gains.enumerated() {
+                let x = size.width * CGFloat(index) / CGFloat(gains.count - 1)
+                let y = size.height * (1 - CGFloat(gain))
+                if index == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+        }
+    }
+
+    // MARK: - Colour helpers
+
+    /// Outgoing track colour. Warm tint that brightens at the start of the
+    /// overlap (phase ≈ 0) and dims as it hands off — matches the "outgoing"
+    /// semantic visually.
+    private func outgoingColor(phase: Double) -> Color {
+        Theme.accent.opacity(0.55 + 0.35 * (1 - phase))
+    }
+
+    /// Incoming track colour. Cool primary tint that brightens as it takes
+    /// over — the "arrival" semantic.
+    private func incomingColor(phase: Double) -> Color {
+        Theme.primary.opacity(0.55 + 0.35 * phase)
+    }
+
+    // MARK: - Legend
+
+    private func legendItem(color: Color, label: String) -> some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(Theme.font(10, weight: .medium))
+                .foregroundStyle(Theme.ink3)
+        }
+    }
+
+    // MARK: - Helpers
+
+    /// Stable key that changes whenever duration or curve changes, used as
+    /// the `PhaseAnimator` trigger so the animation restarts on every edit.
+    private var envelopeKey: String {
+        "\(Int(durationSeconds.rounded()))-\(curve.rawValue)"
+    }
+
+    private var accessibilityLabel: String {
+        let secs = Int(durationSeconds.rounded())
+        return "Crossfade envelope preview: \(secs) second\(secs == 1 ? "" : "s"), \(curve.label.lowercased()) curve"
     }
 }
 
