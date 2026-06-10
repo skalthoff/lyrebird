@@ -34,6 +34,12 @@
             "state": "needs_review",
             "value": "Lyrebirdについて"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sobre o Lyrebird"
+          }
         }
       }
     },
@@ -66,6 +72,12 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lyrebird"
+          }
+        },
+        "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
             "value": "Lyrebird"
@@ -106,6 +118,12 @@
             "state": "needs_review",
             "value": "デスクトップ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "DESKTOP"
+          }
         }
       }
     },
@@ -141,6 +159,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "セッションが期限切れです"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua sessão expirou"
           }
         }
       }
@@ -178,6 +202,12 @@
             "state": "needs_review",
             "value": "再度サインインして、音楽を聴き続けてください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faça login novamente para continuar ouvindo."
+          }
         }
       }
     },
@@ -213,6 +243,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サインイン"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrar"
           }
         }
       }
@@ -250,6 +286,12 @@
             "state": "needs_review",
             "value": "再度サインイン"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrar novamente"
+          }
         }
       }
     },
@@ -285,6 +327,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サインイン中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entrando…"
           }
         }
       }
@@ -322,6 +370,12 @@
             "state": "needs_review",
             "value": "サーバーに接続できません。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível alcançar o seu servidor."
+          }
         }
       }
     },
@@ -357,6 +411,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%@に接続できません。再試行中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível alcançar %@. Tentando novamente…"
           }
         }
       }
@@ -394,6 +454,12 @@
             "state": "needs_review",
             "value": "サーバー接続を再試行"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar reconectar ao servidor"
+          }
         }
       }
     },
@@ -429,6 +495,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Álbum"
           }
         }
       }
@@ -466,6 +538,12 @@
             "state": "needs_review",
             "value": "アーティスト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Artista"
+          }
         }
       }
     },
@@ -501,6 +579,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "プレイリスト"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playlist"
           }
         }
       }
@@ -538,6 +622,12 @@
             "state": "needs_review",
             "value": "キャンセル"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar"
+          }
         }
       }
     },
@@ -573,6 +663,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "削除"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Excluir"
           }
         }
       }
@@ -610,6 +706,12 @@
             "state": "needs_review",
             "value": "閉じる"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dispensar"
+          }
         }
       }
     },
@@ -646,6 +748,12 @@
             "state": "needs_review",
             "value": "完了"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Concluído"
+          }
         }
       }
     },
@@ -681,6 +789,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再試行"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente"
           }
         }
       }
@@ -768,6 +882,24 @@
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lldアルバム"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld álbum"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld álbuns"
                 }
               }
             }
@@ -862,6 +994,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld artista"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld artistas"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -948,6 +1098,24 @@
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld件"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld itens"
                 }
               }
             }
@@ -1042,6 +1210,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld playlist"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld playlists"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1128,6 +1314,24 @@
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld回再生"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld reprodução"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld reproduções"
                 }
               }
             }
@@ -1222,6 +1426,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld resultado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld resultados"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1308,6 +1530,24 @@
                 "stringUnit": {
                   "state": "needs_review",
                   "value": "%lld件選択"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld selecionado"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld selecionados"
                 }
               }
             }
@@ -1402,6 +1642,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld música"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld músicas"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1492,6 +1750,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld faixa"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld faixas"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -1527,6 +1803,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "音楽がありません"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma música ainda"
           }
         }
       }
@@ -1564,6 +1846,12 @@
             "state": "needs_review",
             "value": "JellyfinサーバーのライブラリにまだまMusicがないか、インデックス作成中です。サーバーにライブラリを追加して更新してください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seu servidor Jellyfin não tem música na biblioteca, ou ela ainda está sendo indexada. Adicione uma biblioteca no servidor e atualize."
+          }
         }
       }
     },
@@ -1599,6 +1887,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Jellyfin Webを開く"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir Jellyfin web"
           }
         }
       }
@@ -1636,6 +1930,12 @@
             "state": "needs_review",
             "value": "キューが空です"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fila está vazia"
+          }
         }
       }
     },
@@ -1671,6 +1971,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "何かを再生してキューを開始してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduza algo para iniciar uma fila."
           }
         }
       }
@@ -1708,6 +2014,12 @@
             "state": "needs_review",
             "value": "再度サインインしてください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faça login novamente."
+          }
         }
       }
     },
@@ -1743,6 +2055,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "この操作を行う権限がありません。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Você não tem permissão para fazer isso."
           }
         }
       }
@@ -1780,6 +2098,12 @@
             "state": "needs_review",
             "value": "そのアイテムが見つかりませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse item não foi encontrado."
+          }
         }
       }
     },
@@ -1815,6 +2139,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "リクエストが多すぎます。しばらくしてから再試行してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muitas solicitações. Tente novamente em um momento."
           }
         }
       }
@@ -1852,6 +2182,12 @@
             "state": "needs_review",
             "value": "ネットワークエラー。接続を確認して再試行してください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erro de rede. Verifique sua conexão e tente novamente."
+          }
         }
       }
     },
@@ -1887,6 +2223,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サーバーで問題が発生しました。再試行してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O servidor encontrou um problema. Tente novamente."
           }
         }
       }
@@ -1924,6 +2266,12 @@
             "state": "needs_review",
             "value": "サーバーの応答を読み取れませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível ler a resposta do servidor."
+          }
         }
       }
     },
@@ -1959,6 +2307,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "オフライン再生用にダウンロードできませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível baixar para reprodução offline."
           }
         }
       }
@@ -1996,6 +2350,12 @@
             "state": "needs_review",
             "value": "ローカルストレージエラー。再試行してください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erro de armazenamento local. Tente novamente."
+          }
         }
       }
     },
@@ -2031,6 +2391,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "システムキーチェーンにアクセスできませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível acessar o chaveiro do sistema."
           }
         }
       }
@@ -2068,6 +2434,12 @@
             "state": "needs_review",
             "value": "音声再生エラー。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erro de reprodução de áudio."
+          }
         }
       }
     },
@@ -2103,6 +2475,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サーバーの証明書を確認できませんでした。このサーバーを信頼する必要があるかもしれません。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível verificar o certificado do servidor. Talvez seja necessário confiar neste servidor."
           }
         }
       }
@@ -2140,6 +2518,12 @@
             "state": "needs_review",
             "value": "その値は無効です。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esse valor não é válido."
+          }
         }
       }
     },
@@ -2175,6 +2559,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "問題が発生しました。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Algo deu errado."
           }
         }
       }
@@ -2212,6 +2602,12 @@
             "state": "needs_review",
             "value": "再生を開始できませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível iniciar a reprodução."
+          }
         }
       }
     },
@@ -2247,6 +2643,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ライブラリを読み込めませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar sua biblioteca."
           }
         }
       }
@@ -2284,6 +2686,12 @@
             "state": "needs_review",
             "value": "プレイリストを読み込めませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar as playlists."
+          }
         }
       }
     },
@@ -2319,6 +2727,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "このプレイリストを読み込めませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar esta playlist."
           }
         }
       }
@@ -2356,6 +2770,12 @@
             "state": "needs_review",
             "value": "アルバムのトラックを読み込めませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar as faixas do álbum."
+          }
         }
       }
     },
@@ -2391,6 +2811,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "プレイリストのトラックを読み込めませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar as faixas da playlist."
           }
         }
       }
@@ -2428,6 +2854,12 @@
             "state": "needs_review",
             "value": "検索に失敗しました。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A busca falhou."
+          }
         }
       }
     },
@@ -2463,6 +2895,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "お気に入りを更新できませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível atualizar o favorito."
           }
         }
       }
@@ -2500,6 +2938,12 @@
             "state": "needs_review",
             "value": "再生状態を更新できませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível atualizar o status de reprodução."
+          }
         }
       }
     },
@@ -2535,6 +2979,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "プレイリストに追加できませんでした。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível adicionar à playlist."
           }
         }
       }
@@ -2572,6 +3022,12 @@
             "state": "needs_review",
             "value": "サインインに失敗しました。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Falha ao entrar."
+          }
         }
       }
     },
@@ -2607,6 +3063,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ユーザー名またはパスワードが間違っています"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuário ou senha incorretos"
           }
         }
       }
@@ -2644,6 +3106,12 @@
             "state": "needs_review",
             "value": "この機能はまだ利用できません。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta ação ainda não está disponível."
+          }
         }
       }
     },
@@ -2679,6 +3147,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ネットワークがありません。接続を確認してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem rede. Verifique sua conexão."
           }
         }
       }
@@ -2716,6 +3190,12 @@
             "state": "needs_review",
             "value": "確認中…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verificando…"
+          }
         }
       }
     },
@@ -2751,6 +3231,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サーバーURL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL DO SERVIDOR"
           }
         }
       }
@@ -2788,6 +3274,12 @@
             "state": "needs_review",
             "value": "ユーザー名"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "USUÁRIO"
+          }
         }
       }
     },
@@ -2823,6 +3315,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "パスワード"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "SENHA"
           }
         }
       }
@@ -2860,6 +3358,12 @@
             "state": "needs_review",
             "value": "あなた"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "você"
+          }
         }
       }
     },
@@ -2895,6 +3399,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "このネットワーク上に見つかりました"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ENCONTRADO NESTA REDE"
           }
         }
       }
@@ -2932,6 +3442,12 @@
             "state": "needs_review",
             "value": "サーバーURL"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "URL do servidor"
+          }
         }
       }
     },
@@ -2967,6 +3483,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ユーザー名"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuário"
           }
         }
       }
@@ -3004,6 +3526,12 @@
             "state": "needs_review",
             "value": "パスワード"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Senha"
+          }
         }
       }
     },
@@ -3039,6 +3567,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "戻る"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar"
           }
         }
       }
@@ -3076,6 +3610,12 @@
             "state": "needs_review",
             "value": "Lyrebirdへようこそ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bem-vindo ao Lyrebird"
+          }
         }
       }
     },
@@ -3111,6 +3651,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "あなたの音楽、あなたのサーバー、あなたのルール。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sua música, seu servidor, suas regras."
           }
         }
       }
@@ -3148,6 +3694,12 @@
             "state": "needs_review",
             "value": "始める"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Começar"
+          }
         }
       }
     },
@@ -3183,6 +3735,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "すでにアカウントがあります →"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já tenho uma conta →"
           }
         }
       }
@@ -3220,6 +3778,12 @@
             "state": "needs_review",
             "value": "すでにアカウントがあります"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Já tenho uma conta"
+          }
         }
       }
     },
@@ -3255,6 +3819,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サーバーを接続"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecte seu servidor"
           }
         }
       }
@@ -3292,6 +3862,12 @@
             "state": "needs_review",
             "value": "JellyfinのURLは、ブラウザからアクセスするために使用するアドレスです。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A URL do Jellyfin é o endereço que você usa para acessá-lo pelo navegador."
+          }
         }
       }
     },
@@ -3327,6 +3903,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "続ける"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Continuar"
           }
         }
       }
@@ -3364,6 +3946,12 @@
             "state": "needs_review",
             "value": "接続中…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conectando…"
+          }
         }
       }
     },
@@ -3399,6 +3987,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スキップして、オフラインで探索 →"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pular, explorar offline →"
           }
         }
       }
@@ -3436,6 +4030,12 @@
             "state": "needs_review",
             "value": "ライブラリを読み込み中"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carregando sua biblioteca"
+          }
         }
       }
     },
@@ -3471,6 +4071,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アーティストを読み込み中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carregando artistas…"
           }
         }
       }
@@ -3508,6 +4114,12 @@
             "state": "needs_review",
             "value": "アルバムを読み込み中…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carregando álbuns…"
+          }
         }
       }
     },
@@ -3543,6 +4155,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "トラックを読み込み中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Carregando faixas…"
           }
         }
       }
@@ -3580,6 +4198,12 @@
             "state": "needs_review",
             "value": "アートワークを取得中…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscando capas…"
+          }
         }
       }
     },
@@ -3615,6 +4239,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%1$@ トラック · %2$@ アーティスト · %3$@ アルバム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ faixas · %2$@ artistas · %3$@ álbuns"
           }
         }
       }
@@ -3652,6 +4282,12 @@
             "state": "needs_review",
             "value": "ホームへ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para o início"
+          }
         }
       }
     },
@@ -3687,6 +4323,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "同期中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sincronizando…"
           }
         }
       }
@@ -3724,6 +4366,12 @@
             "state": "needs_review",
             "value": "ライブラリを読み込めませんでした。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível carregar sua biblioteca."
+          }
         }
       }
     },
@@ -3759,6 +4407,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再試行"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente"
           }
         }
       }
@@ -3796,6 +4450,12 @@
             "state": "needs_review",
             "value": "Lyrebirdについて"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sobre o Lyrebird"
+          }
         }
       }
     },
@@ -3831,6 +4491,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "新規プレイリスト…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova Playlist…"
           }
         }
       }
@@ -3868,6 +4534,12 @@
             "state": "needs_review",
             "value": "新規ウィンドウ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova Janela"
+          }
         }
       }
     },
@@ -3903,6 +4575,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "サイドバーを表示"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Barra Lateral"
           }
         }
       }
@@ -3940,6 +4618,12 @@
             "state": "needs_review",
             "value": "キューインスペクタを表示"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Inspetor de Fila"
+          }
         }
       }
     },
@@ -3975,6 +4659,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ホーム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Início"
           }
         }
       }
@@ -4012,6 +4702,12 @@
             "state": "needs_review",
             "value": "ライブラリ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biblioteca"
+          }
         }
       }
     },
@@ -4047,6 +4743,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "検索"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar"
           }
         }
       }
@@ -4084,6 +4786,12 @@
             "state": "needs_review",
             "value": "検索…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar…"
+          }
         }
       }
     },
@@ -4119,6 +4827,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ライブラリで検索…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar na Biblioteca…"
           }
         }
       }
@@ -4156,6 +4870,12 @@
             "state": "needs_review",
             "value": "再生中へ移動"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para Reproduzindo Agora"
+          }
         }
       }
     },
@@ -4191,6 +4911,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生キュー"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fila de Reprodução"
           }
         }
       }
@@ -4228,6 +4954,12 @@
             "state": "needs_review",
             "value": "コマンドパレット…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paleta de Comandos…"
+          }
         }
       }
     },
@@ -4263,6 +4995,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reprodução"
           }
         }
       }
@@ -4300,6 +5038,12 @@
             "state": "needs_review",
             "value": "再生"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzir"
+          }
         }
       }
     },
@@ -4335,6 +5079,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "一時停止"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar"
           }
         }
       }
@@ -4372,6 +5122,12 @@
             "state": "needs_review",
             "value": "次のトラック"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próxima Faixa"
+          }
         }
       }
     },
@@ -4407,6 +5163,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "前のトラック"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faixa Anterior"
           }
         }
       }
@@ -4444,6 +5206,12 @@
             "state": "needs_review",
             "value": "音量を上げる"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aumentar Volume"
+          }
         }
       }
     },
@@ -4479,6 +5247,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "音量を下げる"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diminuir Volume"
           }
         }
       }
@@ -4516,6 +5290,12 @@
             "state": "needs_review",
             "value": "10秒進む"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avançar 10s"
+          }
         }
       }
     },
@@ -4551,6 +5331,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "10秒戻る"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retroceder 10s"
           }
         }
       }
@@ -4588,6 +5374,12 @@
             "state": "needs_review",
             "value": "停止"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Parar"
+          }
         }
       }
     },
@@ -4623,6 +5415,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ウィンドウを左に並べる"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organizar Janela à Esquerda"
           }
         }
       }
@@ -4660,6 +5458,12 @@
             "state": "needs_review",
             "value": "ウィンドウを右に並べる"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organizar Janela à Direita"
+          }
         }
       }
     },
@@ -4695,6 +5499,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Lyrebirdヘルプ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuda do Lyrebird"
           }
         }
       }
@@ -4732,6 +5542,12 @@
             "state": "needs_review",
             "value": "キューインスペクタを切り替え"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar Inspetor de Fila"
+          }
         }
       }
     },
@@ -4767,6 +5583,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生中のものはありません"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nada sendo reproduzido"
           }
         }
       }
@@ -4804,6 +5626,12 @@
             "state": "needs_review",
             "value": "ホーム"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Início"
+          }
         }
       }
     },
@@ -4839,6 +5667,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "見つける"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descobrir"
           }
         }
       }
@@ -4876,6 +5710,12 @@
             "state": "needs_review",
             "value": "ラジオ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rádio"
+          }
         }
       }
     },
@@ -4911,6 +5751,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ライブラリ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biblioteca"
           }
         }
       }
@@ -4948,6 +5794,12 @@
             "state": "needs_review",
             "value": "検索"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar"
+          }
         }
       }
     },
@@ -4983,6 +5835,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "マイライブラリ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Minha Biblioteca"
           }
         }
       }
@@ -5074,6 +5932,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld item"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld itens"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -5109,6 +5985,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "切断中"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desconectado"
           }
         }
       }
@@ -5146,6 +6028,12 @@
             "state": "needs_review",
             "value": "お気に入り"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favoritos"
+          }
         }
       }
     },
@@ -5181,6 +6069,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Álbuns"
           }
         }
       }
@@ -5218,6 +6112,12 @@
             "state": "needs_review",
             "value": "アーティスト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Artistas"
+          }
         }
       }
     },
@@ -5253,6 +6153,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "プレイリスト"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playlists"
           }
         }
       }
@@ -5290,6 +6196,12 @@
             "state": "needs_review",
             "value": "スマートプレイリストのルールを編集"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar regras da playlist inteligente"
+          }
         }
       }
     },
@@ -5325,6 +6237,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スマートプレイリストを再生"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzir playlist inteligente"
           }
         }
       }
@@ -5362,6 +6280,12 @@
             "state": "needs_review",
             "value": "スマートプレイリストをシャッフル"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Embaralhar playlist inteligente"
+          }
         }
       }
     },
@@ -5397,6 +6321,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スマートプレイリスト"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "PLAYLIST INTELIGENTE"
           }
         }
       }
@@ -5434,6 +6364,12 @@
             "state": "needs_review",
             "value": "ルールを追加"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar regra"
+          }
         }
       }
     },
@@ -5469,6 +6405,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ルールフィールド"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Campo da regra"
           }
         }
       }
@@ -5506,6 +6448,12 @@
             "state": "needs_review",
             "value": "一致モード"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo de correspondência"
+          }
         }
       }
     },
@@ -5541,6 +6489,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スマートプレイリスト名"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome da playlist inteligente"
           }
         }
       }
@@ -5578,6 +6532,12 @@
             "state": "needs_review",
             "value": "ルール演算子"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Operador da regra"
+          }
         }
       }
     },
@@ -5613,6 +6573,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ルールを削除"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover regra"
           }
         }
       }
@@ -5650,6 +6616,12 @@
             "state": "needs_review",
             "value": "スマートプレイリストを保存"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvar playlist inteligente"
+          }
         }
       }
     },
@@ -5685,6 +6657,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ルール値"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valor da regra"
           }
         }
       }
@@ -5722,6 +6700,12 @@
             "state": "needs_review",
             "value": "ルール値（日数）"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valor da regra em dias"
+          }
         }
       }
     },
@@ -5757,6 +6741,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ルールを追加"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adicionar Regra"
           }
         }
       }
@@ -5794,6 +6784,12 @@
             "state": "needs_review",
             "value": "いいえ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não"
+          }
         }
       }
     },
@@ -5829,6 +6825,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "はい"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sim"
           }
         }
       }
@@ -5866,6 +6868,12 @@
             "state": "needs_review",
             "value": "キャンセル"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar"
+          }
         }
       }
     },
@@ -5901,6 +6909,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "カウント中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contando…"
           }
         }
       }
@@ -5938,6 +6952,12 @@
             "state": "needs_review",
             "value": "日"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dias"
+          }
         }
       }
     },
@@ -5973,6 +6993,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スマートプレイリスト"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playlist Inteligente"
           }
         }
       }
@@ -6064,6 +7090,24 @@
               }
             }
           }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld correspondência"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld correspondências"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -6099,6 +7143,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "一致条件："
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corresponder"
           }
         }
       }
@@ -6136,6 +7186,12 @@
             "state": "needs_review",
             "value": "のルール："
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "das seguintes regras:"
+          }
         }
       }
     },
@@ -6171,6 +7227,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "名前"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "NOME"
           }
         }
       }
@@ -6208,6 +7270,12 @@
             "state": "needs_review",
             "value": "スマートプレイリスト名"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome da Playlist Inteligente"
+          }
         }
       }
     },
@@ -6243,6 +7311,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "保存"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvar"
           }
         }
       }
@@ -6280,6 +7354,12 @@
             "state": "needs_review",
             "value": "スマートプレイリスト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playlist Inteligente"
+          }
         }
       }
     },
@@ -6315,6 +7395,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "値"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "valor"
           }
         }
       }
@@ -6352,6 +7438,12 @@
             "state": "needs_review",
             "value": "ルールを編集"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar Regras"
+          }
         }
       }
     },
@@ -6387,6 +7479,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "現在%lldトラックを読み込み済み。ルールを緩めるか、ライブラリを開いてメモリにより多くのトラックを載せてください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%lld faixas carregadas até agora. Tente relaxar as regras ou abra a Biblioteca para ter mais faixas na memória."
           }
         }
       }
@@ -6424,6 +7522,12 @@
             "state": "needs_review",
             "value": "このルールに一致するトラックがありません"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma faixa corresponde a essas regras"
+          }
         }
       }
     },
@@ -6459,6 +7563,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Álbum"
           }
         }
       }
@@ -6496,6 +7606,12 @@
             "state": "needs_review",
             "value": "アーティスト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Artista"
+          }
         }
       }
     },
@@ -6531,6 +7647,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "お気に入り"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favorito"
           }
         }
       }
@@ -6568,6 +7690,12 @@
             "state": "needs_review",
             "value": "ジャンル"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gênero"
+          }
         }
       }
     },
@@ -6603,6 +7731,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "時間（秒）"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duração (seg)"
           }
         }
       }
@@ -6640,6 +7774,12 @@
             "state": "needs_review",
             "value": "最後に再生"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Última Reprodução"
+          }
         }
       }
     },
@@ -6675,6 +7815,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生回数"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduções"
           }
         }
       }
@@ -6712,6 +7858,12 @@
             "state": "needs_review",
             "value": "年"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ano"
+          }
         }
       }
     },
@@ -6747,6 +7899,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "トラックをフィルタ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Filtrar faixas"
           }
         }
       }
@@ -6784,6 +7942,12 @@
             "state": "needs_review",
             "value": "すべて"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "todas"
+          }
         }
       }
     },
@@ -6819,6 +7983,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "いずれか"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "qualquer"
           }
         }
       }
@@ -6856,6 +8026,12 @@
             "state": "needs_review",
             "value": "\"%@\"に一致するトラックがありません"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma faixa corresponde a \"%@\""
+          }
         }
       }
     },
@@ -6891,6 +8067,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スマートプレイリストが見つかりません"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playlist inteligente não encontrada"
           }
         }
       }
@@ -6928,6 +8110,12 @@
             "state": "needs_review",
             "value": "含む"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "contém"
+          }
         }
       }
     },
@@ -6963,6 +8151,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "より大きい"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "maior que"
           }
         }
       }
@@ -7000,6 +8194,12 @@
             "state": "needs_review",
             "value": "直近（日数）"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nos últimos (dias)"
+          }
         }
       }
     },
@@ -7035,6 +8235,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "が"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "é"
           }
         }
       }
@@ -7072,6 +8278,12 @@
             "state": "needs_review",
             "value": "でない"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "não é"
+          }
         }
       }
     },
@@ -7107,6 +8319,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "より小さい"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "menor que"
           }
         }
       }
@@ -7144,6 +8362,12 @@
             "state": "needs_review",
             "value": "、"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": ", "
+          }
         }
       }
     },
@@ -7179,6 +8403,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%2$@の%1$@に一致"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corresponde %1$@ de: %2$@"
           }
         }
       }
@@ -7216,6 +8446,12 @@
             "state": "needs_review",
             "value": "すべてのトラックに一致。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Corresponde a todas as faixas."
+          }
         }
       }
     },
@@ -7251,6 +8487,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "失敗したトラックを再試行"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar reproduzir a faixa com falha novamente"
           }
         }
       }
@@ -7288,6 +8530,12 @@
             "state": "needs_review",
             "value": "トラックに移動"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ir para a faixa"
+          }
         }
       }
     },
@@ -7323,6 +8571,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "\"%@\"を再生できませんでした。スキップします。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível reproduzir \"%@\". Pulando."
           }
         }
       }
@@ -7360,6 +8614,12 @@
             "state": "needs_review",
             "value": "ネットワーク接続を再試行"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar reconectar à rede"
+          }
         }
       }
     },
@@ -7395,6 +8655,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "オフラインです。ダウンロード済みのトラックのみ再生します。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Você está offline. Reproduzindo apenas faixas baixadas."
           }
         }
       }
@@ -7432,6 +8698,12 @@
             "state": "needs_review",
             "value": "このプレイリストを完全に削除します。この操作は取り消せません。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isso excluirá permanentemente esta playlist. Esta ação não pode ser desfeita."
+          }
         }
       }
     },
@@ -7467,6 +8739,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバム"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Álbum"
           }
         }
       }
@@ -7504,6 +8782,12 @@
             "state": "needs_review",
             "value": "ディスク"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disco"
+          }
         }
       }
     },
@@ -7539,6 +8823,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "時間"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Duração"
           }
         }
       }
@@ -7576,6 +8866,12 @@
             "state": "needs_review",
             "value": "形式"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Formato"
+          }
         }
       }
     },
@@ -7611,6 +8907,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生回数"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduções"
           }
         }
       }
@@ -7648,6 +8950,12 @@
             "state": "needs_review",
             "value": "トラック"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faixa"
+          }
         }
       }
     },
@@ -7683,6 +8991,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "年"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ano"
           }
         }
       }
@@ -7720,6 +9034,12 @@
             "state": "needs_review",
             "value": "ミニプレーヤー"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini Player"
+          }
         }
       }
     },
@@ -7755,6 +9075,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生中"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzindo Agora"
           }
         }
       }
@@ -7792,6 +9118,12 @@
             "state": "needs_review",
             "value": "次へ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próximo"
+          }
         }
       }
     },
@@ -7827,6 +9159,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Lyrebirdを開く"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir Lyrebird"
           }
         }
       }
@@ -7864,6 +9202,12 @@
             "state": "needs_review",
             "value": "一時停止"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar"
+          }
         }
       }
     },
@@ -7899,6 +9243,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzir"
           }
         }
       }
@@ -7936,6 +9286,12 @@
             "state": "needs_review",
             "value": "前へ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anterior"
+          }
         }
       }
     },
@@ -7971,6 +9327,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ミニプレーヤー"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini Player"
           }
         }
       }
@@ -8008,6 +9370,12 @@
             "state": "needs_review",
             "value": "ミニプレーヤー"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mini Player"
+          }
         }
       }
     },
@@ -8043,6 +9411,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバムアート。ドラッグしてミニプレーヤーを移動。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capa do álbum. Arraste para mover o mini player."
           }
         }
       }
@@ -8080,6 +9454,12 @@
             "state": "needs_review",
             "value": "ミニプレーヤーオプション"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opções do mini player"
+          }
         }
       }
     },
@@ -8115,6 +9495,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "常に前面表示"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sempre Visível"
           }
         }
       }
@@ -8152,6 +9538,12 @@
             "state": "needs_review",
             "value": "フルウィンドウに戻る"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar à Janela Completa"
+          }
         }
       }
     },
@@ -8187,6 +9579,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "非アクティブ時は透明"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Transparente quando Inativo"
           }
         }
       }
@@ -8224,6 +9622,12 @@
             "state": "needs_review",
             "value": "ミニプレーヤーを閉じる"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar Mini Player"
+          }
         }
       }
     },
@@ -8259,6 +9663,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "アルバムアート。タップしてアルバムを開く。ドラッグしてミニプレーヤーを移動。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capa do álbum. Toque para abrir o álbum; arraste para mover o mini player."
           }
         }
       }
@@ -8296,6 +9706,12 @@
             "state": "needs_review",
             "value": "アーティストページを開く"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir página do artista"
+          }
         }
       }
     },
@@ -8331,6 +9747,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "フルウィンドウに展開"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Expandir para Janela Completa"
           }
         }
       }
@@ -8368,6 +9790,12 @@
             "state": "needs_review",
             "value": "お気に入り"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Favorito"
+          }
         }
       }
     },
@@ -8403,6 +9831,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "お気に入りから削除"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Remover dos Favoritos"
           }
         }
       }
@@ -8440,6 +9874,12 @@
             "state": "needs_review",
             "value": "前のトラック"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faixa anterior"
+          }
         }
       }
     },
@@ -8475,6 +9915,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "再生"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzir"
           }
         }
       }
@@ -8512,6 +9958,12 @@
             "state": "needs_review",
             "value": "一時停止"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pausar"
+          }
         }
       }
     },
@@ -8547,6 +9999,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "次のトラック"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próxima faixa"
           }
         }
       }
@@ -8584,6 +10042,12 @@
             "state": "needs_review",
             "value": "フルウィンドウに戻る"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar à janela completa"
+          }
         }
       }
     },
@@ -8619,6 +10083,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "音量"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volume"
           }
         }
       }
@@ -8656,6 +10126,12 @@
             "state": "needs_review",
             "value": "再生位置"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Posição de reprodução"
+          }
         }
       }
     },
@@ -8692,6 +10168,12 @@
             "state": "needs_review",
             "value": "診断バンドルをエクスポート…"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exportar Pacote de Diagnóstico…"
+          }
         }
       }
     },
@@ -8726,6 +10208,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "キーボードショートカット"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atalhos de Teclado"
           }
         }
       }
@@ -8762,6 +10250,12 @@
             "state": "needs_review",
             "value": "再生 / 一時停止"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduzir / Pausar"
+          }
         }
       }
     },
@@ -8796,6 +10290,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "キーボードショートカットを検索"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar atalhos de teclado"
           }
         }
       }
@@ -8832,6 +10332,12 @@
             "state": "needs_review",
             "value": "検索をクリア"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Limpar busca"
+          }
         }
       }
     },
@@ -8866,6 +10372,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "検索に一致するショートカットがありません"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum atalho corresponde à sua busca"
           }
         }
       }
@@ -8902,6 +10414,12 @@
             "state": "needs_review",
             "value": "ショートカットを検索"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar atalhos"
+          }
         }
       }
     },
@@ -8936,6 +10454,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ファイル"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivo"
           }
         }
       }
@@ -8972,6 +10496,12 @@
             "state": "needs_review",
             "value": "再生"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reprodução"
+          }
         }
       }
     },
@@ -9006,6 +10536,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "表示"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visualizar"
           }
         }
       }
@@ -9042,6 +10578,12 @@
             "state": "needs_review",
             "value": "ウィンドウ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Janela"
+          }
         }
       }
     },
@@ -9076,6 +10618,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "キーボードショートカット"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atalhos de Teclado"
           }
         }
       }
@@ -9113,6 +10661,12 @@
             "state": "needs_review",
             "value": "アルバム"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Álbuns"
+          }
         }
       }
     },
@@ -9148,6 +10702,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "すべて"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todos"
           }
         }
       }
@@ -9185,6 +10745,12 @@
             "state": "needs_review",
             "value": "アーティスト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Artistas"
+          }
         }
       }
     },
@@ -9220,6 +10786,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ジャンル"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gêneros"
           }
         }
       }
@@ -9257,6 +10829,12 @@
             "state": "needs_review",
             "value": "トラック"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faixas"
+          }
         }
       }
     },
@@ -9292,6 +10870,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "インスタントミックスピッカーを閉じる"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fechar seletor de mix instantâneo"
           }
         }
       }
@@ -9329,6 +10913,12 @@
             "state": "needs_review",
             "value": "ミックスの基にするものを検索してください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquise algo para criar um mix."
+          }
         }
       }
     },
@@ -9364,6 +10954,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "生成"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gerar"
           }
         }
       }
@@ -9401,6 +10997,12 @@
             "state": "needs_review",
             "value": "前回のミックス："
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Último mix:"
+          }
         }
       }
     },
@@ -9436,6 +11038,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "一致なし"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sem correspondências"
           }
         }
       }
@@ -9473,6 +11081,12 @@
             "state": "needs_review",
             "value": "トラック、アルバム、アーティスト、またはジャンルを検索"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Busque uma faixa, álbum, artista ou gênero"
+          }
         }
       }
     },
@@ -9508,6 +11122,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "元："
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Base:"
           }
         }
       }
@@ -9545,6 +11165,12 @@
             "state": "needs_review",
             "value": "新規インスタントミックス"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo Mix Instantâneo"
+          }
         }
       }
     },
@@ -9580,6 +11206,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "新規インスタントミックス…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo Mix Instantâneo…"
           }
         }
       }
@@ -9617,6 +11249,12 @@
             "state": "needs_review",
             "value": "ツアーを表示"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar Tour"
+          }
         }
       }
     },
@@ -9652,6 +11290,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "機能ツアー"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tour de recursos"
           }
         }
       }
@@ -9689,6 +11333,12 @@
             "state": "needs_review",
             "value": "%1$lld / %2$lld ステップ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Etapa %1$lld de %2$lld"
+          }
         }
       }
     },
@@ -9724,6 +11374,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "キーボードショートカット %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atalho de teclado %@"
           }
         }
       }
@@ -9761,6 +11417,12 @@
             "state": "needs_review",
             "value": "戻る"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Voltar"
+          }
         }
       }
     },
@@ -9796,6 +11458,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "完了"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Concluído"
           }
         }
       }
@@ -9833,6 +11501,12 @@
             "state": "needs_review",
             "value": "⌘⌥Pを押すと、作業中にコーナーに置けるコンパクトな常時表示プレーヤーが開きます。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pressione ⌘⌥P para um player compacto, sempre visível, que você pode colocar em um canto enquanto trabalha."
+          }
         }
       }
     },
@@ -9868,6 +11542,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ミニプレーヤーを開く"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra o mini player"
           }
         }
       }
@@ -9905,6 +11585,12 @@
             "state": "needs_review",
             "value": "次へ"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próximo"
+          }
         }
       }
     },
@@ -9940,6 +11626,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "トラック、アルバム、アーティスト、またはプレイリストを右クリックすると、次に再生、プレイリストへ追加、ラジオ局を開始などのクイックアクションが使えます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clique com o botão direito em qualquer faixa, álbum, artista ou playlist para ações rápidas — reproduzir a seguir, adicionar a uma playlist, iniciar uma rádio e mais."
           }
         }
       }
@@ -9977,6 +11669,12 @@
             "state": "needs_review",
             "value": "右クリックでさらに"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clique direito para mais"
+          }
         }
       }
     },
@@ -10012,6 +11710,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "⌘Fを押すと、すぐに検索に移動し、ライブラリ内の曲、アルバム、アーティストを検索できます。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pressione ⌘F para ir direto à busca e encontrar qualquer música, álbum ou artista na sua biblioteca."
           }
         }
       }
@@ -10049,6 +11753,12 @@
             "state": "needs_review",
             "value": "素早く何でも検索"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encontre qualquer coisa rapidamente"
+          }
         }
       }
     },
@@ -10084,6 +11794,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スキップ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pular"
           }
         }
       }
@@ -10121,6 +11837,12 @@
             "state": "needs_review",
             "value": "テキストフィールドの外でスペースバーを押すと、現在のトラックを再生または一時停止できます。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pressione a barra de espaço em qualquer lugar fora de um campo de texto para reproduzir ou pausar a faixa atual."
+          }
         }
       }
     },
@@ -10156,6 +11878,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "スペースで再生・一時停止"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reproduza e pause com Espaço"
           }
         }
       }
@@ -10193,6 +11921,12 @@
             "state": "needs_review",
             "value": "Lyrebirdのローカルデータを開けませんでした。通常は修正できます：新しく始めるにはローカルデータをリセットするか、バグレポートに添付するために診断バンドルをエクスポートしてください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os dados locais do Lyrebird não puderam ser abertos. Geralmente é solucionável: redefina os dados locais para começar do zero, ou exporte um pacote de diagnóstico para compartilhar com um relatório de bug."
+          }
         }
       }
     },
@@ -10228,6 +11962,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "診断をエクスポート…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exportar Diagnóstico…"
           }
         }
       }
@@ -10265,6 +12005,12 @@
             "state": "needs_review",
             "value": "診断をエクスポートしました。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diagnóstico exportado."
+          }
         }
       }
     },
@@ -10300,6 +12046,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "診断をエクスポートできませんでした：%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível exportar o diagnóstico: %@"
           }
         }
       }
@@ -10337,6 +12089,12 @@
             "state": "needs_review",
             "value": "終了"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sair"
+          }
         }
       }
     },
@@ -10372,6 +12130,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ローカルデータをリセット"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redefinir Dados Locais"
           }
         }
       }
@@ -10409,6 +12173,12 @@
             "state": "needs_review",
             "value": "ローカルデータを次の場所に移動しました：\n%@\nLyrebirdを終了して再度開いてください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Os dados locais foram movidos para:\n%@\nPor favor, saia e reabra o Lyrebird."
+          }
         }
       }
     },
@@ -10444,6 +12214,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "ローカルデータをリセットできませんでした：%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível redefinir os dados locais: %@"
           }
         }
       }
@@ -10481,6 +12257,12 @@
             "state": "needs_review",
             "value": "リセットするローカルデータが見つかりませんでした。代わりに診断をエクスポートしてみてください。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum dado local encontrado para redefinir. Tente exportar o diagnóstico."
+          }
         }
       }
     },
@@ -10516,6 +12298,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Lyrebirdを起動できませんでした"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Lyrebird não pôde iniciar"
           }
         }
       }
@@ -10553,6 +12341,12 @@
             "state": "needs_review",
             "value": "デバイス名"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome do dispositivo"
+          }
         }
       }
     },
@@ -10588,6 +12382,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "デバイス名：%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome do dispositivo: %@"
           }
         }
       }
@@ -10625,6 +12425,12 @@
             "state": "needs_review",
             "value": "キャンセル"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar"
+          }
         }
       }
     },
@@ -10660,6 +12466,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "JellyfinがこのデバイスのJellyfinダッシュボードに表示する名前を変更します。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altere o nome que o Jellyfin exibe para este dispositivo."
           }
         }
       }
@@ -10697,6 +12509,12 @@
             "state": "needs_review",
             "value": "マイMac"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meu Mac"
+          }
         }
       }
     },
@@ -10732,6 +12550,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "保存"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salvar"
           }
         }
       }
@@ -10769,6 +12593,12 @@
             "state": "needs_review",
             "value": "このサーバーのダッシュボードおよび他のJellyfinクライアントに表示されます。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exibido no painel deste servidor e em outros clientes Jellyfin."
+          }
         }
       }
     },
@@ -10804,6 +12634,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "デバイス名"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome do dispositivo"
           }
         }
       }
@@ -10841,6 +12677,12 @@
             "state": "needs_review",
             "value": "別のサインイン済みJellyfinクライアントでコードを入力してこのデバイスをペアリング。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Emparelhe este dispositivo inserindo um código em outro cliente Jellyfin conectado."
+          }
         }
       }
     },
@@ -10876,6 +12718,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "キャンセル"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cancelar"
           }
         }
       }
@@ -10913,6 +12761,12 @@
             "state": "needs_review",
             "value": "コード"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CÓDIGO"
+          }
         }
       }
     },
@@ -10948,6 +12802,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "クイックコネクトを完了できませんでした。再試行してください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Quick Connect não pôde ser concluído. Tente novamente."
           }
         }
       }
@@ -10985,6 +12845,12 @@
             "state": "needs_review",
             "value": "Jellyfinクイックコネクトを使用"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usar Jellyfin Quick Connect"
+          }
         }
       }
     },
@@ -11020,6 +12886,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "最初にログイン画面でサーバーアドレスを入力してから、クイックコネクトをお試しください。"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Insira o endereço do servidor na tela de login primeiro, depois tente o Quick Connect."
           }
         }
       }
@@ -11057,6 +12929,12 @@
             "state": "needs_review",
             "value": "再試行"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tentar novamente"
+          }
         }
       }
     },
@@ -11092,6 +12970,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "クイックコネクトを開始中…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Iniciando Quick Connect…"
           }
         }
       }
@@ -11129,6 +13013,12 @@
             "state": "needs_review",
             "value": "別のサインイン済みJellyfinアプリにこのコードを入力してデバイスをペアリングします。"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Insira este código em outro aplicativo Jellyfin conectado para emparelhar este dispositivo."
+          }
         }
       }
     },
@@ -11165,6 +13055,12 @@
             "state": "needs_review",
             "value": "クイックコネクト"
           }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quick Connect"
+          }
         }
       }
     },
@@ -11200,6 +13096,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "承認を待っています…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando aprovação…"
           }
         }
       }
