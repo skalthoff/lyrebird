@@ -54,6 +54,10 @@ extension AudioEngine {
             self.onTrackEnded?()
         }
         pipeline.setOutputDevice(uid: outputDeviceUID)
+        // Re-apply the persisted EQ curve (#40) — the pipeline constructs
+        // flat/bypassed, so a rebuild (or the first DSP-routed play of the
+        // session) must restore the user's settings before audio renders.
+        pipeline.applyEqualizer(equalizer)
         dspPipeline = pipeline
         return pipeline
     }

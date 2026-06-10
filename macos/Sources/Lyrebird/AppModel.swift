@@ -867,6 +867,11 @@ final class AppModel {
         // never constructs the DSP pipeline and every transport call takes
         // the AVQueuePlayer path unchanged. See `supportsEngineDSP`.
         self.audio.dspPipelineEnabled = supportsEngineDSP
+        // Equalizer (#40): seed the persisted EQ curve so the pipeline's EQ
+        // node is configured from the first DSP-routed track (the engine
+        // re-applies it whenever the pipeline is (re)built). With the DSP
+        // flag off this is inert state. See `AppModel+Equalizer.swift`.
+        self.audio.equalizer = EqualizerSettings.load(from: .standard)
         // Streaming quality (#260): seed the engine's transcode ceiling from the
         // persisted Streaming Quality preference so the first track honours it
         // without waiting for a `play(tracks:)`. Defaults to 320 kbps when the

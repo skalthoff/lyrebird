@@ -110,14 +110,14 @@ extension AppModel {
     /// `AudioEngine` routes play/pause/seek/advance through the streaming
     /// AVAudioEngine pipeline (`EngineDSPPipeline`: player node →
     /// `AVAudioUnitEQ` → main mixer) instead of `AVQueuePlayer`. The pipeline
-    /// is the foundation for EQ (#40) and crossfade (#41) — neither UI ships
-    /// yet, so the EQ node runs flat/bypassed and this flag defaults to
-    /// **off**: a missing key reads `false`, and nothing in the app writes it,
-    /// so playback stays byte-for-byte on the AVQueuePlayer path until the
-    /// user (or a future Settings toggle from #40/#41) opts in via the
-    /// defaults key above. Read once at launch (`AppModel.init` seeds
+    /// hosts the equalizer (#40) and is the foundation for crossfade (#41).
+    /// Defaults to **off**: a missing key reads `false`, so playback stays
+    /// byte-for-byte on the AVQueuePlayer path until the user opts in — via
+    /// the Preferences ▸ Equalizer engine toggle (which writes this key) or
+    /// `defaults write`. Read once at launch (`AppModel.init` seeds
     /// `audio.dspPipelineEnabled`); relaunch to apply — flipping mid-session
-    /// would strand a live player on the other path.
+    /// would strand a live player on the other path. UI that drives the live
+    /// EQ node therefore gates on `engineDSPActiveThisSession`, not this.
     var supportsEngineDSP: Bool {
         UserDefaults.standard.bool(forKey: AppModel.engineDSPDefaultsKey)
     }

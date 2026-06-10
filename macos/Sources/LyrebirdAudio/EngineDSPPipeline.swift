@@ -391,15 +391,36 @@ public final class EngineDSPPipeline {
 
     /// Standard 10-band layout (31 Hz … 16 kHz), flat. `bypass = true` on
     /// every band plus `globalGain = 0` guarantees the engine path is
-    /// audibly identical to no-EQ until #40 ships controls.
+    /// audibly identical to no-EQ until `applyEqualizer` installs the
+    /// user's settings (#40).
     private func configureFlatEQ() {
-        let frequencies: [Float] = [31, 62, 125, 250, 500, 1_000, 2_000, 4_000, 8_000, 16_000]
+        let frequencies = EqualizerSettings.bandFrequencies
         for (index, band) in eq.bands.enumerated() {
             band.filterType = .parametric
             band.frequency = index < frequencies.count ? frequencies[index] : 1_000
             band.bandwidth = 0.5
             band.gain = 0
             band.bypass = true
+        }
+        eq.globalGain = 0
+    }
+
+    /// Drive the live EQ node from user settings (#40). Safe to call at any
+    /// time — `AVAudioUnitEQ` band parameters apply in real time, so preset
+    /// switches and slider drags take effect mid-render without a graph
+    /// rebuild (and without clicks; the unit ramps parameter changes).
+    ///
+    /// Bit-perfect contract: a band whose gain is 0 — and *every* band while
+    /// `isEnabled == false` — is bypassed outright rather than run as a
+    /// zero-gain filter, so EQ-off and the Flat preset are bit-identical to
+    /// the engine-disabled output. `globalGain` stays 0; the issue reserves
+    /// make-up gain for a future loudness pass.
+    public func applyEqualizer(_ settings: EqualizerSettings) {
+        let gains = settings.activeGains
+        for (index, band) in eq.bands.enumerated() {
+            let gain = index < gains.count ? gains[index] : 0
+            band.gain = gain
+            band.bypass = !settings.isEnabled || gain == 0
         }
         eq.globalGain = 0
     }

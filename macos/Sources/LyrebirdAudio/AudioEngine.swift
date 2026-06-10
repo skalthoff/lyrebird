@@ -106,6 +106,17 @@ public final class AudioEngine: NSObject {
     /// non-nil after the first DSP-routed `play(track:)`; see
     /// `AudioEngine+DSP.swift`.
     var dspPipeline: EngineDSPPipeline?
+
+    /// 10-band graphic-equalizer state (#40). Seeded at startup by the owner
+    /// (`AppModel`) from the persisted defaults and pushed again on every
+    /// Preferences edit; assignment applies to the live pipeline's EQ node
+    /// immediately, and `dspEnsurePipeline` re-applies it on construction so
+    /// the curve survives pipeline rebuilds. With the DSP flag off this only
+    /// holds state — the pipeline (and its EQ node) is never constructed, so
+    /// the AVQueuePlayer path stays byte-for-byte untouched.
+    public var equalizer: EqualizerSettings = EqualizerSettings() {
+        didSet { dspPipeline?.applyEqualizer(equalizer) }
+    }
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
     private var rateObservation: NSKeyValueObservation?
