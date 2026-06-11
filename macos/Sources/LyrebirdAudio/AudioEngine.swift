@@ -67,6 +67,12 @@ public protocol AudioEngineDelegate: AnyObject {
     /// the `AVQueuePlayer` queue. The owner should re-arm gapless playback
     /// by calling `preloadNextTrack` for the upcoming track.
     func audioEngineDidRecover()
+
+    /// Called whenever the current item appends a new access-log entry
+    /// (`AVPlayerItemNewAccessLogEntry`) — roughly once per stream segment /
+    /// rebuffer. Carries the latest event's transport health so the owner can
+    /// surface live bitrate and stall counts (debug panel, issue #452).
+    func audioEngineDidUpdateAccessLog(_ stats: PlayerAccessLogStats)
 }
 
 public extension AudioEngineDelegate {
@@ -77,6 +83,40 @@ public extension AudioEngineDelegate {
     /// Default no-op so existing conformers don't have to implement the
     /// new recovery hook to compile.
     func audioEngineDidRecover() {}
+
+    /// Default no-op so conformers that don't surface stream telemetry
+    /// (mini player tests, fixtures) compile unchanged (#452).
+    func audioEngineDidUpdateAccessLog(_ stats: PlayerAccessLogStats) {}
+}
+
+/// Snapshot of the most recent `AVPlayerItemAccessLogEvent` on the playing
+/// item — the transport-health fields issue #452 surfaces. Plain value type
+/// so it can cross to the `@MainActor` owner and sit in view state.
+public struct PlayerAccessLogStats: Equatable, Sendable {
+    /// Total stall count for the current playback session (per access log).
+    public let numberOfStalls: Int
+    /// Bitrate the server advertised for the stream, bits per second.
+    public let indicatedBitrate: Double
+    /// Bitrate actually observed over the network, bits per second.
+    public let observedBitrate: Double
+    /// Segments that arrived later than their play deadline.
+    public let downloadOverdue: Int
+    /// Server address the bytes came from (load balancer visibility).
+    public let serverAddress: String?
+
+    public init(
+        numberOfStalls: Int,
+        indicatedBitrate: Double,
+        observedBitrate: Double,
+        downloadOverdue: Int,
+        serverAddress: String?
+    ) {
+        self.numberOfStalls = numberOfStalls
+        self.indicatedBitrate = indicatedBitrate
+        self.observedBitrate = observedBitrate
+        self.downloadOverdue = downloadOverdue
+        self.serverAddress = serverAddress
+    }
 }
 
 /// `AVQueuePlayer`-backed audio engine. Reports transport state back to the
@@ -119,6 +159,10 @@ public final class AudioEngine: NSObject {
     }
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    /// Notification observer for `AVPlayerItemNewAccessLogEntry` on the live
+    /// item (#452). Re-wired alongside `endObserver` whenever `currentItem`
+    /// changes so transport telemetry always tracks the playing stream.
+    private var accessLogObserver: NSObjectProtocol?
     private var rateObservation: NSKeyValueObservation?
     private var timeControlObservation: NSKeyValueObservation?
     /// KVO observation on `AVQueuePlayer.currentItem`. Fires whenever the
@@ -332,6 +376,9 @@ public final class AudioEngine: NSObject {
         }
         if let end = endObserver {
             NotificationCenter.default.removeObserver(end)
+        }
+        if let log = accessLogObserver {
+            NotificationCenter.default.removeObserver(log)
         }
     }
 
@@ -1067,6 +1114,7 @@ public final class AudioEngine: NSObject {
         // currentItem KVO handler below so every item in the queue fires
         // onTrackEnded correctly.
         wireEndObserver(to: item)
+        wireAccessLogObserver(to: item)
 
         // Watch the live item for transient network failures (#806). The
         // observers are re-attached inside the currentItem KVO handler
@@ -1097,6 +1145,7 @@ public final class AudioEngine: NSObject {
                 // Re-register end-of-item notification for the newly-current item.
                 if let current = player.currentItem {
                     self.wireEndObserver(to: current)
+                    self.wireAccessLogObserver(to: current)
                     // Re-attach failure KVO so transient-error detection
                     // follows gapless auto-advance instead of being pinned
                     // to the item that was current at play(track:) time
@@ -1305,6 +1354,39 @@ public final class AudioEngine: NSObject {
         }
     }
 
+    /// Register (or re-register) `accessLogObserver` against `item` (#452).
+    /// Wired everywhere `wireEndObserver(to:)` is, so the telemetry follows
+    /// the item that's actually playing. Each new log entry is emitted as a
+    /// structured log line (Console: subsystem org.lyrebird.desktop,
+    /// category player) and forwarded to the delegate for UI surfaces.
+    private func wireAccessLogObserver(to item: AVPlayerItem) {
+        if let old = accessLogObserver {
+            NotificationCenter.default.removeObserver(old)
+        }
+        accessLogObserver = NotificationCenter.default.addObserver(
+            forName: AVPlayerItem.newAccessLogEntryNotification,
+            object: item,
+            queue: .main
+        ) { [weak self] note in
+            guard
+                let self,
+                let item = note.object as? AVPlayerItem,
+                let event = item.accessLog()?.events.last
+            else { return }
+            let stats = PlayerAccessLogStats(
+                numberOfStalls: event.numberOfStalls,
+                indicatedBitrate: event.indicatedBitrate,
+                observedBitrate: event.observedBitrate,
+                downloadOverdue: event.downloadOverdue,
+                serverAddress: event.serverAddress
+            )
+            engineLog.info(
+                "access-log: stalls=\(stats.numberOfStalls, privacy: .public) indicated_bps=\(Int(stats.indicatedBitrate), privacy: .public) observed_bps=\(Int(stats.observedBitrate), privacy: .public) overdue=\(stats.downloadOverdue, privacy: .public) server=\(stats.serverAddress ?? "—", privacy: .private(mask: .hash))"
+            )
+            self.delegate?.audioEngineDidUpdateAccessLog(stats)
+        }
+    }
+
     private func removePlayerObservers() {
         if let obs = timeObserver, let p = player {
             p.removeTimeObserver(obs)
@@ -1314,6 +1396,10 @@ public final class AudioEngine: NSObject {
             NotificationCenter.default.removeObserver(end)
         }
         endObserver = nil
+        if let log = accessLogObserver {
+            NotificationCenter.default.removeObserver(log)
+        }
+        accessLogObserver = nil
         rateObservation?.invalidate()
         rateObservation = nil
         timeControlObservation?.invalidate()
@@ -1424,6 +1510,7 @@ public final class AudioEngine: NSObject {
         // in place is intentional; all three target the AVQueuePlayer, not the
         // item, so they stay valid across the swap.
         wireEndObserver(to: item)
+        wireAccessLogObserver(to: item)
         // Re-attach failure KVO on the rebuilt item too (#806). If the
         // rebuilt stream also surfaces -1005/-1001/-1009 we still fail
         // fast on the next refailure instead of grinding through more

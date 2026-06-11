@@ -181,6 +181,7 @@ extension AppModel {
 
     func logout() {
         audio.stop()
+        playerAccessLogStats = nil
         // core.logout() does a blocking POST /Sessions/Logout; fire it off
         // the main actor so the UI clears immediately and the user isn't
         // staring at a stalled window for the network round-trip.
@@ -268,6 +269,7 @@ extension AppModel {
     /// short-circuits to `None` (safe), and the form is pre-populated.
     func forgetToken() {
         audio.stop()
+        playerAccessLogStats = nil
         try? core.forgetToken()
         albums = []
         artists = []
@@ -351,6 +353,7 @@ extension AppModel {
     func markAuthExpired() {
         guard !authExpired else { return }
         audio.stop()
+        playerAccessLogStats = nil
         stopStatusEventStream()
         authExpired = true
     }

@@ -72,7 +72,12 @@ extension AppModel {
             dspPipelineEnabled: audio.dspPipelineEnabled,
             offlinePlaybackEnabled: audio.offlinePlaybackEnabled,
             normalizationMode: String(describing: audio.normalizationMode),
-            preGainDb: audio.normalizationPreGainDb
+            preGainDb: audio.normalizationPreGainDb,
+            accessLogStalls: playerAccessLogStats?.numberOfStalls,
+            accessLogIndicatedBitrate: playerAccessLogStats?.indicatedBitrate,
+            accessLogObservedBitrate: playerAccessLogStats?.observedBitrate,
+            accessLogDownloadOverdue: playerAccessLogStats?.downloadOverdue,
+            accessLogServerAddress: playerAccessLogStats?.serverAddress
         )
 
         // Queue section — counts only; no track names in the panel output.
@@ -128,6 +133,13 @@ extension AppModel {
         partial.cache = cacheSection
         partial.flags = flagsSection
         partial.network = networkSection
+
+        // Publish the synchronous sections right away — the panel shows
+        // fresh main-actor state instantly instead of waiting out the IO
+        // tail below (the OSLog query alone can take seconds); the task
+        // re-publishes the same snapshot with cache sizes + log tail
+        // filled in.
+        debugSnapshot = partial
 
         // Capture Nuke pipeline references on the main actor before hopping off.
         // `Artwork.pipeline` is main-actor-isolated; capturing here satisfies
@@ -228,6 +240,13 @@ struct DebugSnapshot {
         var offlinePlaybackEnabled: Bool = false
         var normalizationMode: String = "—"
         var preGainDb: Double = 0
+        /// Latest access-log entry from the playing item (#452); nil until
+        /// the first entry arrives or after playback stops.
+        var accessLogStalls: Int?
+        var accessLogIndicatedBitrate: Double?
+        var accessLogObservedBitrate: Double?
+        var accessLogDownloadOverdue: Int?
+        var accessLogServerAddress: String?
     }
 
     struct QueueSection {
@@ -335,6 +354,11 @@ struct DebugSnapshot {
             "offlinePlaybackEnabled": player.offlinePlaybackEnabled,
             "normalizationMode": player.normalizationMode,
             "preGainDb": player.preGainDb,
+            "accessLogStalls": player.accessLogStalls ?? -1,
+            "accessLogIndicatedBitrate": player.accessLogIndicatedBitrate ?? -1,
+            "accessLogObservedBitrate": player.accessLogObservedBitrate ?? -1,
+            "accessLogDownloadOverdue": player.accessLogDownloadOverdue ?? -1,
+            "accessLogServerAddress": player.accessLogServerAddress ?? "(none)",
         ] as [String: Any]
 
         dict["queue"] = [

@@ -636,6 +636,13 @@ final class AppModel {
     /// tracked separately in #440 — this flag only powers the prompt.
     var authExpired: Bool = false
 
+    /// Latest transport-health snapshot from the playing item's access log
+    /// (#452) — stalls, indicated/observed bitrate, overdue segments, server.
+    /// Fed by `audioEngineDidUpdateAccessLog`; cleared when playback stops so
+    /// the debug panel never shows a previous stream's numbers. Read by the
+    /// debug panel's Player tab.
+    var playerAccessLogStats: PlayerAccessLogStats?
+
     /// Playlist the user asked to delete from a context menu. Observed by
     /// `MainShell` to present a `.confirmationDialog`; cleared when the
     /// user confirms or dismisses. Single-shot rather than a list because
@@ -1445,6 +1452,13 @@ extension AppModel: AudioEngineDelegate {
     /// hand-off so the skip isn't silent.
     func audioEngineDidEncounterTransientError(_ message: String) {
         errorMessage = message
+    }
+
+    /// Latest access-log entry from the playing item (#452). Stored for the
+    /// debug panel's Player tab; the engine has already emitted the
+    /// structured log line.
+    func audioEngineDidUpdateAccessLog(_ stats: PlayerAccessLogStats) {
+        playerAccessLogStats = stats
     }
 
     /// Stall recovery rebuilds the current item via `replaceCurrentItem`,

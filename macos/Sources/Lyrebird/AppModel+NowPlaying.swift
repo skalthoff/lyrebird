@@ -115,8 +115,10 @@ extension AppModel {
             // session down so `reportPlaybackStopped` + `stopHeartbeat` run —
             // otherwise the player keeps a stale `currentTrack` and the server
             // shows a frozen "Now Playing" until the next user action (the
-            // companion to the core heartbeat Ended-state guard).
-            audio.stop()
+            // companion to the core heartbeat Ended-state guard). Routed
+            // through `stop()` so the access-log snapshot clears with the
+            // stream.
+            stop()
             return
         }
         playInstantMix(seedId: seed.id, seedName: seed.name)

@@ -18,7 +18,12 @@ extension AppModel {
 
     func pause() { audio.pause() }
     func resume() { audio.resume() }
-    func stop() { audio.stop() }
+    func stop() {
+        audio.stop()
+        // A stopped transport has no live stream; drop the access-log
+        // snapshot so the debug panel can't show a dead stream's numbers.
+        playerAccessLogStats = nil
+    }
 
     func skipNext() {
         if let next = core.skipNext() {
