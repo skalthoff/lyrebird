@@ -273,13 +273,16 @@ pub fn delete(db: &Database, track_id: &str) -> Result<()> {
 }
 
 /// Delete every download: truncate the `downloads` table and unlink each
-/// row's on-disk file. Logout / server-switch cleanup — rows are keyed on
-/// server-specific track ids, so an entry surviving into a session against a
-/// different server would list the old server's items and report the old ids
-/// on offline playback.
+/// completed row's on-disk file (plus its `.part` sibling). Logout /
+/// server-switch cleanup — rows are keyed on server-specific track ids, so an
+/// entry surviving into a session against a different server would list the
+/// old server's items and report the old ids on offline playback.
 ///
-/// File unlinks are best-effort, matching [`delete`]; a row whose fetch never
-/// completed has no `local_path` and only its `.part` leftover is attempted.
+/// File unlinks are best-effort, matching [`delete`]. Rows that never
+/// completed have no `local_path`, so a fetch still in flight at logout can
+/// leave its `.part` behind — accepted: the file name is deterministic, so a
+/// future fetch of the same track overwrites it, and a `.part` is never
+/// served (only `done` rows with an existing file resolve offline).
 pub fn clear_all(db: &Database) -> Result<()> {
     for path in db.downloads_clear()? {
         let _ = std::fs::remove_file(&path);
