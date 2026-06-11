@@ -89,13 +89,13 @@ struct PreferencesServer: View {
             Button("Cancel", role: .cancel) {}
             Button("Switch Server", role: .destructive) { switchServer() }
         } message: {
-            Text("You'll be signed out and returned to the login screen so you can connect to a different Jellyfin server.")
+            Text("You'll be signed out and returned to the login screen so you can connect to a different Jellyfin server. Downloads and the cached library on this Mac are cleared.")
         }
         .alert("Sign in as a different user?", isPresented: $confirmChangeUser) {
             Button("Cancel", role: .cancel) {}
             Button("Change User", role: .destructive) { changeUser() }
         } message: {
-            Text("You'll be signed out of \(displayServer). The server URL stays remembered so you can sign in as someone else with just their credentials.")
+            Text("You'll be signed out of \(displayServer). Downloads and the cached library on this Mac are cleared; the server URL stays prefilled so the next person only needs their credentials.")
         }
         .alert("Sign out?", isPresented: $confirmSignOut) {
             Button("Cancel", role: .cancel) {}
@@ -299,23 +299,28 @@ struct PreferencesServer: View {
         closePreferencesWindow()
     }
 
-    /// Sign out and also clear the remembered username so the login form
-    /// keeps the server URL but lands on the credentials step empty. The user
-    /// can then sign in as a different user against the same Jellyfin
-    /// instance without retyping the URL.
+    /// Sign out for a *different* account on the same Jellyfin instance.
+    ///
+    /// Unlike `signOut()` (same user returning, local data kept for an
+    /// instant re-login), a user change must run the full `logout()` wipe —
+    /// server-side session invalidation, user-scoped database rows, offline
+    /// downloads, keychain token — or the next account inherits the previous
+    /// account's library cache and downloads. `logout()` clears the
+    /// persisted resume identity; the in-model `serverURL` survives it, so
+    /// the login form still prefills the URL and only the credentials step
+    /// comes up empty.
     private func changeUser() {
-        model.forgetToken()
-        model.session = nil
+        model.logout()
         model.username = ""
         model.authExpired = false
         closePreferencesWindow()
     }
 
-    /// Sign out and also clear the server URL + username so the login form
-    /// comes up blank, ready for a different Jellyfin instance.
+    /// Sign out ready for a *different* Jellyfin instance. Full `logout()`
+    /// wipe for the same cross-account reason as `changeUser()`, then clear
+    /// the prefill fields so the login form comes up blank.
     private func switchServer() {
-        model.forgetToken()
-        model.session = nil
+        model.logout()
         model.serverURL = ""
         model.username = ""
         model.authExpired = false
