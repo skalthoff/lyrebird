@@ -616,10 +616,9 @@ Signing out from the sidebar's door button (next to the server status)
 before uninstalling also clears the live account's footprint: it deletes
 the keychain token, wipes the user-scoped database rows, and removes
 downloads, leaving only empty scaffolding for the `rm -rf` lines above.
-The Settings ▸ Server actions intentionally keep local data for a fast
-re-login and do NOT perform that wipe (see #1068 for the cross-account
-caveat) — for a full cleanup use the sidebar sign-out or the commands
-above.
+The Settings ▸ Server actions (Sign Out, Change User, Switch Server)
+perform the same wipe, so any of them works for pre-uninstall cleanup —
+or use the commands above directly.
 
 ## Reference
 
