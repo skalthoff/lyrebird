@@ -417,6 +417,21 @@ impl Database {
         Ok(path)
     }
 
+    /// Delete every row of the `downloads` table, returning the `local_path`s
+    /// that were recorded so the caller can unlink the files on disk. See
+    /// [`crate::downloads::clear_all`] — file IO stays out of the storage
+    /// layer by contract.
+    pub fn downloads_clear(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt =
+            conn.prepare("SELECT local_path FROM downloads WHERE local_path IS NOT NULL")?;
+        let paths = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        conn.execute("DELETE FROM downloads", [])?;
+        Ok(paths)
+    }
+
     /// Fetch a single download row by track id, or `None` when absent.
     pub fn download_get(&self, track_id: &str) -> Result<Option<DownloadRow>> {
         let conn = self.conn.lock();

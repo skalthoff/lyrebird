@@ -247,6 +247,13 @@ async fn logout_clears_persisted_settings() {
         let _ = core
             .login(server_url, "logout-user".into(), "pw".into())
             .expect("login");
+        // Seed a download row so the wipe below can prove the downloads
+        // table doesn't survive a logout (its track ids are server-specific).
+        core.inner
+            .lock()
+            .db
+            .download_upsert_queued("t-logout-dl", "{}", 1)
+            .expect("seed download row");
         core.logout().expect("logout");
 
         {
@@ -255,6 +262,10 @@ async fn logout_clears_persisted_settings() {
             assert_eq!(inner.db.get_setting("last_username").unwrap(), None);
             assert_eq!(inner.db.get_setting("last_server_id").unwrap(), None);
             assert_eq!(inner.db.get_setting("last_user_id").unwrap(), None);
+            assert!(
+                inner.db.download_list().expect("download_list").is_empty(),
+                "logout must clear the downloads table"
+            );
         }
         assert!(
             CredentialStore::load_token("srv-logout", "logout-user")

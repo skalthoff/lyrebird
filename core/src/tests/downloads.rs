@@ -553,3 +553,40 @@ async fn download_concurrent_fetches_respect_shared_budget() {
     assert!(used <= 100, "used {used} exceeded budget 100");
     assert_eq!(count, 1, "exactly one download should remain within budget");
 }
+
+#[test]
+fn clear_all_removes_rows_and_files() {
+    use crate::downloads;
+    let db = Database::in_memory().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+
+    // One completed download with a real file plus a stale `.part` leftover,
+    // and one still-queued row with no file yet.
+    let done = dl_track("t-done-clear", None, 0);
+    let queued = dl_track("t-queued-clear", None, 0);
+    let json_done = serde_json::to_string(&done).unwrap();
+    let json_queued = serde_json::to_string(&queued).unwrap();
+
+    let audio = dir.path().join("t-done-clear.mp3");
+    std::fs::write(&audio, b"bytes").unwrap();
+    let part = audio.with_extension("part");
+    std::fs::write(&part, b"partial").unwrap();
+
+    db.download_upsert_queued("t-done-clear", &json_done, 1).unwrap();
+    db.download_mark_done("t-done-clear", audio.to_str().unwrap(), 5, Some("mp3"), 2)
+        .unwrap();
+    db.download_upsert_queued("t-queued-clear", &json_queued, 3).unwrap();
+
+    downloads::clear_all(&db).unwrap();
+
+    assert!(
+        downloads::list(&db).unwrap().is_empty(),
+        "every download row should be cleared"
+    );
+    assert!(!audio.exists(), "the completed file should be unlinked");
+    assert!(!part.exists(), "the stale .part should be unlinked");
+
+    // Idempotent on an already-empty table.
+    downloads::clear_all(&db).unwrap();
+    assert!(downloads::list(&db).unwrap().is_empty());
+}

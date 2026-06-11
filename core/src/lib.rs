@@ -425,6 +425,13 @@ impl LyrebirdCore {
             if let Err(e) = inner.db.clear_user_data() {
                 tracing::warn!("clear_user_data failed (continuing): {e}");
             }
+            // Download rows are keyed on server-specific track ids, so they
+            // must not survive into a session against a different server —
+            // a stale entry would surface the old server's items in the
+            // Downloads screen and report the old ids on offline playback.
+            if let Err(e) = downloads::clear_all(&inner.db) {
+                tracing::warn!("downloads::clear_all failed (continuing): {e}");
+            }
             if let (Some(sid), Some(uname)) = (server_id, username) {
                 let _ = CredentialStore::delete_token(&sid, &uname);
             }
