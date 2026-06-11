@@ -307,8 +307,13 @@ impl Database {
             // the held connection (`optimize()` would re-lock); bounded by the
             // `analysis_limit` pragma and a no-op while stats are still
             // representative, so per-page cost during a full library dump is
-            // negligible.
-            conn.execute_batch("PRAGMA optimize;")?;
+            // negligible. Best-effort: the rows above are already committed,
+            // and an ANALYZE hiccup (IO error on a network-mounted data dir)
+            // must not make callers treat the durable upsert as failed —
+            // that would stall the sync checkpoint into full re-walks.
+            if let Err(e) = conn.execute_batch("PRAGMA optimize;") {
+                tracing::debug!("PRAGMA optimize after cache_upsert failed (non-fatal): {e}");
+            }
         }
         Ok(changed)
     }
