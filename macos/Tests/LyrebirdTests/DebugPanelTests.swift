@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 @testable import Lyrebird
+import LyrebirdAudio
 
 /// Coverage for the debug panel snapshot helpers (#448).
 ///
@@ -136,5 +137,89 @@ final class DebugPanelTests: XCTestCase {
         let snap = DebugSnapshot()
         XCTAssertEqual(snap.capturedAt.timeIntervalSince1970, 0,
                        "capturedAt default must be epoch (indicates no refresh yet)")
+    }
+}
+
+// MARK: - Access-log stream telemetry (#452)
+
+/// The access-log pipeline: delegate hook → stored stats → snapshot fields →
+/// panel formatting. The `AVPlayerItemNewAccessLogEntry` notification itself
+/// can't be unit-driven (`AVPlayerItemAccessLogEvent` has no public
+/// initializer), so the engine-side observer is verified manually; everything
+/// downstream of the delegate is pinned here.
+@MainActor
+final class AccessLogTelemetryTests: XCTestCase {
+
+    override class func setUp() {
+        super.setUp()
+        let dir = NSTemporaryDirectory() + "lyrebird-tests-\(UUID().uuidString)"
+        setenv("XDG_DATA_HOME", dir, 1)
+    }
+
+    private func stats(stalls: Int = 2) -> PlayerAccessLogStats {
+        PlayerAccessLogStats(
+            numberOfStalls: stalls,
+            indicatedBitrate: 1_410_000,
+            observedBitrate: 980_500,
+            downloadOverdue: 1,
+            serverAddress: "203.0.113.7"
+        )
+    }
+
+    func testDelegateHookStoresStats() throws {
+        let model = try AppModel()
+        model.audioEngineDidUpdateAccessLog(stats())
+        XCTAssertEqual(model.playerAccessLogStats?.numberOfStalls, 2)
+        XCTAssertEqual(model.playerAccessLogStats?.serverAddress, "203.0.113.7")
+    }
+
+    func testStopClearsStats() throws {
+        let model = try AppModel()
+        model.audioEngineDidUpdateAccessLog(stats())
+        model.stop()
+        XCTAssertNil(model.playerAccessLogStats)
+    }
+
+    /// `refreshDebugSnapshot` publishes the snapshot at the end of an async
+    /// IO task (disk-size collection), so tests must wait for `capturedAt`
+    /// to move past its pre-refresh value. Bounded at 2s — the IO is a
+    /// handful of stat calls against a temp data dir.
+    private func awaitSnapshotPublish(_ model: AppModel, after: Date) async throws {
+        for _ in 0..<200 {
+            if model.debugSnapshot.capturedAt > after { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("debugSnapshot was never published after refresh")
+    }
+
+    func testSnapshotCarriesAccessLogFields() async throws {
+        let model = try AppModel()
+        model.audioEngineDidUpdateAccessLog(stats(stalls: 5))
+        let before = model.debugSnapshot.capturedAt
+        model.refreshDebugSnapshot()
+        try await awaitSnapshotPublish(model, after: before)
+        let p = model.debugSnapshot.player
+        XCTAssertEqual(p.accessLogStalls, 5)
+        XCTAssertEqual(p.accessLogIndicatedBitrate, 1_410_000)
+        XCTAssertEqual(p.accessLogObservedBitrate, 980_500)
+        XCTAssertEqual(p.accessLogDownloadOverdue, 1)
+        XCTAssertEqual(p.accessLogServerAddress, "203.0.113.7")
+    }
+
+    func testSnapshotFieldsNilBeforeFirstEntry() async throws {
+        let model = try AppModel()
+        let before = model.debugSnapshot.capturedAt
+        model.refreshDebugSnapshot()
+        try await awaitSnapshotPublish(model, after: before)
+        XCTAssertNil(model.debugSnapshot.player.accessLogStalls)
+        XCTAssertNil(model.debugSnapshot.player.accessLogServerAddress)
+    }
+
+    func testBitrateFormatting() {
+        XCTAssertEqual(DebugPanelView.formatBitrate(1_410_000), "1.41 Mbps")
+        XCTAssertEqual(DebugPanelView.formatBitrate(nil), "—")
+        // AVFoundation reports a negative observedBitrate when it has no
+        // estimate — render as "no data", not a negative rate.
+        XCTAssertEqual(DebugPanelView.formatBitrate(-1), "—")
     }
 }

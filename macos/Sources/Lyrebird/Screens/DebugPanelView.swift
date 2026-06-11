@@ -194,9 +194,29 @@ struct DebugPanelView: View {
                 DebugRow(label: "Normalization", value: p.normalizationMode)
                 DebugRow(label: "Pre-gain", value: String(format: "%+.1f dB", p.preGainDb))
             }
+            // Transport health from the playing item's access log (#452).
+            // Empty until AVPlayer appends the first entry (a few seconds
+            // into a stream); cleared on stop so a dead stream's numbers
+            // never linger.
+            DebugSection(title: "Stream (access log)") {
+                DebugRow(label: "Stalls", value: p.accessLogStalls.map(String.init) ?? "—")
+                DebugRow(label: "Indicated bitrate", value: Self.formatBitrate(p.accessLogIndicatedBitrate))
+                DebugRow(label: "Observed bitrate", value: Self.formatBitrate(p.accessLogObservedBitrate))
+                DebugRow(label: "Overdue segments", value: p.accessLogDownloadOverdue.map(String.init) ?? "—")
+                DebugRow(label: "Server", value: p.accessLogServerAddress ?? "—")
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Render an access-log bitrate (bits/second) as a readable Mbps value;
+    /// em-dash when no entry has arrived yet. AVFoundation reports a
+    /// negative `observedBitrate` when it has no estimate — treat that as
+    /// "no data" rather than printing a nonsense negative rate.
+    static func formatBitrate(_ bitsPerSecond: Double?) -> String {
+        guard let bps = bitsPerSecond, bps >= 0 else { return "—" }
+        return String(format: "%.2f Mbps", bps / 1_000_000)
     }
 
     // MARK: - Queue tab

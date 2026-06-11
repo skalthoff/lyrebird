@@ -181,6 +181,7 @@ extension AppModel {
 
     func logout() {
         audio.stop()
+        playerAccessLogStats = nil
         // core.logout() does a blocking POST /Sessions/Logout; fire it off
         // the main actor so the UI clears immediately and the user isn't
         // staring at a stalled window for the network round-trip.
