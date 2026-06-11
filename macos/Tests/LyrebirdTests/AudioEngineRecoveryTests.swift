@@ -212,3 +212,54 @@ private final class RecoveryDelegateSpy: AudioEngineDelegate {
     }
     func audioEngineDidEncounterTransientError(_ message: String) { transientErrorCount += 1 }
 }
+
+
+// MARK: - Dual-KVO failure dedup
+
+extension AudioEngineRecoveryTests {
+    /// One transient failure event flips both observed keys (`.error` and
+    /// `.status`), so `handleItemFailure` is invoked twice for the same item.
+    /// The is-still-current filter must count that as ONE retry — before it,
+    /// a single network blip burned two budget slots and halved the
+    /// documented retry budget.
+    func testSameItemFailureCountsOnceAgainstRetryBudget() throws {
+        let engine = try makeEngine()
+        engine.setCurrentStreamURLForTesting(URL(string: "https://example.invalid/stream")!)
+
+        // The failing item is current when the first KVO hop lands; the
+        // recovery inside that hop replaces currentItem, so the second hop
+        // for the SAME item must read as stale and be dropped.
+        let failing = AVPlayerItem(url: URL(string: "https://example.invalid/a.mp3")!)
+        engine.installCurrentItemForTesting(failing)
+        engine.handleItemFailureForTesting(transientError(), failedItem: failing)
+        engine.handleItemFailureForTesting(transientError(), failedItem: failing)
+
+        XCTAssertEqual(
+            engine.stallRetryCountForTesting, 1,
+            "the second KVO hop for the same failed item must not double-count"
+        )
+    }
+
+    /// A genuine second failure — the REBUILT item failing after recovery —
+    /// must consume budget: the filter keys on is-still-current, not on
+    /// "a failure already happened".
+    func testRebuiltItemFailureStillCountsAgainstBudget() throws {
+        let engine = try makeEngine()
+        engine.setCurrentStreamURLForTesting(URL(string: "https://example.invalid/stream")!)
+
+        let failing = AVPlayerItem(url: URL(string: "https://example.invalid/a.mp3")!)
+        engine.installCurrentItemForTesting(failing)
+        engine.handleItemFailureForTesting(transientError(), failedItem: failing)
+
+        // Recovery replaced currentItem with the rebuilt stream; its own
+        // failure is a fresh event.
+        let rebuilt = try XCTUnwrap(engine.currentItemForTesting)
+        XCTAssertFalse(rebuilt === failing, "recovery must have swapped the item")
+        engine.handleItemFailureForTesting(transientError(), failedItem: rebuilt)
+
+        XCTAssertEqual(
+            engine.stallRetryCountForTesting, 2,
+            "the rebuilt item's own failure is a new event and must consume budget"
+        )
+    }
+}

@@ -420,6 +420,24 @@ public final class AudioEngine: NSObject {
         handleItemFailure(error)
     }
 
+    /// Test seam: drive the item-failure path WITH the failing item, the way
+    /// the dual KVO closures do, so the one-event dedup is testable without
+    /// a real network failure.
+    func handleItemFailureForTesting(_ error: NSError, failedItem: AVPlayerItem) {
+        handleItemFailure(error, failedItem: failedItem)
+    }
+
+    /// Test seam: make `item` the player's current item so the dedup's
+    /// is-still-current check can be exercised both ways.
+    func installCurrentItemForTesting(_ item: AVPlayerItem) {
+        player?.removeAllItems()
+        player?.insert(item, after: nil)
+    }
+
+    /// Test seam: the player's live current item (the rebuilt stream after a
+    /// recovery), so tests can address it for a follow-up failure.
+    var currentItemForTesting: AVPlayerItem? { player?.currentItem }
+
     /// Test seam: invoke the production give-up path
     /// (`quiesceAfterTerminalFailure`) directly so the audit-L974 quiescing
     /// (player paused, watchdog cancelled, heartbeat stopped, delegate
@@ -1230,14 +1248,14 @@ public final class AudioEngine: NSObject {
         itemErrorObservation = item.observe(\.error, options: [.new]) { [weak self] item, _ in
             guard let error = item.error as NSError? else { return }
             Task { @MainActor in
-                self?.handleItemFailure(error)
+                self?.handleItemFailure(error, failedItem: item)
             }
         }
         itemStatusObservation?.invalidate()
         itemStatusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard item.status == .failed, let error = item.error as NSError? else { return }
             Task { @MainActor in
-                self?.handleItemFailure(error)
+                self?.handleItemFailure(error, failedItem: item)
             }
         }
     }
@@ -1281,8 +1299,20 @@ public final class AudioEngine: NSObject {
     /// advance the queue via `onTrackEnded` (the same contract as a natural
     /// end-of-item). Non-transient errors fall through to the existing 5s
     /// stall path.
-    private func handleItemFailure(_ error: NSError) {
+    private func handleItemFailure(_ error: NSError, failedItem: AVPlayerItem? = nil) {
         guard isTransientNetworkError(error) else { return }
+        // One failure event flips BOTH observed keys (`.error` and
+        // `.status == .failed`), so both KVO closures enqueue a hop here for
+        // the same item. Only handle the failure while that item is still
+        // the player's current item: the first hop recovers (replacing
+        // `currentItem` with the rebuilt stream), which makes the second
+        // hop's item stale and ignorable — otherwise it double-counts the
+        // retry budget and double-rebuilds. The same check also drops
+        // failures of items the queue has already moved past. Blind paths
+        // (stall watchdog) pass no item and are never filtered.
+        if let failedItem {
+            guard failedItem === player?.currentItem else { return }
+        }
         // Short-circuit the blind 5s watchdog — we drive recovery explicitly
         // below, and letting the watchdog also fire would double-rebuild.
         cancelStallWatchdog()
