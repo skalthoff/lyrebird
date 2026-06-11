@@ -39,6 +39,12 @@ swift build                     # Builds the SwiftUI app
 open build/Lyrebird.app
 ```
 
+### Uninstall
+
+Dragging the app to the Trash leaves data behind (database, caches,
+keychain token). See [Uninstall and data locations](macos/DISTRIBUTION.md#uninstall-and-data-locations)
+for every path and a copy-paste removal block.
+
 ### Headless smoke test
 
 Exercises login + playback without the UI. Useful in CI.
