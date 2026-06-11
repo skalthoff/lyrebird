@@ -184,19 +184,37 @@ enum CrashReporter {
         return event
     }
 
+    /// Keys a kept breadcrumb's `data` payload may carry to the crash
+    /// transport. Everything else is stripped before the crumb leaves the
+    /// process — an allowlist beats the type-based drops alone because a
+    /// future call site can't smuggle library metadata (track names, hosts)
+    /// through a key nobody anticipated. `backtrace` is the Rust panic
+    /// forwarder's capped trace; the rest are inert bookkeeping fields.
+    nonisolated static let allowedBreadcrumbDataKeys: Set<String> = [
+        "action", "screen", "duration_ms", "error_category", "backtrace",
+    ]
+
     /// Returns `nil` (dropping the crumb) for any breadcrumb that carries
     /// a URL, a network request, or a navigation data string that could
-    /// contain library metadata. Keeps level/type bookkeeping breadcrumbs.
+    /// contain library metadata; kept crumbs have their `data` scrubbed to
+    /// `allowedBreadcrumbDataKeys`. Level/type bookkeeping survives intact.
     nonisolated static func shouldKeepBreadcrumb(_ crumb: Breadcrumb) -> Breadcrumb? {
         // Drop network request breadcrumbs entirely — the URL encodes the
         // Jellyfin server address and optionally query params with ids.
         if crumb.type == "http" { return nil }
 
-        // Drop breadcrumbs that carry a `url` data field.
+        // Drop breadcrumbs that carry a `url` data field. (The allowlist
+        // below would strip the field, but a crumb built around a URL has
+        // no diagnostic value once it's gone — drop it whole.)
         if let data = crumb.data, data["url"] != nil { return nil }
 
         // Drop navigation breadcrumbs whose `to`/`from` might encode content.
         if crumb.type == "navigation" { return nil }
+
+        // Allowlist scrub for everything that survives the drops.
+        if let data = crumb.data {
+            crumb.data = data.filter { allowedBreadcrumbDataKeys.contains($0.key) }
+        }
 
         return crumb
     }

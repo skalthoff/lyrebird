@@ -31,6 +31,16 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  privacy:
+    name: privacy grep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Telemetry call sites must not interpolate library/user names; the
+      # runtime allowlist scrub (CrashReporting.swift) is the enforcement,
+      # this grep is the review-time tripwire.
+      - run: ./Scripts/privacy-grep.sh
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest
@@ -258,7 +268,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [fmt, clippy, test, docs, msrv, macos-app, windows]
+    needs: [fmt, privacy, clippy, test, docs, msrv, macos-app, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any required job failed or was cancelled

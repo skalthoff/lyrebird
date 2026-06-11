@@ -233,6 +233,48 @@ final class CrashReporterDecisionTests: XCTestCase {
         XCTAssertNil(result, "breadcrumbs carrying a url data field must be dropped")
     }
 
+    func testAllowlistIsExactlyTheDocumentedSet() {
+        // Pin the set so adding or dropping a key is a conscious test edit —
+        // silently dropping `backtrace` would gut Rust panic reports, and a
+        // new key widens what can leave the process.
+        XCTAssertEqual(
+            CrashReporter.allowedBreadcrumbDataKeys,
+            ["action", "screen", "duration_ms", "error_category", "backtrace"]
+        )
+    }
+
+    func testKeptBreadcrumbDataIsScrubbedToAllowlist() {
+        // A populated payload mixing whitelisted bookkeeping with smuggled
+        // library metadata: only the allowlisted keys may survive.
+        let crumb = Breadcrumb(level: .info, category: "playback")
+        crumb.data = [
+            "action": "skip_next",
+            "screen": "library",
+            "duration_ms": 42,
+            "error_category": "network",
+            "trackName": "Nessuno al mondo",
+            "artist": "Mina",
+            "server_host": "music.example.com",
+        ]
+        let result = CrashReporter.shouldKeepBreadcrumb(crumb)
+        let keys = Set((result?.data ?? [:]).keys)
+        XCTAssertEqual(
+            keys,
+            ["action", "screen", "duration_ms", "error_category"],
+            "non-allowlisted keys must be stripped before the crumb leaves the process"
+        )
+    }
+
+    func testRustPanicBacktraceSurvivesScrub() {
+        // The Rust panic forwarder attaches its capped backtrace under
+        // `backtrace`; the allowlist must let it through or panic reports
+        // lose their only useful payload.
+        let crumb = Breadcrumb(level: .fatal, category: "rust.panic")
+        crumb.data = ["backtrace": "0: rust_begin_unwind\n1: core::panicking"]
+        let result = CrashReporter.shouldKeepBreadcrumb(crumb)
+        XCTAssertNotNil(result?.data?["backtrace"], "backtrace is allowlisted for rust.panic crumbs")
+    }
+
     func testGenericBreadcrumbIsKept() {
         let crumb = Breadcrumb(level: .info, category: "lifecycle")
         crumb.type = "default"
