@@ -572,10 +572,12 @@ fn clear_all_removes_rows_and_files() {
     let part = audio.with_extension("part");
     std::fs::write(&part, b"partial").unwrap();
 
-    db.download_upsert_queued("t-done-clear", &json_done, 1).unwrap();
+    db.download_upsert_queued("t-done-clear", &json_done, 1)
+        .unwrap();
     db.download_mark_done("t-done-clear", audio.to_str().unwrap(), 5, Some("mp3"), 2)
         .unwrap();
-    db.download_upsert_queued("t-queued-clear", &json_queued, 3).unwrap();
+    db.download_upsert_queued("t-queued-clear", &json_queued, 3)
+        .unwrap();
 
     downloads::clear_all(&db).unwrap();
 
