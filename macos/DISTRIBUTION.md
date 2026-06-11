@@ -582,9 +582,44 @@ Deploy from a branch → Branch: gh-pages / (root)**.
   DMG wasn't notarized or the staple wasn't applied. Re-run
   `notarize.sh` locally on the DMG and re-upload to the GitHub release.
 
+## Uninstall and data locations
+
+macOS has no uninstall standard; dragging `Lyrebird.app` to the Trash
+leaves the app's data behind. Everything Lyrebird writes lives in the
+locations below — all paths are the app's real identifiers as of 2.0
+(`org.lyrebird.desktop` bundle id, `lyrebird-desktop` data folder).
+
+| What | Where |
+| --- | --- |
+| App bundle | `/Applications/Lyrebird.app` (or wherever it was dragged) |
+| Library database + state | `~/Library/Application Support/lyrebird-desktop/` (`lyrebird.db` + `-wal`/`-shm` companions) |
+| Offline downloads | `~/Library/Application Support/lyrebird-desktop/downloads/` — unless a custom folder was chosen in Settings ▸ Downloads, in which case remove that folder |
+| Preferences (incl. Sparkle updater state) | `~/Library/Preferences/org.lyrebird.desktop.plist` |
+| Caches (incl. crash-report envelopes) | `~/Library/Caches/org.lyrebird.desktop/` |
+| Artwork cache (Nuke) | `~/Library/Caches/com.lyrebird.macos.artwork/` |
+| Keychain | Generic-password items under service `org.lyrebird.desktop` — one per signed-in server/user (session token) plus the ListenBrainz token if scrobbling was linked |
+| Logs | Unified log only (subsystem `org.lyrebird.desktop`) — nothing on disk to remove; entries age out with the system log |
+
+Copy-paste removal (run after quitting the app):
+
+```bash
+rm -rf "$HOME/Library/Application Support/lyrebird-desktop"
+defaults delete org.lyrebird.desktop 2>/dev/null
+rm -f "$HOME/Library/Preferences/org.lyrebird.desktop.plist"
+rm -rf "$HOME/Library/Caches/org.lyrebird.desktop"
+rm -rf "$HOME/Library/Caches/com.lyrebird.macos.artwork"
+# Keychain: repeat until it reports "could not be found".
+while security delete-generic-password -s org.lyrebird.desktop >/dev/null 2>&1; do :; done
+```
+
+Signing out inside the app (Settings ▸ Server ▸ Sign Out) before
+uninstalling also works: it deletes the keychain token, wipes the
+user-scoped database rows, and clears downloads, leaving only empty
+scaffolding for the `rm -rf` lines above.
+
 ## Reference
 
 - Sparkle 2 docs: <https://sparkle-project.org/documentation/>
 - Apple notary service: <https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution>
-- Issues this doc addresses: #183, #184, #185, #186, #188, #189, #190.
+- Issues this doc addresses: #183, #184, #185, #186, #188, #189, #190, #197.
 
