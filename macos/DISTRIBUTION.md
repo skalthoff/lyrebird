@@ -593,7 +593,7 @@ locations below — all paths are the app's real identifiers as of 2.0
 | --- | --- |
 | App bundle | `/Applications/Lyrebird.app` (or wherever it was dragged) |
 | Library database + state | `~/Library/Application Support/lyrebird-desktop/` (`lyrebird.db` + `-wal`/`-shm` companions) |
-| Offline downloads | `~/Library/Application Support/lyrebird-desktop/downloads/` — unless a custom folder was chosen in Settings ▸ Downloads, in which case remove that folder |
+| Offline downloads | `~/Library/Application Support/lyrebird-desktop/downloads/` (the location Settings ▸ Downloads displays) |
 | Preferences (incl. Sparkle updater state) | `~/Library/Preferences/org.lyrebird.desktop.plist` |
 | Caches (incl. crash-report envelopes) | `~/Library/Caches/org.lyrebird.desktop/` |
 | Artwork cache (Nuke) | `~/Library/Caches/com.lyrebird.macos.artwork/` |
@@ -612,10 +612,14 @@ rm -rf "$HOME/Library/Caches/com.lyrebird.macos.artwork"
 while security delete-generic-password -s org.lyrebird.desktop >/dev/null 2>&1; do :; done
 ```
 
-Signing out inside the app (Settings ▸ Server ▸ Sign Out) before
-uninstalling also works: it deletes the keychain token, wipes the
-user-scoped database rows, and clears downloads, leaving only empty
-scaffolding for the `rm -rf` lines above.
+Signing out from the sidebar's door button (next to the server status)
+before uninstalling also clears the live account's footprint: it deletes
+the keychain token, wipes the user-scoped database rows, and removes
+downloads, leaving only empty scaffolding for the `rm -rf` lines above.
+The Settings ▸ Server actions intentionally keep local data for a fast
+re-login and do NOT perform that wipe (see #1068 for the cross-account
+caveat) — for a full cleanup use the sidebar sign-out or the commands
+above.
 
 ## Reference
 
