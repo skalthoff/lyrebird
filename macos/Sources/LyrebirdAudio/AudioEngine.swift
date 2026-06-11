@@ -377,6 +377,9 @@ public final class AudioEngine: NSObject {
         if let end = endObserver {
             NotificationCenter.default.removeObserver(end)
         }
+        if let log = accessLogObserver {
+            NotificationCenter.default.removeObserver(log)
+        }
     }
 
     #if DEBUG

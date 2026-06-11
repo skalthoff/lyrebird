@@ -269,6 +269,7 @@ extension AppModel {
     /// short-circuits to `None` (safe), and the form is pre-populated.
     func forgetToken() {
         audio.stop()
+        playerAccessLogStats = nil
         try? core.forgetToken()
         albums = []
         artists = []
@@ -352,6 +353,7 @@ extension AppModel {
     func markAuthExpired() {
         guard !authExpired else { return }
         audio.stop()
+        playerAccessLogStats = nil
         stopStatusEventStream()
         authExpired = true
     }

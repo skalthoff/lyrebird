@@ -355,7 +355,10 @@ struct DebugSnapshot {
             "normalizationMode": player.normalizationMode,
             "preGainDb": player.preGainDb,
             "accessLogStalls": player.accessLogStalls ?? -1,
+            "accessLogIndicatedBitrate": player.accessLogIndicatedBitrate ?? -1,
             "accessLogObservedBitrate": player.accessLogObservedBitrate ?? -1,
+            "accessLogDownloadOverdue": player.accessLogDownloadOverdue ?? -1,
+            "accessLogServerAddress": player.accessLogServerAddress ?? "(none)",
         ] as [String: Any]
 
         dict["queue"] = [

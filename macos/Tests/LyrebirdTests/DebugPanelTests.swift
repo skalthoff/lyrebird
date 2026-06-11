@@ -180,24 +180,14 @@ final class AccessLogTelemetryTests: XCTestCase {
         XCTAssertNil(model.playerAccessLogStats)
     }
 
-    /// `refreshDebugSnapshot` publishes the snapshot at the end of an async
-    /// IO task (disk-size collection), so tests must wait for `capturedAt`
-    /// to move past its pre-refresh value. Bounded at 2s — the IO is a
-    /// handful of stat calls against a temp data dir.
-    private func awaitSnapshotPublish(_ model: AppModel, after: Date) async throws {
-        for _ in 0..<200 {
-            if model.debugSnapshot.capturedAt > after { return }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        XCTFail("debugSnapshot was never published after refresh")
-    }
+    // `refreshDebugSnapshot` publishes its synchronous sections immediately
+    // (the IO task only re-publishes with cache sizes + log tail later), so
+    // the access-log fields are assertable right after the call.
 
-    func testSnapshotCarriesAccessLogFields() async throws {
+    func testSnapshotCarriesAccessLogFields() throws {
         let model = try AppModel()
         model.audioEngineDidUpdateAccessLog(stats(stalls: 5))
-        let before = model.debugSnapshot.capturedAt
         model.refreshDebugSnapshot()
-        try await awaitSnapshotPublish(model, after: before)
         let p = model.debugSnapshot.player
         XCTAssertEqual(p.accessLogStalls, 5)
         XCTAssertEqual(p.accessLogIndicatedBitrate, 1_410_000)
@@ -206,11 +196,9 @@ final class AccessLogTelemetryTests: XCTestCase {
         XCTAssertEqual(p.accessLogServerAddress, "203.0.113.7")
     }
 
-    func testSnapshotFieldsNilBeforeFirstEntry() async throws {
+    func testSnapshotFieldsNilBeforeFirstEntry() throws {
         let model = try AppModel()
-        let before = model.debugSnapshot.capturedAt
         model.refreshDebugSnapshot()
-        try await awaitSnapshotPublish(model, after: before)
         XCTAssertNil(model.debugSnapshot.player.accessLogStalls)
         XCTAssertNil(model.debugSnapshot.player.accessLogServerAddress)
     }
