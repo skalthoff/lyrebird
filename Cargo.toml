@@ -27,7 +27,7 @@ serde_json = "1"
 url = { version = "2", features = ["serde"] }
 
 # Storage
-rusqlite = { version = "0.39", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 # keyring's default backend is the mock (no persistence). Each platform enables
 # the appropriate native store via a cfg-gated override in `core/Cargo.toml`.
 keyring = "3"
