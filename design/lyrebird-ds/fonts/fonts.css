@@ -1,0 +1,64 @@
+/* Figtree — the Lyrebird Desktop brand family (bundled with the app). */
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 300;
+	font-display: swap;
+	src: url("./Figtree-Light.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("./Figtree-Regular.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: italic;
+	font-weight: 400;
+	font-display: swap;
+	src: url("./Figtree-Italic.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("./Figtree-Medium.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("./Figtree-SemiBold.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("./Figtree-Bold.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 800;
+	font-display: swap;
+	src: url("./Figtree-ExtraBold.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: normal;
+	font-weight: 900;
+	font-display: swap;
+	src: url("./Figtree-Black.otf") format("opentype");
+}
+@font-face {
+	font-family: "Figtree";
+	font-style: italic;
+	font-weight: 900;
+	font-display: swap;
+	src: url("./Figtree-BlackItalic.otf") format("opentype");
+}

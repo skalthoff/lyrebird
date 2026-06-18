@@ -1,0 +1,66 @@
+/*
+ * Lyrebird Desktop design tokens — sourced verbatim from
+ * macos/Sources/Lyrebird/Theme/Theme.swift (the live app theme).
+ * Dark mode is the shipping appearance. Three brand presets resolve via the
+ * [data-lyr-preset] attribute set by <LyrebirdRoot>.
+ */
+:root {
+	/* Surfaces */
+	--lyr-bg: #0c0622;
+	--lyr-bg-alt: #140b30;
+	--lyr-surface: rgba(126, 114, 175, 0.08);
+	--lyr-surface-2: rgba(126, 114, 175, 0.14);
+	--lyr-row-hover: rgba(126, 114, 175, 0.1);
+	/* macOS unemphasized-selection analogue for list/sidebar/queue rows */
+	--lyr-native-hover: rgba(126, 114, 175, 0.14);
+
+	/* Text */
+	--lyr-ink: #ffffff;
+	--lyr-ink-2: rgba(126, 114, 175, 1);
+	--lyr-ink-3: rgba(126, 114, 175, 0.65);
+
+	/* Brand — purple preset is the default (resolved live from ThemePreset) */
+	--lyr-primary: #887bff;
+	--lyr-accent: #cc2f71;
+	/* preset-agnostic */
+	--lyr-accent-hot: #ff066f;
+	--lyr-teal: #57e9c9;
+
+	/* Status */
+	--lyr-danger: #ff4757;
+	--lyr-warning: #f5a623;
+
+	/* Borders */
+	--lyr-border: rgba(126, 114, 175, 0.18);
+	--lyr-border-strong: rgba(126, 114, 175, 0.35);
+
+	/* Type */
+	--lyr-font: "Figtree", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+
+	/* Radii */
+	--lyr-radius-sm: 6px;
+	--lyr-radius-md: 10px;
+	--lyr-radius-lg: 16px;
+	--lyr-radius-window: 26px;
+
+	/* Elevation */
+	--lyr-shadow-card: 0 6px 16px rgba(0, 0, 0, 0.35);
+	--lyr-shadow-window: 0 16px 48px rgba(0, 0, 0, 0.35);
+
+	color-scheme: dark;
+}
+
+/* Brand presets — primary/accent pairs, all WCAG + dichromat verified in
+   ThemePresetTests. accentHot/teal are preset-agnostic and stay as above. */
+[data-lyr-preset="purple"] {
+	--lyr-primary: #887bff;
+	--lyr-accent: #cc2f71;
+}
+[data-lyr-preset="ocean"] {
+	--lyr-primary: #3d7dd6;
+	--lyr-accent: #47e0d0;
+}
+[data-lyr-preset="forest"] {
+	--lyr-primary: #178a55;
+	--lyr-accent: #ffd24d;
+}
