@@ -45,7 +45,7 @@ export interface ArtworkProps {
 /**
  * Album / artist / playlist / track artwork. Renders the image when a `url` is
  * given, otherwise a deterministic two-stop gradient keyed on `seed` — the same
- * placedholder the app shows before/without server art. `shape="circle"` is the
+ * placeholder the app shows before/without server art. `shape="circle"` is the
  * artist treatment.
  */
 export function Artwork({

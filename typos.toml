@@ -7,8 +7,15 @@
 #   - "missable" is used deliberately in copy (opposite of "unmissable").
 #   - "empted" appears inside "pre-empted" (correct English for an
 #     interrupted operation; typos would coerce it to "emptied").
+#   - "caf" is the Core Audio Format file extension (kAudioFileCAFType).
+#   - "unparseable" is the spelling used throughout parser error paths and
+#     their tests; both variants are accepted English.
+#   - "mis" appears as a hyphenated prefix (mis-routing, mis-scanned,
+#     mis-attributed); typos tokenizes on the hyphen and flags it alone.
 #   - design/research docs contain transcribed chat snippets with typos
 #     we do not own and don't want to edit after-the-fact.
+#   - String Catalogs (*.xcstrings) hold non-English translations; spell-
+#     checking German/Italian/French/Spanish strings as English is noise.
 [default]
 extend-ignore-re = [
     "PNGs",
@@ -18,9 +25,13 @@ extend-ignore-re = [
 seeked = "seeked"
 missable = "missable"
 empted = "empted"
+caf = "caf"
+unparseable = "unparseable"
+mis = "mis"
 
 [files]
 extend-exclude = [
+    "**/*.xcstrings",
     "design/chats/**",
     "research/**",
     "target/**",
