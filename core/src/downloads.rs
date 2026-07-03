@@ -291,6 +291,40 @@ pub fn clear_all(db: &Database) -> Result<()> {
     Ok(())
 }
 
+/// Error string stamped onto rows recovered by [`sweep_interrupted`]. Shown
+/// verbatim in the Downloads screen's failure detail.
+pub const INTERRUPTED_ERROR: &str = "interrupted by app quit";
+
+/// Fail every download left in-flight by a previous process.
+///
+/// Called once from `LyrebirdCore::new`, where no transfer can possibly be
+/// running yet: a row still `queued` or `downloading` at construction is a
+/// leftover from an app quit (or crash) mid-download. Each such row is flipped
+/// to `failed` with [`INTERRUPTED_ERROR`] — re-downloadable via the normal
+/// retry path — and its `.part` temp file (see
+/// [`JellyfinClient::download_to_file`]) is unlinked best-effort. In-flight
+/// rows never have a `local_path`, so the deterministic
+/// `<dir>/<track_id>.part` name is the only on-disk trace to clean up.
+///
+/// Returns the number of rows swept.
+pub fn sweep_interrupted(db: &Database, data_dir: &Path) -> Result<u32> {
+    let ids = db.downloads_sweep_interrupted(INTERRUPTED_ERROR)?;
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let dir = download_dir(db, data_dir);
+    for id in &ids {
+        // Same two-gate validation as the fetch path: a hand-edited DB row
+        // with a hostile id must not turn the unlink into a traversal.
+        if let Ok(stem) = safe_filename_stem(id) {
+            if let Ok(part) = dest_within_dir(&dir, stem, "part") {
+                let _ = std::fs::remove_file(part);
+            }
+        }
+    }
+    Ok(ids.len() as u32)
+}
+
 /// Record an enqueue: snapshot the track into the `downloads` table in the
 /// `queued` state. Does not fetch bytes — [`fetch`] does that. Separated so the
 /// UI can optimistically show a queued badge the instant the user taps,

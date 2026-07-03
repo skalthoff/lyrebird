@@ -553,3 +553,29 @@ fn error_chain_is_cert_failure_false_for_benign_transport_error() {
         "benign transport error must not match cert markers"
     );
 }
+
+/// #445: UniFFI's generated bindings wrap every FFI call in `catch_unwind`
+/// and surface a Rust panic to the host as a thrown `InternalError` instead
+/// of a process abort. That contract only holds while panics unwind — a
+/// `panic = "abort"` slipping into the profile chain (the root `Cargo.toml`
+/// pins `"unwind"` in `[profile.release]`) would leave the bindings nothing
+/// to catch and turn any core panic into a whole-app crash. This asserts the
+/// compiled binary actually unwinds: the panic is contained by
+/// `catch_unwind`, and its payload (the string uniffi stuffs into the
+/// surfaced error) is recoverable.
+#[test]
+fn panics_unwind_into_catch_unwind_not_abort() {
+    let payload = std::panic::catch_unwind(|| {
+        panic!("deliberate panic for the unwind-contract test (#445)");
+    })
+    .expect_err("panic must unwind into catch_unwind, not abort the process");
+
+    let msg = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .unwrap_or("<non-string payload>");
+    assert!(
+        msg.contains("deliberate panic for the unwind-contract test"),
+        "panic payload should carry the message the FFI layer would surface, got: {msg}"
+    );
+}

@@ -63,6 +63,32 @@ Regenerate C# bindings when the Rust API changes:
 pwsh windows/tools/gen-bindings.ps1
 ```
 
+## Panics and error handling in `core/`
+
+`core/` is consumed across an FFI boundary. UniFFI's generated bindings wrap
+every call in Rust's `catch_unwind` and re-surface a panic as a thrown
+`UniFFI.InternalError` on the Swift side (an internal exception in C#), so a
+panic in a non-critical path degrades to an error the UI can present instead
+of taking the whole app down. Two rules keep that contract intact:
+
+- The root `Cargo.toml` pins `panic = "unwind"` in `[profile.release]`.
+  Don't override it anywhere in the profile chain: with `panic = "abort"`
+  there is no unwind for the bindings to catch, and any core panic becomes a
+  host-app crash.
+- Library code must not panic on fallible paths in the first place:
+  - No `.unwrap()` in `core/src` library code. Enforced at compile time by
+    `#![cfg_attr(not(test), deny(clippy::unwrap_used))]` in
+    `core/src/lib.rs`; test code is exempt.
+  - `.expect("context")` is allowed only when the invariant is guaranteed by
+    construction (e.g. spawning the log-forwarding thread during init), and
+    the message should say what can't happen.
+  - Everything else propagates with `?` through the `LyrebirdError`
+    taxonomy, so failures cross the FFI as typed errors the UI can match on.
+
+The unwind contract itself is regression-tested by
+`panics_unwind_into_catch_unwind_not_abort` in
+`core/src/tests/errors_enums.rs`.
+
 ## Flatpak packaging
 
 Offline Flatpak builds need a `cargo-sources.json` describing every crate the

@@ -40,8 +40,13 @@ impl Database {
         db.migrate()?;
         // Seed planner statistics for any table still missing them (cheap
         // no-op when `sqlite_stat1` is already populated, bounded by
-        // `analysis_limit` otherwise).
-        db.optimize()?;
+        // `analysis_limit` otherwise). Best-effort, matching the
+        // post-`cache_upsert` pass below (#1073): stale statistics only cost
+        // query-plan quality, and must not turn a successfully opened +
+        // migrated database into a launch failure.
+        if let Err(e) = db.optimize() {
+            tracing::debug!("PRAGMA optimize at open failed (non-fatal): {e}");
+        }
         Ok(db)
     }
 
@@ -440,6 +445,31 @@ impl Database {
             ],
         )?;
         Ok(())
+    }
+
+    /// Flip every in-flight (`queued` / `downloading`) row to `failed` with
+    /// the given reason, returning the affected track ids. Run once at core
+    /// construction, when no transfer can exist yet — any such row is a
+    /// leftover from a previous process that quit mid-download. Clears
+    /// `local_path` / `size_bytes` like [`Self::download_mark_failed`] so a
+    /// half-written file is never treated as playable; the caller unlinks the
+    /// `.part` leftovers (file IO stays out of the storage layer by contract).
+    pub fn downloads_sweep_interrupted(&self, error: &str) -> Result<Vec<String>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT track_id FROM downloads WHERE state IN ('queued', 'downloading')")?;
+        let ids = stmt
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if !ids.is_empty() {
+            conn.execute(
+                "UPDATE downloads SET state = 'failed', error = ?1, local_path = NULL, \
+                     size_bytes = 0, completed_at = NULL \
+                 WHERE state IN ('queued', 'downloading')",
+                params![error],
+            )?;
+        }
+        Ok(ids)
     }
 
     /// Mark a download failed with a human-readable reason. Leaves any prior

@@ -592,3 +592,78 @@ fn clear_all_removes_rows_and_files() {
     downloads::clear_all(&db).unwrap();
     assert!(downloads::list(&db).unwrap().is_empty());
 }
+
+/// Rows left `queued` / `downloading` by a process that quit mid-download must
+/// be swept to `failed` (with the interruption reason recorded) on the next
+/// core construction, and the orphaned `.part` temp file unlinked — otherwise
+/// the Downloads screen shows a perpetual in-progress row for a transfer
+/// nothing owns. Completed rows and their files are untouched.
+#[test]
+fn interrupted_downloads_swept_to_failed_on_reopen() {
+    use crate::downloads;
+    let tmp = tempfile::tempdir().unwrap();
+    let db_path = tmp.path().join("lyrebird.db");
+    let dl_dir = tmp.path().join("downloads");
+    std::fs::create_dir_all(&dl_dir).unwrap();
+
+    // Simulate the previous process: one row mid-transfer (with its `.part`
+    // leftover on disk), one still queued, one legitimately completed.
+    let part = dl_dir.join("t-inflight.part");
+    let done_file = dl_dir.join("t-finished.mp3");
+    {
+        let db = Database::open(&db_path).unwrap();
+        for (id, ts) in [("t-inflight", 1i64), ("t-waiting", 2), ("t-finished", 3)] {
+            let json = serde_json::to_string(&dl_track(id, None, 0)).unwrap();
+            db.download_upsert_queued(id, &json, ts).unwrap();
+        }
+        db.download_mark_downloading("t-inflight").unwrap();
+        std::fs::write(&part, b"half a song").unwrap();
+        std::fs::write(&done_file, b"whole song").unwrap();
+        db.download_mark_done(
+            "t-finished",
+            done_file.to_str().unwrap(),
+            10,
+            Some("mp3"),
+            4,
+        )
+        .unwrap();
+    } // handle drops here — the DB is closed, as after a dead process
+
+    // Constructing a core over the same data dir runs the one-shot sweep.
+    let core = resume_test_core(&tmp);
+
+    for id in ["t-inflight", "t-waiting"] {
+        assert_eq!(
+            core.download_state(id.into()).unwrap(),
+            Some(crate::models::DownloadState::Failed),
+            "{id} should be failed after the sweep"
+        );
+    }
+    let entries = core.list_downloads().unwrap();
+    let inflight = entries
+        .iter()
+        .find(|e| e.track.id == "t-inflight")
+        .expect("swept row still listed");
+    assert_eq!(
+        inflight.error.as_deref(),
+        Some(downloads::INTERRUPTED_ERROR)
+    );
+    assert!(inflight.local_path.is_none());
+    assert!(!part.exists(), "orphaned .part should be unlinked");
+
+    // The completed download is untouched — row state and file both intact.
+    assert_eq!(
+        core.download_state("t-finished".into()).unwrap(),
+        Some(crate::models::DownloadState::Done)
+    );
+    assert!(done_file.exists(), "completed audio must not be touched");
+
+    // Reopening again is a clean no-op: nothing in flight, nothing re-swept.
+    drop(core);
+    let core2 = resume_test_core(&tmp);
+    assert_eq!(
+        core2.download_state("t-finished".into()).unwrap(),
+        Some(crate::models::DownloadState::Done)
+    );
+    assert_eq!(core2.list_downloads().unwrap().len(), 3);
+}
