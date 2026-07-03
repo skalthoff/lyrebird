@@ -160,6 +160,19 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('macos/Package.swift', 'macos/Package.resolved') }}
           restore-keys: |
             spm-${{ runner.os }}-
+      # A restored macos/.build can reference Sparkle's extracted xcframework
+      # without actually containing it — swift build then fails reproducibly
+      # with "XCFramework Info.plist not found at .build/artifacts/sparkle/
+      # Sparkle/Sparkle.xcframework" until someone deletes the cache entry by
+      # hand. Detect the dangling reference and start from a clean .build
+      # instead.
+      - name: Drop poisoned SwiftPM cache
+        run: |
+          if [ -d macos/.build ] && \
+             [ -z "$(find macos/.build/artifacts -type f -path '*/Sparkle.xcframework/Info.plist' -print -quit 2>/dev/null)" ]; then
+            echo "::warning::Restored macos/.build lacks the extracted Sparkle.xcframework — clearing it for a clean rebuild."
+            rm -rf macos/.build
+          fi
       # Did the PR touch anything that could make the cached .build go
       # stale vs a fresh xcframework? Keeping the cache for unrelated
       # PRs (docs, Swift-only UI tweaks, etc.) still wins on CI time —
