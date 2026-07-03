@@ -30,7 +30,7 @@ jobs:
     name: cargo-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # cargo-audit 0.22.x parses RustSec's CVSS 4.0 advisory entries (e.g.
       # RUSTSEC-2026-0073). Its transitive deps need rustc >= 1.89, satisfied
       # now that the workspace MSRV and the root rust-toolchain.toml pin are
@@ -60,7 +60,7 @@ jobs:
           - licenses
     continue-on-error: ${{ matrix.checks == 'licenses' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check ${{ matrix.checks }}
@@ -69,7 +69,7 @@ jobs:
     name: typos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: crate-ci/typos@master
 
   actions:
@@ -83,7 +83,7 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
