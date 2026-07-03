@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.90"
 license = "GPL-3.0-only"
@@ -56,3 +56,10 @@ insta = { version = "1", features = ["yaml"] }
 lto = true
 codegen-units = 1
 strip = true
+# UniFFI's generated bindings wrap every FFI call in `catch_unwind` and
+# surface a Rust panic as a thrown `InternalError` on the host side (#445).
+# That contract only holds while panics unwind — with `panic = "abort"` a
+# single core panic kills the whole host app. "unwind" is Cargo's default,
+# but pin it explicitly so a future profile tweak can't silently break the
+# FFI panic contract. See CONTRIBUTING.md "Panics and error handling".
+panic = "unwind"

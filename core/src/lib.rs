@@ -10,6 +10,13 @@
 //! The core exposes authenticated stream URLs; the platform decides how to
 //! play them and calls back with status updates.
 
+// Library paths must not panic across the FFI (#445): a panic reaches the
+// host UI as an opaque `InternalError`, so fallible code uses `?` and the
+// `LyrebirdError` taxonomy instead of `.unwrap()`. Tests are exempt;
+// `.expect("context")` remains available for by-construction invariants.
+// Policy details in CONTRIBUTING.md "Panics and error handling".
+#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+
 pub mod client;
 pub mod downloads;
 pub mod enums;
@@ -139,6 +146,20 @@ impl LyrebirdCore {
         };
         let db_path = data_dir.join("lyrebird.db");
         let db = Arc::new(Database::open(&db_path)?);
+
+        // Recover downloads interrupted by a previous quit. No transfer can be
+        // in flight at construction time, so any row still `queued` /
+        // `downloading` is a leftover from a process that died mid-fetch —
+        // without the sweep it would show a perpetual spinner in the UI.
+        // Best-effort: a failed sweep only leaves stale rows behind and must
+        // not turn an otherwise good launch into a construction error.
+        match downloads::sweep_interrupted(&db, &data_dir) {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("marked {n} download(s) interrupted by a previous quit as failed")
+            }
+            Err(e) => tracing::warn!("interrupted-download sweep failed (non-fatal): {e}"),
+        }
 
         let device_id = match db.get_setting("device_id")? {
             Some(id) => id,
