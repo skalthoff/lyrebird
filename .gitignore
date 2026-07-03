@@ -2,10 +2,12 @@
 target/
 **/*.rs.bk
 
-# Swift Package Manager
+# Swift Package Manager. macos/Package.resolved is tracked on purpose: it
+# pins Sparkle/Nuke/Sentry for tagged releases and feeds the CI cache keys
+# (hashFiles rotates them on dependency bumps). Update via
+# `swift package update --package-path macos` and commit the diff.
 .build/
 .swiftpm/
-Package.resolved
 
 # Generated (produced by Scripts/build-core.sh)
 macos/Lyrebird.xcframework/
