@@ -278,96 +278,46 @@ public final class MediaSession {
 
         cc.playCommand.isEnabled = true
         cc.playCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            if delegate.currentStatus.currentTrack == nil {
-                return .noActionableNowPlayingItem
-            }
-            delegate.mediaSessionPlay()
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handlePlayCommand()
         }
 
         cc.pauseCommand.isEnabled = true
         cc.pauseCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            if delegate.currentStatus.currentTrack == nil {
-                return .noActionableNowPlayingItem
-            }
-            delegate.mediaSessionPause()
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handlePauseCommand()
         }
 
         cc.togglePlayPauseCommand.isEnabled = true
         cc.togglePlayPauseCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            if delegate.currentStatus.currentTrack == nil {
-                return .noActionableNowPlayingItem
-            }
-            delegate.mediaSessionTogglePlayPause()
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handleTogglePlayPauseCommand()
         }
 
         cc.stopCommand.isEnabled = false
         cc.stopCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            if delegate.currentStatus.currentTrack == nil {
-                return .noActionableNowPlayingItem
-            }
-            delegate.mediaSessionStop()
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handleStopCommand()
         }
 
         cc.nextTrackCommand.isEnabled = false
         cc.nextTrackCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            delegate.mediaSessionSkipNext()
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handleNextTrackCommand()
         }
 
         cc.previousTrackCommand.isEnabled = false
         cc.previousTrackCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            // #581: Standard "previous track" behaviour — if the user is more
-            // than 3 seconds into the current track, restart it instead of
-            // jumping to the previous queue item. Only skip back when at or
-            // within the first 3 seconds.
-            if delegate.currentStatus.positionSeconds > 3.0 {
-                delegate.mediaSessionSeek(toSeconds: 0)
-            } else {
-                delegate.mediaSessionSkipPrevious()
-            }
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handlePreviousTrackCommand()
         }
 
         cc.changePlaybackPositionCommand.isEnabled = true
         cc.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard
-                let self,
-                let delegate = self.delegate,
-                delegate.currentStatus.currentTrack != nil,
-                let seek = event as? MPChangePlaybackPositionCommandEvent
-            else {
+            guard let self, let seek = event as? MPChangePlaybackPositionCommandEvent else {
                 return .commandFailed
             }
-            delegate.mediaSessionSeek(toSeconds: seek.positionTime)
-            // Update elapsed right away so the widget confirms the scrub
-            // without a 0.5s lag (issue #32).
-            self.updateElapsedAndRate(
-                elapsed: seek.positionTime,
-                rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
-            )
-            return .success
+            return self.handleChangePlaybackPositionCommand(toSeconds: seek.positionTime)
         }
 
         // BATCH-14 (#34): shuffle + repeat toggles from Control Center /
@@ -378,35 +328,18 @@ public final class MediaSession {
         // the active mode without a round-trip.
         cc.changeShuffleModeCommand.isEnabled = true
         cc.changeShuffleModeCommand.addTarget { [weak self] event in
-            guard
-                let self,
-                let delegate = self.delegate,
-                let change = event as? MPChangeShuffleModeCommandEvent
-            else {
+            guard let self, let change = event as? MPChangeShuffleModeCommandEvent else {
                 return .commandFailed
             }
-            let on = change.shuffleType != .off
-            delegate.mediaSessionSetShuffle(on)
-            // Echo the new mode back to the command so Control Center
-            // toggles reflect the on-disk state on the very next redraw.
-            cc.changeShuffleModeCommand.currentShuffleType = change.shuffleType
-            self.refreshRemoteCommandEnablement()
-            return .success
+            return self.handleChangeShuffleModeCommand(change.shuffleType)
         }
 
         cc.changeRepeatModeCommand.isEnabled = true
         cc.changeRepeatModeCommand.addTarget { [weak self] event in
-            guard
-                let self,
-                let delegate = self.delegate,
-                let change = event as? MPChangeRepeatModeCommandEvent
-            else {
+            guard let self, let change = event as? MPChangeRepeatModeCommandEvent else {
                 return .commandFailed
             }
-            delegate.mediaSessionSetRepeatMode(Self.repeatMode(from: change.repeatType))
-            cc.changeRepeatModeCommand.currentRepeatType = change.repeatType
-            self.refreshRemoteCommandEnablement()
-            return .success
+            return self.handleChangeRepeatModeCommand(change.repeatType)
         }
 
         // BATCH-14 (#35): like toggles the currently-playing track's
@@ -415,18 +348,8 @@ public final class MediaSession {
         // so Control Center reflects the server-side favorite flag.
         cc.likeCommand.isEnabled = true
         cc.likeCommand.addTarget { [weak self] _ in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            guard let targetState = delegate.mediaSessionToggleFavorite() else {
-                return .noActionableNowPlayingItem
-            }
-            // Optimistic UI: flip `isActive` before the network call
-            // completes so the tap has no perceptible latency. The next
-            // `trackChanged` / `queueChanged` refresh reconciles if the
-            // server rolled back.
-            cc.likeCommand.isActive = targetState
-            return .success
+            guard let self else { return .commandFailed }
+            return self.handleLikeCommand()
         }
 
         // `dislikeCommand` stays disabled — Jellyfin has no concept of a
@@ -439,48 +362,177 @@ public final class MediaSession {
         cc.skipForwardCommand.isEnabled = true
         cc.skipForwardCommand.preferredIntervals = [15]
         cc.skipForwardCommand.addTarget { [weak self] event in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            guard delegate.currentStatus.currentTrack != nil else {
-                return .noActionableNowPlayingItem
-            }
+            guard let self else { return .commandFailed }
             let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? 15
-            // Clamp to the track duration so a skip near the end seeks to the
-            // end instead of past it (the engine seeks with zero tolerance,
-            // so an out-of-range target would otherwise land at an undefined
-            // position). A zero/unknown duration falls back to no clamp.
-            let target = Self.skipForwardTarget(
-                position: delegate.currentStatus.positionSeconds,
-                interval: interval,
-                duration: delegate.currentStatus.durationSeconds
-            )
-            delegate.mediaSessionSeek(toSeconds: target)
-            self.updateElapsedAndRate(
-                elapsed: target,
-                rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
-            )
-            return .success
+            return self.handleSkipForwardCommand(interval: interval)
         }
 
         cc.skipBackwardCommand.isEnabled = true
         cc.skipBackwardCommand.preferredIntervals = [15]
         cc.skipBackwardCommand.addTarget { [weak self] event in
-            guard let self, let delegate = self.delegate else {
-                return .commandFailed
-            }
-            guard delegate.currentStatus.currentTrack != nil else {
-                return .noActionableNowPlayingItem
-            }
+            guard let self else { return .commandFailed }
             let interval = (event as? MPSkipIntervalCommandEvent)?.interval ?? 15
-            let target = max(0, delegate.currentStatus.positionSeconds - interval)
-            delegate.mediaSessionSeek(toSeconds: target)
-            self.updateElapsedAndRate(
-                elapsed: target,
-                rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
-            )
-            return .success
+            return self.handleSkipBackwardCommand(interval: interval)
         }
+    }
+
+    // MARK: - Remote-command handlers
+    //
+    // Each `addTarget` closure above delegates to one of these methods, so
+    // the full command behaviour — delegate guards, no-actionable-item
+    // checks, the previous-track restart threshold, seek clamps, and the
+    // optimistic like flip — is exercisable headlessly from XCTest (#460).
+    // The closures keep only the `MP*CommandEvent` downcasts: the event
+    // classes have no public initializers, so a test can't synthesize them.
+    // `internal` for `@testable` access only; nothing outside the module
+    // should invoke these directly.
+
+    /// Body of `playCommand`: route to the delegate's play action.
+    func handlePlayCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        if delegate.currentStatus.currentTrack == nil {
+            return .noActionableNowPlayingItem
+        }
+        delegate.mediaSessionPlay()
+        return .success
+    }
+
+    /// Body of `pauseCommand`: route to the delegate's pause action.
+    func handlePauseCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        if delegate.currentStatus.currentTrack == nil {
+            return .noActionableNowPlayingItem
+        }
+        delegate.mediaSessionPause()
+        return .success
+    }
+
+    /// Body of `togglePlayPauseCommand` (media-key play/pause, AirPods tap).
+    func handleTogglePlayPauseCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        if delegate.currentStatus.currentTrack == nil {
+            return .noActionableNowPlayingItem
+        }
+        delegate.mediaSessionTogglePlayPause()
+        return .success
+    }
+
+    /// Body of `stopCommand`.
+    func handleStopCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        if delegate.currentStatus.currentTrack == nil {
+            return .noActionableNowPlayingItem
+        }
+        delegate.mediaSessionStop()
+        return .success
+    }
+
+    /// Body of `nextTrackCommand`.
+    func handleNextTrackCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        delegate.mediaSessionSkipNext()
+        return .success
+    }
+
+    /// Body of `previousTrackCommand`. #581: Standard "previous track"
+    /// behaviour — if the user is more than 3 seconds into the current
+    /// track, restart it instead of jumping to the previous queue item.
+    /// Only skip back when at or within the first 3 seconds.
+    func handlePreviousTrackCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        if delegate.currentStatus.positionSeconds > 3.0 {
+            delegate.mediaSessionSeek(toSeconds: 0)
+        } else {
+            delegate.mediaSessionSkipPrevious()
+        }
+        return .success
+    }
+
+    /// Body of `changePlaybackPositionCommand` (the Control Center scrubber).
+    func handleChangePlaybackPositionCommand(toSeconds seconds: Double) -> MPRemoteCommandHandlerStatus {
+        guard let delegate, delegate.currentStatus.currentTrack != nil else {
+            return .commandFailed
+        }
+        delegate.mediaSessionSeek(toSeconds: seconds)
+        // Update elapsed right away so the widget confirms the scrub
+        // without a 0.5s lag (issue #32).
+        updateElapsedAndRate(
+            elapsed: seconds,
+            rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
+        )
+        return .success
+    }
+
+    /// Body of `changeShuffleModeCommand`.
+    func handleChangeShuffleModeCommand(_ type: MPShuffleType) -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        delegate.mediaSessionSetShuffle(type != .off)
+        // Echo the new mode back to the command so Control Center
+        // toggles reflect the on-disk state on the very next redraw.
+        MPRemoteCommandCenter.shared().changeShuffleModeCommand.currentShuffleType = type
+        refreshRemoteCommandEnablement()
+        return .success
+    }
+
+    /// Body of `changeRepeatModeCommand`.
+    func handleChangeRepeatModeCommand(_ type: MPRepeatType) -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        delegate.mediaSessionSetRepeatMode(Self.repeatMode(from: type))
+        MPRemoteCommandCenter.shared().changeRepeatModeCommand.currentRepeatType = type
+        refreshRemoteCommandEnablement()
+        return .success
+    }
+
+    /// Body of `likeCommand`.
+    func handleLikeCommand() -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        guard let targetState = delegate.mediaSessionToggleFavorite() else {
+            return .noActionableNowPlayingItem
+        }
+        // Optimistic UI: flip `isActive` before the network call
+        // completes so the tap has no perceptible latency. The next
+        // `trackChanged` / `queueChanged` refresh reconciles if the
+        // server rolled back.
+        MPRemoteCommandCenter.shared().likeCommand.isActive = targetState
+        return .success
+    }
+
+    /// Body of `skipForwardCommand` (+15s).
+    func handleSkipForwardCommand(interval: Double) -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        guard delegate.currentStatus.currentTrack != nil else {
+            return .noActionableNowPlayingItem
+        }
+        // Clamp to the track duration so a skip near the end seeks to the
+        // end instead of past it (the engine seeks with zero tolerance,
+        // so an out-of-range target would otherwise land at an undefined
+        // position). A zero/unknown duration falls back to no clamp.
+        let target = Self.skipForwardTarget(
+            position: delegate.currentStatus.positionSeconds,
+            interval: interval,
+            duration: delegate.currentStatus.durationSeconds
+        )
+        delegate.mediaSessionSeek(toSeconds: target)
+        updateElapsedAndRate(
+            elapsed: target,
+            rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
+        )
+        return .success
+    }
+
+    /// Body of `skipBackwardCommand` (−15s), floored at the track start.
+    func handleSkipBackwardCommand(interval: Double) -> MPRemoteCommandHandlerStatus {
+        guard let delegate else { return .commandFailed }
+        guard delegate.currentStatus.currentTrack != nil else {
+            return .noActionableNowPlayingItem
+        }
+        let target = max(0, delegate.currentStatus.positionSeconds - interval)
+        delegate.mediaSessionSeek(toSeconds: target)
+        updateElapsedAndRate(
+            elapsed: target,
+            rate: delegate.currentStatus.state == .playing ? 1.0 : 0.0
+        )
+        return .success
     }
 
     /// Map a `MPRepeatType` from Control Center onto the core's
